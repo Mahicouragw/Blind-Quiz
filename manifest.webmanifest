@@ -1,0 +1,14 @@
+{
+  "name": "Blind Quiz — Listen. Think. Play.",
+  "short_name": "Blind Quiz",
+  "description": "An audio-first quiz game designed to work beautifully for blind and sighted players.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111d2b",
+  "theme_color": "#111d2b",
+  "icons": [
+    {"src":"assets/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}

@@ -1,0 +1,4 @@
+project_id = "blind-quiz"
+
+[functions.blind-quiz-api]
+verify_jwt = false
