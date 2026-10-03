@@ -2,7 +2,7 @@
 
 ## Status
 
-The repository contains 313 questions: 73 historical starter questions and 240 Migration 009 questions added on 3 October 2026. Migration 009 contributes exactly 12 questions to each of 20 categories. Each added row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
+The repository contains 313 questions: 73 historical starter questions and 240 Migration 009 questions added on 3 October 2026. The live database was separately verified to contain 114 rows and to use IDs through `bq-en-0414`; therefore Migration 009 uses `bq-en-0415`–`bq-en-0654`. It contributes exactly 12 questions to each of 20 categories. Each added row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
 
 The added questions were manually checked for consistency against the references below and passed automated structural and duplicate validation. This is an internal editorial review, **not independent expert fact-checking**. The original 73 questions still carry “editorial review recommended” source notes. Time-sensitive facts and rules should be rechecked before a production content release.
 

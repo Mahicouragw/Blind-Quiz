@@ -18,7 +18,8 @@ This repository contains a static progressive web app, its local question pack, 
 
 - 313 questions across 20 categories.
 - IDs `bq-en-0001`–`bq-en-0073` preserve the source snapshot’s starter pack.
-- Migration 009 adds IDs `bq-en-0074`–`bq-en-0313`, exactly 12 additions per category.
+- The live database was verified to contain 114 rows with a highest ID of `bq-en-0414`; missing numeric IDs are not reused.
+- Migration 009 adds IDs `bq-en-0415`–`bq-en-0654`, exactly 12 additions per category.
 - Structural checks enforce unique IDs/prompts/answers, one listed correct answer, explanations, valid difficulties, rewards, and source notes on new rows.
 
 ## Backend and security
@@ -32,7 +33,7 @@ This repository contains a static progressive web app, its local question pack, 
 ## Readiness gaps
 
 - Migration 009 is prepared, not applied until the owner confirms it.
-- The connected workspace has no authorized Supabase CLI session, so remote migrations, Edge Function version, database totals, and live auth/reward behavior cannot be verified or deployed here.
+- The owner verified the remote question count and maximum ID in the SQL editor, but the workspace has no authorized Supabase CLI session, so migration history, Edge Function version, and live auth/reward behavior cannot be independently verified or deployed here.
 - No website deployment workflow is configured.
 - Achievements, combo rewards, quiz-completion persistence, daily-bank selection, and a complete profile UI are not implemented.
 - Automated checks do not replace manual TalkBack, VoiceOver, keyboard, zoom/reflow, and mobile-device testing.
