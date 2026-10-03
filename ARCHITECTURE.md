@@ -1,32 +1,39 @@
-# Blind Quiz — architecture and build checklist
+# Blind Quiz — architecture and readiness notes
 
-## Repository and source boundary
-This project is built in the new `Mahicouragw/Blind-Quiz` repository, which was initially empty except for its README. No files, UI, data, styles, authentication, or game logic are being imported from any other project. Supabase project configuration supplied by the owner is used only as the public client endpoint/key; private database/secret keys are never placed in frontend code.
+## Repository boundary
 
-## Planned architecture
-- Static, responsive PWA frontend: semantic HTML, CSS, and modular browser JavaScript; no frontend framework required.
-- Validated, local structured starter question data for offline browsing/game sessions.
-- Supabase Postgres with RLS enabled and private tables.
-- Supabase Edge Function as the sole privileged application API: account creation (normalized unique display names and cryptographically random unique 8-character login IDs), login/recovery validation, protected game-answer/reward mutations, and profile/stat operations.
-- Custom short-lived opaque sessions for the requested name + Login ID + secret-answer auth (no email/password/OTP); session secrets are stored hashed server-side. The secret answer is salted/slow-hashed and never returned by the API. Login attempts need server-side throttling. All user tables deny direct anon access; only the Edge Function's server secret can operate on them.
-- Game answer/reward mutations must be checked against canonical database questions on the server. Local offline play must not mint transferable XP/coins or claim server-synced rewards.
-- PWA caches the static shell and public question pack; account/reward/leaderboard APIs require network.
+This repository contains a static progressive web app, its local question pack, one historical core migration, an incremental Migration 009, and a Supabase Edge Function. Existing Supabase tables and functions remain the backend boundary; no parallel backend or alternate authentication system is introduced.
 
-## Checklist / gates
-1. [x] Inspect only the new repository; establish source boundary.
-2. [x] Write architecture and risk checklist.
-3. [ ] Build distinctive responsive UI and core navigation.
-4. [ ] Build validated structured question bank and content tests.
-5. [ ] Implement signup, unique normalized name, secure ID generation, and custom auth Edge Function.
-6. [ ] Add RLS-protected schema and migrations; confirm no direct client access.
-7. [ ] Implement and test countdown sequencing, question controls, scoring and gameplay.
-8. [ ] Implement remaining modes only when each is genuinely playable.
-9. [ ] Add profile/progression, power-ups, challenge/leaderboard/search/reporting with server validation.
-10. [ ] Source licensed audio, document licenses, implement ducking and accessible settings.
-11. [ ] Add PWA/offline support and verify cache behavior.
-12. [ ] Run automated/static tests and build; repair issues.
-13. [ ] Manual TalkBack testing on a real Android device is required; this workspace cannot claim that test was performed.
-14. [ ] Deliver test build and stop. No production deployment without explicit user approval.
+## Frontend
 
-## Security/product caveat
-The requested login is entirely based on a human-chosen secret answer, with no password, email, phone, or second factor. Such answers are often guessable. The design therefore requires salted slow hashing, strict rate limits, generic login errors, short-lived/revocable sessions, and never revealing answers. This is still weaker than a password/passkey-based credential and should not be used to protect sensitive information. The application must not collect sensitive personal information.
+- Semantic static HTML, CSS, and browser JavaScript with no framework runtime.
+- Hash-independent in-page views preserve a logical heading/focus target on navigation.
+- Native buttons provide answer semantics and accessible names equal to the answer text.
+- Polite and assertive live regions announce relevant state changes; visual feedback also uses text, not color alone.
+- Large text, high contrast, reduced motion, configurable timer, keyboard focus styles, and screen-reader-announcement controls are persisted locally.
+- A service worker caches the static shell and all question modules for offline rounds.
+- Fisher–Yates shuffling independently randomizes question order and each four-choice answer list. Correctness remains tied to the canonical answer text.
+
+## Content
+
+- 313 questions across 20 categories.
+- IDs `bq-en-0001`–`bq-en-0073` preserve the source snapshot’s starter pack.
+- Migration 009 adds IDs `bq-en-0074`–`bq-en-0313`, exactly 12 additions per category.
+- Structural checks enforce unique IDs/prompts/answers, one listed correct answer, explanations, valid difficulties, rewards, and source notes on new rows.
+
+## Backend and security
+
+- The browser has only the Supabase URL and publishable key.
+- All profile/question tables have RLS and deny direct anonymous/authenticated access.
+- The Edge Function implements the requested Name + Login ID + Secret Answer flow with salted PBKDF2 hashes, generic errors, rate limits, opaque sessions, and server-side answer/reward validation.
+- Correct answers earn canonical XP/coins once per profile/question. The database function updates XP, coins, level, current/best streak, and answer totals atomically.
+- The custom secret-answer credential remains weaker than a password or passkey. Players must not use sensitive or reused answers.
+
+## Readiness gaps
+
+- Migration 009 is prepared, not applied until the owner confirms it.
+- The connected workspace has no authorized Supabase CLI session, so remote migrations, Edge Function version, database totals, and live auth/reward behavior cannot be verified or deployed here.
+- No website deployment workflow is configured.
+- Achievements, combo rewards, quiz-completion persistence, daily-bank selection, and a complete profile UI are not implemented.
+- Automated checks do not replace manual TalkBack, VoiceOver, keyboard, zoom/reflow, and mobile-device testing.
+- No recorded audio has passed license and clue-matching review, so audio clues/music/effects remain absent.

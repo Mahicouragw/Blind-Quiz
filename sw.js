@@ -1,5 +1,5 @@
-const CACHE='blind-quiz-shell-v1';
-const SHELL=['./','./index.html','./styles.css','./manifest.webmanifest','./src/main.js','./src/content.js','./src/backend.js','./src/config.js','./assets/icon.svg'];
+const CACHE='blind-quiz-shell-v2';
+const SHELL=['./','./index.html','./styles.css','./manifest.webmanifest','./src/main.js','./src/content.js','./src/expansion-questions.js','./src/random.js','./src/backend.js','./src/config.js','./assets/icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
