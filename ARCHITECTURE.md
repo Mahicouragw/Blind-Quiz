@@ -16,10 +16,10 @@ This repository contains a static progressive web app, its local question pack, 
 
 ## Content
 
-- 313 questions across 20 categories.
+- 325 questions across 20 categories.
 - IDs `bq-en-0001`–`bq-en-0073` preserve the source snapshot’s starter pack.
 - The live database was verified to contain 114 rows with a highest ID of `bq-en-0414`; missing numeric IDs are not reused.
-- Migration 009 adds IDs `bq-en-0415`–`bq-en-0654`, exactly 12 additions per category.
+- Migration 009 adds IDs `bq-en-0415`–`bq-en-0666`: 12 additions per category plus 12 additional Telugu/Bharati Braille vowel questions.
 - Structural checks enforce unique IDs/prompts/answers, one listed correct answer, explanations, valid difficulties, rewards, and source notes on new rows.
 
 ## Backend and security

@@ -4,8 +4,8 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 
 ## Current content and gameplay
 
-- **313 validated multiple-choice questions in 20 categories**: the original 73 questions plus Migration 009’s 240-question expansion (12 new questions in every category).
-- The historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`. A live database check on 3 October 2026 found 114 rows with a highest existing ID of `bq-en-0414`, so the expansion safely uses `bq-en-0415`–`bq-en-0654` without filling or overwriting ID gaps.
+- **325 validated multiple-choice questions in 20 categories**: the original 73 questions plus Migration 009’s 252-question expansion (12 in every category plus 12 additional Telugu/Bharati Braille questions).
+- The historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`. A live database check on 3 October 2026 found 114 rows with a highest existing ID of `bq-en-0414`, so the expansion safely uses `bq-en-0415`–`bq-en-0666` without filling or overwriting ID gaps.
 - Functional category, classic, rapid, random, vocabulary, abbreviations, and Braille rounds.
 - Four answer buttons are independently shuffled with Fisher–Yates while correctness remains tied to answer text. Buttons expose only the answer itself, not radio/checkbox or “Option A” semantics.
 - Essential content is text. No recorded music/audio is bundled, and synthetic Web Audio effects are not used.
@@ -39,7 +39,7 @@ The Edge Function performs custom authentication, stores salted PBKDF2 secret-an
 
 - Achievements, combo rewards, daily question selection, complete quiz counters, and a full profile/progression UI are not implemented as playable features and are not presented as game modes.
 - Existing schema tracks XP, coins, level, answer streak, and answer counts. Live Supabase integration was not exercised without an authorized Supabase deployment connection and test account.
-- The 240 new questions received a structured editorial review against the category references in `CONTENT_SOURCES.md`; this is not an independent expert review of every item. Changeable facts should be periodically rechecked.
+- The 252 new questions received a structured editorial review against the category references in `CONTENT_SOURCES.md`; this is not an independent expert review of every item. Changeable facts should be periodically rechecked.
 - No genuine recorded audio has yet passed the licensing and clue-matching review, so no audio clue or music asset is shipped.
 
 ## Deployment

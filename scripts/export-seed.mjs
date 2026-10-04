@@ -10,5 +10,5 @@ const seed=QUESTION_BANK.map(q=>insert(q)+update).join('\n');
 await writeFile(new URL('../supabase/seed.sql',import.meta.url),`-- Generated only after content validation. Run after the core migration.\nbegin;\n${seed}\ncommit;\n`);
 const added=QUESTION_BANK.slice(STARTER_QUESTION_COUNT);
 const migration=added.map(q=>insert(q)+';').join('\n');
-await writeFile(new URL('../supabase/migrations/202610030009_expand_question_bank.sql',import.meta.url),`-- Migration 009: add 240 reviewed questions. Apply once after migrations 001-008.\n-- Prepared 2026-10-03; application must be confirmed by the project owner.\nbegin;\n${migration}\ncommit;\n`);
+await writeFile(new URL('../supabase/migrations/202610030009_expand_question_bank.sql',import.meta.url),`-- Migration 009: add ${added.length} reviewed questions. Apply once after migrations 001-008.\n-- Prepared 2026-10-03; application must be confirmed by the project owner.\nbegin;\n${migration}\ncommit;\n`);
 console.log(`Wrote ${QUESTION_BANK.length} validated seed questions and Migration 009 with ${added.length} new rows.`);

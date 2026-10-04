@@ -261,6 +261,19 @@ export const EXPANSION_ROWS = [
 ['commerce','Banking','easy','What is working capital commonly calculated as?','Current assets minus current liabilities','Revenue minus every asset','Cash plus long-term debt','Equity minus sales','Net working capital is commonly defined as current assets less current liabilities.'],
 ['commerce','Consumer protection','medium','Why is a return policy important?','It explains conditions for returning or exchanging purchases','It guarantees every item lasts forever','It replaces product safety law','It sets employee salaries','A clear return policy tells buyers the time limits, conditions, and remedies available.'],
 ['commerce','International trade','easy','What is an import?','A good or service bought from another country','A product sold to another country','A local warehouse transfer','A domestic sales tax','Imports are foreign-produced goods or services purchased by domestic buyers.'],
+// Telugu/Bharati Braille — appended so previously supplied Migration 009 IDs remain unchanged.
+['braille','Telugu vowels','easy','In Standard Bharati Braille, which dots represent the Telugu vowel అ, pronounced a?','Dot 1','Dots 1 and 2','Dots 1 and 4','Dots 2 and 4','The Telugu independent vowel అ uses Braille dot 1.'],
+['braille','Telugu vowels','easy','In Standard Bharati Braille, which dots represent the Telugu vowel ఆ, pronounced aa?','Dots 3, 4, and 5','Dots 1 and 5','Dots 2 and 4','Dots 1, 3, and 5','The Telugu independent vowel ఆ uses Braille dots 3, 4, and 5.'],
+['braille','Telugu vowels','easy','In Standard Bharati Braille, which dots represent the Telugu vowel ఇ, pronounced i?','Dots 2 and 4','Dots 1 and 2','Dots 3 and 5','Dots 2 and 6','The Telugu independent vowel ఇ uses Braille dots 2 and 4.'],
+['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఈ, pronounced long ee?','Dots 3 and 5','Dots 2 and 4','Dots 1 and 5','Dots 3, 4, and 5','The Telugu independent vowel ఈ uses Braille dots 3 and 5.'],
+['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఉ, pronounced u?','Dots 1, 3, and 6','Dots 1, 2, and 6','Dots 2, 4, and 6','Dots 1, 3, and 5','The Telugu independent vowel ఉ uses Braille dots 1, 3, and 6.'],
+['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఊ, pronounced long oo?','Dots 1, 2, 5, and 6','Dots 1, 3, 5, and 6','Dots 2, 3, 5, and 6','Dots 1, 2, 3, and 6','The Telugu independent vowel ఊ uses Braille dots 1, 2, 5, and 6.'],
+['braille','Telugu vowels','easy','In Standard Bharati Braille, which dots represent the Telugu vowel ఎ, pronounced e?','Dots 2 and 6','Dots 1 and 5','Dots 2 and 4','Dots 3 and 4','The Telugu independent vowel ఎ uses Braille dots 2 and 6.'],
+['braille','Telugu vowels','easy','In Standard Bharati Braille, which dots represent the Telugu vowel ఏ, pronounced long e?','Dots 1 and 5','Dots 2 and 6','Dots 1 and 4','Dots 3 and 5','The Telugu independent vowel ఏ uses Braille dots 1 and 5.'],
+['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఐ, pronounced ai?','Dots 3 and 4','Dots 2 and 4','Dots 3 and 5','Dots 1 and 5','The Telugu independent vowel ఐ uses Braille dots 3 and 4.'],
+['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఒ, pronounced o?','Dots 1, 3, 4, and 6','Dots 1, 3, and 5','Dots 2, 4, and 6','Dots 1, 2, 5, and 6','The Telugu independent vowel ఒ uses Braille dots 1, 3, 4, and 6.'],
+['braille','Telugu vowels','easy','In Standard Bharati Braille, which dots represent the Telugu vowel ఓ, pronounced long o?','Dots 1, 3, and 5','Dots 1, 3, 4, and 6','Dots 2, 4, and 6','Dots 3, 4, and 5','The Telugu independent vowel ఓ uses Braille dots 1, 3, and 5.'],
+['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఔ, pronounced au?','Dots 2, 4, and 6','Dots 1, 3, and 6','Dots 1, 2, and 6','Dots 2, 3, and 6','The Telugu independent vowel ఔ uses Braille dots 2, 4, and 6.'],
 ];
 
 export const CATEGORY_SOURCES = {
@@ -279,7 +292,7 @@ export const CATEGORY_SOURCES = {
   music: 'Open Music Theory — https://viva.pressbooks.pub/openmusictheory/',
   abbreviations: 'Official organization and standards pages named in each explanation; index — https://www.un.org/en/about-us/un-system',
   vocabulary: 'Merriam-Webster Dictionary — https://www.merriam-webster.com/',
-  braille: 'Braille Authority of North America, The ABCs of UEB — https://www.brailleauthority.org/ueb/abcs/abcs-ueb.html',
+  braille: 'BANA, The ABCs of UEB — https://www.brailleauthority.org/ueb/abcs/abcs-ueb.html ; Government of India/NIEPVD, Standard Bharati Braille Codes — https://cdnbbsr.s3waas.gov.in/s36ee69d3769e832ec77c9584e0b7ba112/uploads/2025/01/20250104954295710.pdf',
   management: 'ISO 21502 project management guidance overview — https://www.iso.org/standard/74947.html ; UK Government Project Delivery Functional Standard — https://www.gov.uk/government/publications/project-delivery-functional-standard',
   business: 'US Small Business Administration, Business Guide — https://www.sba.gov/business-guide',
   accounting: 'IFRS Foundation, issued standards — https://www.ifrs.org/issued-standards/list-of-standards/ ; IAASB standards — https://www.iaasb.org/publications',

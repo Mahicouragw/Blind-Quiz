@@ -5,14 +5,15 @@ import { shuffled } from '../src/random.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
-assert.equal(QUESTION_BANK.length,313,'73 existing plus 240 new questions');
+assert.equal(QUESTION_BANK.length,325,'73 existing plus 252 new questions');
 assert.equal(CATEGORY_LIST.length,20,'all established categories');
 for(const category of CATEGORY_LIST){
   const added=QUESTION_BANK.slice(STARTER_QUESTION_COUNT).filter(q=>q.category===category.id);
-  assert.equal(added.length,12,`${category.id} has 12 Migration 009 questions`);
+  const expected=category.id==='braille'?24:12;
+  assert.equal(added.length,expected,`${category.id} has ${expected} Migration 009 questions`);
 }
 assert.equal(QUESTION_BANK[73].id,'bq-en-0415','first safe expansion ID after the verified remote maximum');
-assert.equal(QUESTION_BANK.at(-1).id,'bq-en-0654','final expansion ID');
+assert.equal(QUESTION_BANK.at(-1).id,'bq-en-0666','final expansion ID');
 const ids=new Set(QUESTION_BANK.map(q=>q.id));
 assert.equal(ids.size,QUESTION_BANK.length,'unique stable question ids');
 for(const q of QUESTION_BANK.slice(STARTER_QUESTION_COUNT))assert.match(q.sourceNote,/https:\/\//,`${q.id} source note`);

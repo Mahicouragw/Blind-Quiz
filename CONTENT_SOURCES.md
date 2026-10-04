@@ -2,7 +2,7 @@
 
 ## Status
 
-The repository contains 313 questions: 73 historical starter questions and 240 Migration 009 questions added on 3 October 2026. The live database was separately verified to contain 114 rows and to use IDs through `bq-en-0414`; therefore Migration 009 uses `bq-en-0415`–`bq-en-0654`. It contributes exactly 12 questions to each of 20 categories. Each added row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
+The repository contains 325 questions: 73 historical starter questions and 252 Migration 009 questions added on 3 October 2026. The live database was separately verified to contain 114 rows and to use IDs through `bq-en-0414`; therefore Migration 009 uses `bq-en-0415`–`bq-en-0666`. It contributes 12 questions to every category plus 12 additional Telugu/Bharati Braille vowel questions. Each added row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
 
 The added questions were manually checked for consistency against the references below and passed automated structural and duplicate validation. This is an internal editorial review, **not independent expert fact-checking**. The original 73 questions still carry “editorial review recommended” source notes. Time-sensitive facts and rules should be rechecked before a production content release.
 
@@ -21,7 +21,7 @@ The added questions were manually checked for consistency against the references
 - **Music theory:** Open Music Theory — https://viva.pressbooks.pub/openmusictheory/
 - **Abbreviations:** official organization/standards pages, with UN-system index — https://www.un.org/en/about-us/un-system
 - **Vocabulary:** Merriam-Webster Dictionary — https://www.merriam-webster.com/
-- **Braille:** Braille Authority of North America, *The ABCs of UEB* — https://www.brailleauthority.org/ueb/abcs/abcs-ueb.html ; Perkins School for the Blind, “How the braille alphabet works” — https://www.perkins.org/how-the-braille-alphabet-works/
+- **Braille:** Braille Authority of North America, *The ABCs of UEB* — https://www.brailleauthority.org/ueb/abcs/abcs-ueb.html ; Perkins School for the Blind, “How the braille alphabet works” — https://www.perkins.org/how-the-braille-alphabet-works/ ; Government of India/NIEPVD, *Standard Bharati Braille Codes* — https://cdnbbsr.s3waas.gov.in/s36ee69d3769e832ec77c9584e0b7ba112/uploads/2025/01/20250104954295710.pdf
 - **Management:** ISO 21502 overview — https://www.iso.org/standard/74947.html ; UK Government Project Delivery Functional Standard — https://www.gov.uk/government/publications/project-delivery-functional-standard
 - **Business:** US Small Business Administration, Business Guide — https://www.sba.gov/business-guide
 - **Accounting:** IFRS Foundation issued standards — https://www.ifrs.org/issued-standards/list-of-standards/ ; IAASB standards — https://www.iaasb.org/publications
