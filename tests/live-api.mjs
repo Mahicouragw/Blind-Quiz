@@ -16,6 +16,7 @@
 // BQ_VERIFY_ORIGIN, BQ_VERIFY_NAME, BQ_VERIFY_QUESTION, BQ_VERIFY_ANSWER.
 
 import { randomBytes } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '../src/config.js';
 import { QUESTION_BANK } from '../src/content.js';
 
@@ -84,8 +85,25 @@ function codeOf(result) { return result.body?.code ?? (result.body?.ok === true 
 
 function summarize() {
   const passed = results.filter(r => r.ok).length;
-  console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'}: ${passed}/${results.length} live API checks passed.`);
+  const verdict = `${failures === 0 ? 'PASS' : 'FAIL'}: ${passed}/${results.length} live API checks passed.`;
+  console.log(`\n${verdict}`);
   if (failures) console.log('Failed checks: ' + results.filter(r => !r.ok).map(r => r.name).join(', '));
+  // Publish a step summary in CI so results are readable without log download.
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryPath) return;
+  const lines = [
+    `## Live Edge Function verification — ${failures === 0 ? 'PASSED' : 'FAILED'}`,
+    '',
+    `**${verdict}**`,
+    '',
+    '| Check | Result | Detail |',
+    '| --- | --- | --- |',
+    ...results.map(r => `| ${r.name} | ${r.ok ? '✅' : '❌'} | ${String(r.detail).replace(/\|/g, '\\|').slice(0, 120) || '—'} |`),
+    '',
+    'Only HTTP status codes and non-sensitive response codes are reported. Secret answers, session tokens, apikeys, and Authorization headers are never printed.',
+    '',
+  ];
+  appendFileSync(summaryPath, lines.join('\n'));
 }
 
 console.log(`Target function host: ${new URL(API).host}`);
