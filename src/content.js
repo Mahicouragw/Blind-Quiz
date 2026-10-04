@@ -1,5 +1,7 @@
-// Starter question pack. These are structured independently of the screen/game renderer.
-const rows = [
+import { EXPANSION_ROWS, CATEGORY_SOURCES } from './expansion-questions.js';
+
+// The original 73-question pack remains in its historical order so its stable IDs do not change.
+const starterRows = [
 ['animals','Mammals','easy','Which animal is the largest living land mammal?','African elephant','Giraffe','Hippopotamus','White rhinoceros','The African savanna elephant is the largest living land mammal.'],
 ['animals','Mammals','easy','Which mammal lays eggs?','Platypus','Dolphin','Bat','Koala','The platypus is one of the egg-laying mammals called monotremes.'],
 ['animals','Mammals','medium','What is a group of lions commonly called?','A pride','A herd','A pack','A colony','A group of lions is commonly called a pride.'],
@@ -74,10 +76,12 @@ const rows = [
 ['braille','Letters','hard','Which Braille letter uses dots 2, 4, and 5?','J','N','S','W','The standard Braille pattern for J is dots 2, 4, and 5.'],
 ['braille','Letters','easy','Which dots represent the letter C?','Dots 1 and 4','Dots 1 and 3','Dots 2 and 4','Dots 1, 2, and 4','The uncontracted Braille letter C is dots 1 and 4.'],
 ];
+export const STARTER_QUESTION_COUNT = starterRows.length;
+const rows = [...starterRows, ...EXPANSION_ROWS];
 const CATEGORIES = [
-  ['animals','Animals','Wildlife and animal life'],['birds','Birds','Flight, habitats, and species'],['nature','Nature','Living systems and our planet'],['instruments','Musical instruments','Sounds, families, and traditions'],['science','Science','Physics, chemistry, biology, and space'],['geography','Geography','Places, landforms, and rivers'],['india','India','People, places, and civic life'],['history','History','Events, people, and the past'],['technology','Technology','Computers and the connected world'],['sports','Sports','Rules, play, and equipment'],['civics','Civics','Institutions and public life'],['economics','Economics','Choices, markets, and money'],['music','Music','Rhythm, sound, and ideas'],['abbreviations','Abbreviations','Decode the short form'],['vocabulary','Vocabulary','Meaning, usage, and spelling'],['braille','Braille','Read six-dot patterns']
+  ['animals','Animals','Wildlife and animal life'],['birds','Birds','Flight, habitats, and species'],['nature','Nature','Living systems and our planet'],['instruments','Musical instruments','Sounds, families, and traditions'],['science','Science','Physics, chemistry, biology, and space'],['geography','Geography','Places, landforms, and rivers'],['india','India','People, places, and civic life'],['history','History','Events, people, and the past'],['technology','Technology','Computers and the connected world'],['sports','Sports','Rules, play, and equipment'],['civics','Civics','Institutions and public life'],['economics','Economics','Choices, markets, and money'],['music','Music','Rhythm, sound, and ideas'],['abbreviations','Abbreviations','Decode the short form'],['vocabulary','Vocabulary','Meaning, usage, and spelling'],['braille','Braille','Read six-dot patterns'],['management','Management','Planning, teams, quality, and leadership'],['business','Business','Customers, operations, strategy, and enterprise'],['accounting','Accounting','Records, statements, and financial concepts'],['commerce','Commerce','Trade, payments, logistics, and retail']
 ].map(([id,name,description])=>({id,name,description,count:rows.filter(r=>r[0]===id).length}));
-export const QUESTION_BANK = rows.map((r,i)=>({id:`bq-en-${String(i+1).padStart(4,'0')}`,category:r[0],subcategory:r[1],difficulty:r[2],mode:'classic',question:r[3],answers:r.slice(4,8),correctAnswer:r[4],explanation:r[8],xp:10,coins:2,tags:[r[1].toLowerCase()],language:'en',active:true}));
+export const QUESTION_BANK = rows.map((r,i)=>({id:`bq-en-${String(i<starterRows.length?i+1:415+(i-starterRows.length)).padStart(4,'0')}`,category:r[0],subcategory:r[1],difficulty:r[2],mode:'classic',question:r[3],answers:r.slice(4,8),correctAnswer:r[4],explanation:r[8],xp:10,coins:2,tags:[r[1].toLowerCase()],language:'en',active:true,sourceNote:i<starterRows.length?'Initial authored content; editorial review recommended':CATEGORY_SOURCES[r[0]]}));
 export const CATEGORY_LIST = CATEGORIES;
 export const DIFFICULTIES = ['easy','medium','hard','expert'];
 export function validateQuestionBank(bank=QUESTION_BANK){

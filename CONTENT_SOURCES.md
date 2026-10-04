@@ -1,12 +1,35 @@
 # Question-content provenance and review status
 
-## Braille letters and cell dot numbering
-- **Perkins School for the Blind, “How the braille alphabet works”** — introductory explanation of six-dot cell numbering and the standard English Braille alphabet: https://www.perkins.org/how-the-braille-alphabet-works/
-- **Braille Authority of North America (BANA), “The ABCs of UEB”** — authoritative Unified English Braille guidance, including indicators and contractions: https://www.brailleauthority.org/ueb/abcs/abcs-ueb.html
-- Accessed 26 September 2026. The present starter pack uses only uncontracted English letter/dot facts; it does not claim Grade 2/UEB contraction coverage.
+## Status
 
-## Other initial authored facts
-The 73 initial prompts are independently written basic educational questions and structurally validated for a stable ID, category, difficulty, four unique answer strings, one listed intended answer, and explanation. This validation is **not** independent fact-checking. Before production use, an editor should review every factual answer against appropriate references and add question-level source URLs, dates for changeable facts, and reviewer status. Questions on current office-holders, records, or evolving statistics should not be added without a clear “as of” date.
+The repository contains 325 questions: 73 historical starter questions and 252 Migration 009 questions added on 3 October 2026. The live database was separately verified to contain 114 rows and to use IDs through `bq-en-0414`; therefore Migration 009 uses `bq-en-0415`–`bq-en-0666`. It contributes 12 questions to every category plus 12 additional Telugu/Bharati Braille vowel questions. Each added row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
+
+The added questions were manually checked for consistency against the references below and passed automated structural and duplicate validation. This is an internal editorial review, **not independent expert fact-checking**. The original 73 questions still carry “editorial review recommended” source notes. Time-sensitive facts and rules should be rechecked before a production content release.
+
+## References used for Migration 009
+
+- **Animals:** Smithsonian’s National Zoo animal fact sheets — https://nationalzoo.si.edu/animals
+- **Birds:** Cornell Lab of Ornithology, All About Birds — https://www.allaboutbirds.org/guide/
+- **Nature:** USGS Water Science School — https://www.usgs.gov/special-topics/water-science-school ; NASA Earth Science — https://science.nasa.gov/earth/
+- **Musical instruments:** Encyclopaedia Britannica, “Musical instrument” — https://www.britannica.com/art/musical-instrument
+- **Science:** NASA Science — https://science.nasa.gov/ ; NIST SI Units — https://www.nist.gov/pml/owm/si-units
+- **Geography and history:** Encyclopaedia Britannica topic collections — https://www.britannica.com/browse/Geography-Travel ; https://www.britannica.com/browse/History-Society
+- **India and civics:** National Portal of India — https://www.india.gov.in/ ; Legislative Department, Constitution of India — https://legislative.gov.in/constitution-of-india/ ; UN Universal Declaration of Human Rights — https://www.ohchr.org/en/human-rights/universal-declaration/translations/english
+- **Technology and accessibility:** NIST CSRC glossary — https://csrc.nist.gov/glossary ; MDN Web Docs — https://developer.mozilla.org/
+- **Sports rules:** IFAB — https://www.theifab.com/laws/ ; ICC — https://www.icc-cricket.com/about/cricket/rules-and-regulations ; BWF — https://corporate.bwfbadminton.com/statutes/ ; FIBA — https://www.fiba.basketball/documents ; World Athletics — https://worldathletics.org/about-iaaf/documents/book-of-rules ; FIVB — https://www.fivb.com/volleyball/the-game/official-volleyball-rules/
+- **Economics and commerce:** IMF Back to Basics — https://www.imf.org/external/pubs/ft/fandd/basics/ ; WTO glossary — https://www.wto.org/english/thewto_e/glossary_e/glossary_e.htm ; International Trade Centre SME Trade Academy — https://learning.intracen.org/
+- **Music theory:** Open Music Theory — https://viva.pressbooks.pub/openmusictheory/
+- **Abbreviations:** official organization/standards pages, with UN-system index — https://www.un.org/en/about-us/un-system
+- **Vocabulary:** Merriam-Webster Dictionary — https://www.merriam-webster.com/
+- **Braille:** Braille Authority of North America, *The ABCs of UEB* — https://www.brailleauthority.org/ueb/abcs/abcs-ueb.html ; Perkins School for the Blind, “How the braille alphabet works” — https://www.perkins.org/how-the-braille-alphabet-works/ ; Government of India/NIEPVD, *Standard Bharati Braille Codes* — https://cdnbbsr.s3waas.gov.in/s36ee69d3769e832ec77c9584e0b7ba112/uploads/2025/01/20250104954295710.pdf
+- **Management:** ISO 21502 overview — https://www.iso.org/standard/74947.html ; UK Government Project Delivery Functional Standard — https://www.gov.uk/government/publications/project-delivery-functional-standard
+- **Business:** US Small Business Administration, Business Guide — https://www.sba.gov/business-guide
+- **Accounting:** IFRS Foundation issued standards — https://www.ifrs.org/issued-standards/list-of-standards/ ; IAASB standards — https://www.iaasb.org/publications
+
+## Editorial cautions
+
+Category-level sources support broad review but do not prove each sentence independently. An expert reviewer should still examine specialized claims, India civics/history items, sports rules, and accounting terminology before labeling the full bank independently fact-checked. Question reports from players should be triaged against the canonical database row.
 
 ## Audio
-See `AUDIO_LICENSES.md`. The current effects are generated in-browser and no external recordings or music are bundled.
+
+See `AUDIO_LICENSES.md`. No third-party recordings, generated effects, or music are bundled.
