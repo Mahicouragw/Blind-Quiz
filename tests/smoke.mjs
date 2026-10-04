@@ -39,7 +39,11 @@ assert(!/(AudioContext|createOscillator)/.test(main),'no synthetic Web Audio eff
 assert(main.includes('displayAnswers:shuffled(q.answers)'),'answer choices are shuffled independently');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');
 assert(!html.includes('id=\"backend-note\"'),'no technical backend status element');
-assert(!/service reachable|function must be installed|account service is offline|service is not set up/i.test(`${html}\n${main}`),'no implementation-level backend messages in the UI');
+const backend=await readFile(new URL('../src/backend.js',import.meta.url),'utf8');
+const uiSource=`${html}\n${main}\n${backend}`;
+assert(!/service reachable|function must be installed|account service is offline|service is not set up/i.test(uiSource),'no implementation-level backend messages in the UI');
+assert(!/BOOT_ERROR|backend_not_ready|service_error|invalid_request|unknown_action|origin_not_allowed|method_not_allowed|session_expired|Uncaught|SyntaxError|Deno|Edge Function|Supabase CLI/i.test(uiSource),'no backend implementation codes or runtime errors surfaced in the UI');
+assert(/Something went wrong\. Please try again\./.test(main)&&/The name, Login ID, or secret answer is incorrect\. Please try again\./.test(main),'failures fall back to generic, human wording');
 const categoryRender=main.slice(main.indexOf('function renderCategories'),main.indexOf('function renderModes'));
 assert(categoryRender.includes('<strong>${esc(c.name)}</strong>'),'category buttons contain the category name');
 assert(!/category-mark|category-count|c\.description|c\.count/.test(categoryRender),'category buttons show names only');

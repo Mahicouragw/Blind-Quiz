@@ -29,12 +29,15 @@ This repository contains a static progressive web app, its local question pack, 
 - The Edge Function implements the requested Name + Login ID + Secret Answer flow with salted PBKDF2 hashes, generic errors, rate limits, opaque sessions, and server-side answer/reward validation.
 - Correct answers earn canonical XP/coins once per profile/question. The database function updates XP, coins, level, current/best streak, and answer totals atomically.
 - The custom secret-answer credential remains weaker than a password or passkey. Players must not use sensitive or reused answers.
+- Deployment is a complete replacement. `supabase functions deploy` bundles the function directory and swaps the deployed version; it never appends to what is already live. A dashboard-edited deployment once served a concatenated ~680-line module that failed with `SyntaxError: Identifier 'createClient' has already been declared` and returned `BOOT_ERROR` for every request.
+- `scripts/check-function-source.mjs` gates every deployment: it re-parses `index.ts` as an ES module after type-stripping (a plain `node --check` on a `.ts` file parses as CommonJS and silently misses duplicate ESM imports), rejects duplicate top-level declarations and any second `createClient` or `Deno.serve`, and asserts the PBKDF2/310000, constant-time comparison, hashed-token, rate-limit, origin-allowlist, and no-secret-logging invariants plus the fact that no response payload exposes `answer_hash`, `answer_salt`, `token_hash`, the service key, or the pepper.
+- `tests/live-api.mjs` verifies the deployed behaviour over HTTP using only the public publishable key. Secret answers and session tokens are generated in memory and never printed; only status codes and non-sensitive response codes are reported.
 
 ## Readiness gaps
 
 - The owner confirmed Migration 009 was applied on 4 October 2026. Post-application verification returned 366 total rows, 252 rows in its ID range, and 12 Telugu/Bharati Braille rows.
-- The owner verified the remote question count and maximum ID in the SQL editor, but the workspace has no authorized Supabase CLI session, so migration history, Edge Function version, and live auth/reward behavior cannot be independently verified or deployed here.
-- No website deployment workflow is configured.
+- The owner verified the remote question count and maximum ID in the SQL editor. The agent workspace has no Supabase CLI and no outbound route to `*.supabase.co` or `api.supabase.com`, so Edge Function deployment and live auth/reward verification run through `.github/workflows/deploy-function.yml` on GitHub-hosted runners instead of from the workspace. That workflow needs the `SUPABASE_ACCESS_TOKEN` repository secret; `tests/live-api.mjs` can also be run from any machine with network access via `npm run test:live`.
+- GitHub Pages is deployed by `.github/workflows/deploy-pages.yml`; the Edge Function is deployed by `.github/workflows/deploy-function.yml`. Neither workflow runs a migration, and the Edge Function workflow asserts that against its own executable lines before deploying.
 - Achievements, combo rewards, quiz-completion persistence, daily-bank selection, and a complete profile UI are not implemented.
 - Automated checks do not replace manual TalkBack, VoiceOver, keyboard, zoom/reflow, and mobile-device testing.
 - No recorded audio has passed license and clue-matching review, so audio clues/music/effects remain absent.

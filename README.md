@@ -13,17 +13,21 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 
 ## Run and validate
 
-Node.js 20 or newer is recommended.
+Node.js 22.13 or newer is recommended; the Edge Function integrity guard uses Node's TypeScript type-stripping API and degrades gracefully on older versions.
 
 ```sh
-npm test
-npm run test:a11y
+npm test                 # content, accessibility, schema, and Edge Function source guards
+npm run test:a11y        # content and accessibility checks only
+npm run test:function    # Edge Function source integrity only
+npm run test:live        # verify the DEPLOYED function end to end (needs network)
 npm run validate:content
 npm run build
 python3 -m http.server 4173
 ```
 
 `npm run validate:content` validates the bank, regenerates `supabase/seed.sql`, and regenerates the prepared incremental Migration 009. `npm run build` creates the static production output in the ignored `dist/` directory.
+
+`npm run test:live` exercises the deployed Edge Function with the public publishable key only. It creates a throwaway verification identity per run, and never prints secret answers, session tokens, apikeys, or Authorization headers — only HTTP status codes and non-sensitive response codes.
 
 Automated accessibility checks are source-level checks, not a substitute for manual TalkBack, VoiceOver, keyboard, zoom, and contrast testing on target devices.
 
@@ -35,13 +39,45 @@ The repository snapshot includes the historical core migration `202609260001_cor
 
 The Edge Function performs custom authentication, stores salted PBKDF2 secret-answer hashes, rate-limits attempts, uses opaque expiring sessions, and calls a database function that validates answers and awards XP/coins server-side. Its source in this repository has no `DAILY_BANK_SIZE` or daily-question selection feature. Deployment of the source cannot be inferred from a Git push.
 
+### Deploying the Edge Function
+
+`supabase functions deploy` bundles the whole `supabase/functions/blind-quiz-api/` directory and **replaces** the deployed version in one operation. It never appends to or merges with whatever is already live.
+
+This matters because of a real incident: the deployed copy had been built up by repeated edits in the dashboard editor and served a concatenated ~680-line module, so the isolate failed to start with
+
+```
+Uncaught SyntaxError: Identifier 'createClient' has already been declared
+  at index.ts:680:10
+```
+
+and every request returned `{"code":"BOOT_ERROR"}`. The repository source is a single 86-line module that imports `createClient` once; the fix is one complete redeploy of that source, not another edit.
+
+Two supported paths, both of which run `scripts/check-function-source.mjs` first and neither of which touches the database:
+
+```sh
+# locally, with your own Supabase personal access token exported in your shell
+export SUPABASE_ACCESS_TOKEN="$(cat /path/to/token)"
+npm run deploy:function
+
+# or in CI, using the SUPABASE_ACCESS_TOKEN repository secret
+# .github/workflows/deploy-function.yml
+```
+
+`scripts/check-function-source.mjs` fails the deployment if `index.ts` is not one valid ES module — it re-parses the file as ESM after stripping types, and reports duplicate top-level declarations, extra `createClient` imports or calls, extra `Deno.serve` registrations, and any weakening of the PBKDF2, constant-time-comparison, rate-limit, origin-allowlist, or no-secret-logging invariants.
+
+Migrations 001–009 are already applied remotely. Neither deployment path runs `supabase db push`, `db reset`, a migration command, or `seed.sql`, and the CI workflow asserts that against its own executable lines before deploying.
+
 ## Known limits
 
 - Achievements, combo rewards, daily question selection, complete quiz counters, and a full profile/progression UI are not implemented as playable features and are not presented as game modes.
-- Existing schema tracks XP, coins, level, answer streak, and answer counts. Live Supabase integration was not exercised without an authorized Supabase deployment connection and test account.
+- Existing schema tracks XP, coins, level, answer streak, and answer counts. `npm run test:live` exercises the deployed function directly; it requires outbound network access to the project and cannot run in a sandbox that blocks `*.supabase.co`.
 - The 252 new questions received a structured editorial review against the category references in `CONTENT_SOURCES.md`; this is not an independent expert review of every item. Changeable facts should be periodically rechecked.
 - No genuine recorded audio has yet passed the licensing and clue-matching review, so no audio clue or music asset is shipped.
 
 ## Deployment
 
-GitHub Pages is deployed by `.github/workflows/deploy-pages.yml` from `main`; the workflow runs `npm test`, builds `dist/`, and deploys it to Pages. It also supports manual dispatch. Supabase Edge Function deployment is separate and is not triggered by the Pages workflow; it requires an authorized Supabase deployment connection.
+GitHub Pages is deployed by `.github/workflows/deploy-pages.yml` from `main`; the workflow runs `npm test`, builds `dist/`, and deploys it to Pages. It also supports manual dispatch.
+
+Supabase Edge Function deployment is handled separately by `.github/workflows/deploy-function.yml`, which runs the source integrity guard, deploys `blind-quiz-api` as one complete replacement, and then runs `tests/live-api.mjs` against the live function. It triggers on changes to `supabase/functions/**`, the deploy tooling, or the workflow itself, and supports manual dispatch. It requires the `SUPABASE_ACCESS_TOKEN` repository secret; the verification job needs no secret because it uses only the public publishable key.
+
+`tests/live-api.mjs` verifies, against the deployed function: boot without `BOOT_ERROR`; signup with Name + Secret Question + Secret Answer; that an eight-character Login ID from the unambiguous server alphabet is returned; login with Name + Login ID + Secret Answer; Login ID recovery; logout and session revocation; server-validated answer rewards including rejection of a client-chosen wrong answer and of reward replay; generic client errors that do not distinguish an unknown name from a wrong answer; and rate limiting.

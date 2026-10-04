@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/smoke.mjs",
-    "test:a11y": "node tests/smoke.mjs",
+    "test": "node --no-warnings tests/smoke.mjs && node --no-warnings scripts/check-function-source.mjs",
+    "test:a11y": "node --no-warnings tests/smoke.mjs",
+    "test:function": "node --no-warnings scripts/check-function-source.mjs",
+    "test:live": "node --no-warnings tests/live-api.mjs",
     "validate:content": "node scripts/export-seed.mjs",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "deploy:function": "bash scripts/deploy-function.sh"
   }
 }
