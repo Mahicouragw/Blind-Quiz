@@ -31,7 +31,7 @@ Automated accessibility checks are source-level checks, not a substitute for man
 
 The browser contains only the public project URL and publishable key in `src/config.js`. Never add a service-role key, database password, Supabase access token, or rate-limit pepper to client code or Git.
 
-The repository snapshot includes the historical core migration `202609260001_core.sql`, seed output, the `blind-quiz-api` Edge Function source, and prepared incremental migration `202610030009_expand_question_bank.sql`. Migrations 001–008 are reported by the owner as already applied remotely; do not rerun or alter them. Migration 009 must be applied by the owner and must not be described as applied until the owner confirms it.
+The repository snapshot includes the historical core migration `202609260001_core.sql`, seed output, the `blind-quiz-api` Edge Function source, and incremental migration `202610030009_expand_question_bank.sql`. Migrations 001–008 are reported by the owner as already applied remotely. The owner confirmed Migration 009 was applied on 4 October 2026; verification returned 366 total questions, 20 categories, 252 Migration 009 rows, and 12 Telugu/Bharati Braille rows. Do not rerun or alter applied migrations 001–009.
 
 The Edge Function performs custom authentication, stores salted PBKDF2 secret-answer hashes, rate-limits attempts, uses opaque expiring sessions, and calls a database function that validates answers and awards XP/coins server-side. Its source in this repository has no `DAILY_BANK_SIZE` or daily-question selection feature. Deployment of the source cannot be inferred from a Git push.
 

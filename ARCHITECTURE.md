@@ -32,7 +32,7 @@ This repository contains a static progressive web app, its local question pack, 
 
 ## Readiness gaps
 
-- Migration 009 is prepared, not applied until the owner confirms it.
+- The owner confirmed Migration 009 was applied on 4 October 2026. Post-application verification returned 366 total rows, 252 rows in its ID range, and 12 Telugu/Bharati Braille rows.
 - The owner verified the remote question count and maximum ID in the SQL editor, but the workspace has no authorized Supabase CLI session, so migration history, Edge Function version, and live auth/reward behavior cannot be independently verified or deployed here.
 - No website deployment workflow is configured.
 - Achievements, combo rewards, quiz-completion persistence, daily-bank selection, and a complete profile UI are not implemented.
