@@ -75,12 +75,12 @@ async function handler(req:Request){
   if(body.action==='profile')return json({ok:true,profile:publicProfile(auth.profile)},200,origin);
   if(body.action==='record-answer'){
    const questionId=clean(body.questionId,100),choice=clean(body.choice,250);if(!questionId||!choice)return json({ok:false,code:'invalid_request'},400,origin);if(!await permit(req,'answer',profileId,180,86400))return json({ok:false,code:'rate_limited'},429,origin);
-   const {data,error}=await admin.rpc('bq_record_answer',{p_profile_id:profileId,p_question_id:questionId,p_choice:choice});if(error){console.error('Answer record failed',error.message);return json({ok:false,code:'service_error'},503,origin)}return json({ok:true,...data},200,origin);
+   const {data,error}=await admin.rpc('bq_record_answer',{p_profile_id:profileId,p_question_id:questionId,p_choice:choice});if(error){console.error('Answer record failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return json({ok:true,...data},200,origin);
   }
   if(body.action==='submit-report'){
    const questionId=clean(body.questionId,100),reason=clean(body.reason,20),details=clean(body.details,500);if(!questionId||!['incorrect','ambiguous','language','duplicate','inappropriate','other'].includes(reason))return json({ok:false,code:'invalid_request'},400,origin);const {error}=await admin.from('bq_question_reports').insert({profile_id:profileId,question_id:questionId,reason,details});if(error)return json({ok:false,code:'service_error'},503,origin);return json({ok:true},201,origin);
   }
   return json({ok:false,code:'unknown_action'},400,origin);
- }catch(err){console.error('Blind Quiz API error',err instanceof Error?err.message:'unknown');return json({ok:false,code:'service_error'},500,origin)}
+ }catch(err){console.error('Blind Quiz API request failed.');return json({ok:false,code:'service_error'},500,origin)}
 }
 Deno.serve(handler);

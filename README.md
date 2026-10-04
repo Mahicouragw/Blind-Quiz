@@ -44,4 +44,4 @@ The Edge Function performs custom authentication, stores salted PBKDF2 secret-an
 
 ## Deployment
 
-There is no GitHub Actions, Pages, Netlify, or Vercel deployment workflow in this repository. A Git push does not deploy the website or Supabase Edge Function. Production deployment requires a separately authorized hosting/Supabase connection and readiness review.
+GitHub Pages is deployed by `.github/workflows/deploy-pages.yml` from `main`; the workflow runs `npm test`, builds `dist/`, and deploys it to Pages. It also supports manual dispatch. Supabase Edge Function deployment is separate and is not triggered by the Pages workflow; it requires an authorized Supabase deployment connection.

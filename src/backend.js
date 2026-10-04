@@ -9,4 +9,3 @@ export async function callApi(action,payload={}){
  let data={};try{data=await res.json()}catch{}
  if(!res.ok||data.ok===false)throw new Error(data.code||'request_failed');return data;
 }
-export async function checkBackend(){try{const r=await fetch(`${SUPABASE_URL}/auth/v1/settings`,{headers:{apikey:SUPABASE_PUBLISHABLE_KEY}});return r.ok}catch{return false}}
