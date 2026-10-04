@@ -67,6 +67,16 @@ npm run deploy:function
 
 Migrations 001–009 are already applied remotely. Neither deployment path runs `supabase db push`, `db reset`, a migration command, or `seed.sql`, and the CI workflow asserts that against its own executable lines before deploying.
 
+### Deploying without a code editor (screen-reader friendly)
+
+Editing the function in the Supabase dashboard code editor is impractical with a screen reader, and appending to it is what caused the `BOOT_ERROR` incident in the first place. Two routes avoid the editor entirely or avoid deleting anything:
+
+**Preferred — no editor at all.** Store a Supabase personal access token as the `SUPABASE_ACCESS_TOKEN` repository secret (GitHub → Settings → Secrets and variables → Actions). It is two ordinary text fields. Any push to `supabase/functions/**`, or a re-run of the workflow, then deploys from the repository source and runs the live verification automatically. The token stays inside GitHub and is never printed.
+
+**Dashboard — paste over, never delete.** Copy the file with the *Copy raw file* button on its GitHub file page, then in the dashboard editor focus the code, choose **Select all** from the long-press (or TalkBack local) menu, and **Paste** without moving focus. Pasting onto a selection replaces it, so the old content is discarded in one action. Verify with Chrome's *Find in page*: `import { createClient }` must report **1 of 1**. If it reports 1 of 2, the module is still duplicated.
+
+If the editor does not expose its full text to a screen reader, delete the function and recreate it with the same slug `blind-quiz-api` so the editor starts empty — then **turn JWT verification off** to match `verify_jwt = false` in `supabase/config.toml`. The app sends the publishable key plus its own opaque session token, not a Supabase JWT, so leaving JWT verification enabled makes the platform reject every request with a 401 before the handler runs.
+
 ## Known limits
 
 - Achievements, combo rewards, daily question selection, complete quiz counters, and a full profile/progression UI are not implemented as playable features and are not presented as game modes.
