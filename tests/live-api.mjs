@@ -88,9 +88,11 @@ function summarize() {
   const verdict = `${failures === 0 ? 'PASS' : 'FAIL'}: ${passed}/${results.length} live API checks passed.`;
   console.log(`\n${verdict}`);
   if (failures) console.log('Failed checks: ' + results.filter(r => !r.ok).map(r => r.name).join(', '));
-  // Publish a step summary in CI so results are readable without log download.
-  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (!summaryPath) return;
+  // Publish the report in CI so results are readable without log download.
+  // GITHUB_STEP_SUMMARY is per-step and cannot be read by a later step, so an
+  // explicit BQ_REPORT_FILE path is supported for cross-step reporting.
+  const targets = [process.env.GITHUB_STEP_SUMMARY, process.env.BQ_REPORT_FILE].filter(Boolean);
+  if (!targets.length) return;
   const lines = [
     `## Live Edge Function verification — ${failures === 0 ? 'PASSED' : 'FAILED'}`,
     '',
@@ -103,7 +105,10 @@ function summarize() {
     'Only HTTP status codes and non-sensitive response codes are reported. Secret answers, session tokens, apikeys, and Authorization headers are never printed.',
     '',
   ];
-  appendFileSync(summaryPath, lines.join('\n'));
+  const report = lines.join('\n');
+  for (const target of targets) {
+    try { appendFileSync(target, report); } catch { /* reporting must never fail the run */ }
+  }
 }
 
 console.log(`Target function host: ${new URL(API).host}`);
