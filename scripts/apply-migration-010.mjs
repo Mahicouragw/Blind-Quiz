@@ -27,7 +27,9 @@ const MIGRATION_009_ROWS = 252;
 const mode = process.argv[2];
 if (!['--check', '--apply'].includes(mode)) { console.error('Usage: apply-migration-010.mjs --check | --apply'); process.exit(2); }
 const summary = [];
-const note = line => { console.log(line); summary.push(line); };
+// In GitHub Actions each line is also emitted as a notice annotation, which stays readable through the
+// checks API even when runner log archives cannot be downloaded.
+const note = line => { console.log(process.env.GITHUB_ACTIONS ? `::notice title=Migration 010::${line.replace(/^- /, '')}` : line); summary.push(line); };
 const writeSummary = () => { if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join('\n') + '\n'); };
 const refuse = msg => { console.error(`::error::${msg}`); summary.push(`**REFUSED:** ${msg}`); writeSummary(); process.exit(1); };
 
