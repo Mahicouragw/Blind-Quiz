@@ -186,6 +186,18 @@ const removed = await fetch(`${SUPABASE_URL}/functions/v1/smooth-processor`, { m
 info('Removed function smooth-processor', `HTTP ${removed.status}`);
 const report = await fn({ action: 'submit-report', questionId: 'bq-en-0001', reason: 'other' });
 if (report.status === 401) info('Unauthenticated report', 'rejected (401)'); else finding('MEDIUM', 'Unauthenticated report accepted', `HTTP ${report.status}`);
+// Brute force with a rotating spoofed X-Forwarded-For against one (non-existent) account: the
+// IP-independent per-account limit must still stop it.
+{
+  const ghost = { action: 'login', name: `audit ghost ${Math.random().toString(36).slice(2, 8)}`, loginId: Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'Z').slice(0, 8), answer: 'wrong answer' };
+  let stoppedAt = 0;
+  for (let i = 1; i <= 24; i++) {
+    const r = await fn(ghost, { 'X-Forwarded-For': `203.0.113.${i}`, 'X-Real-IP': `198.51.100.${i}` });
+    if (r.status === 429) { stoppedAt = i; break; }
+  }
+  if (stoppedAt) info('Login brute force with rotating IPs', `stopped with 429 at attempt ${stoppedAt}`);
+  else finding('HIGH', 'Login brute force with rotating IPs', 'no rate limit within 24 attempts using spoofed forwarding headers');
+}
 const hdr = noSession.headers;
 info('Function response headers', `cache-control=${hdr.get('cache-control')} acao=${hdr.get('access-control-allow-origin')} nosniff=${hdr.get('x-content-type-options')}`);
 
