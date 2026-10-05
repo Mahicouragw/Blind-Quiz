@@ -73,11 +73,43 @@
   },
   "music": {
     "menu": {
-      "use": "Home, sign in, settings, profile",
-      "max": 80,
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
       "oga": {
-        "page": "https://opengameart.org/content/the-field-of-dreams",
-        "file": "the_field_of_dreams.mp3"
+        "page": "https://opengameart.org/content/fantasy-orchestral-theme",
+        "file": "FantasyOrchestralTheme_1.mp3"
+      }
+    },
+    "menu2": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/happy-adventure-loop",
+        "file": "happy_adveture.mp3"
+      }
+    },
+    "menu3": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/medieval-the-bards-tale",
+        "file": "The_Bards_Tale.mp3"
+      }
+    },
+    "menu4": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/battle-theme-a",
+        "file": "battleThemeA.mp3"
+      }
+    },
+    "menu5": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/happy-lullaby-song17",
+        "file": "song17.mp3"
       }
     },
     "game1": {

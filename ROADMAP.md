@@ -173,3 +173,11 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - "Get the Android app" section with app and website QR codes, hidden inside the app
 
   High contrast, large text and reduced motion still override everything.
+- [x] **16.6 Home music playlist.** Home, sign-in, settings and profile now rotate five CC0 OpenGameArt tracks, replacing The Field of Dreams:
+  - Fantasy Orchestral Theme (Joth, epic cinematic)
+  - Happy Adventure (TinyWorlds)
+  - Medieval: The Bard's Tale (RandomMind, relaxing)
+  - Battle Theme A (cynicmusic, epic)
+  - Happy Lullaby (cynicmusic)
+
+  Any slot can be a playlist (`music_menu`, `music_menu2`…). Each visit starts on the next track, and the next track fades in when one ends. Licences are checked by the bot (CC0 only).

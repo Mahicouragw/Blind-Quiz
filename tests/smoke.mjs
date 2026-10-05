@@ -69,7 +69,7 @@ const audioBuilder=await readFile(new URL('../scripts/audio/stock-audio.mjs',imp
 assert(audioBuilder.includes("const OGA_OK = l => /^CC0$/i.test(l);")&&/CC0 required/.test(audioBuilder),'OpenGameArt music must list CC0 on its live page or the build fails');
 assert(!/fetch\([^)]*pixabay/i.test(audioBuilder)&&audioBuilder.includes('assets.mixkit.co/active_storage/sfx/')&&!/mixkit\.co\/free-stock-music/.test(audioBuilder),'Mixkit sound effects only; Pixabay music is never fetched automatically; no Mixkit music');
 const MIXKIT=/^Mixkit Sound Effects Free License$/,PIXABAY=/^Pixabay Content License$/,COMMONS=/^(CC0|Public domain)$/i;
-for(const slot of [...SFX_SLOTS,'music_menu','music_game1','music_game2','music_game3','music_results']){const a=audioManifest.assets[slot];
+for(const slot of [...SFX_SLOTS,'music_menu','music_game1','music_game2','music_game3','music_results',...Object.keys(audioManifest.assets).filter(k=>/^music_[a-z]+\d+$/.test(k))]){const a=audioManifest.assets[slot];
   const ok=a&&((a.provider==='Mixkit'&&MIXKIT.test(a.licence)&&a.kind==='sfx'&&/^https:\/\/mixkit\.co\/free-sound-effects\//.test(a.source))
     ||(a.provider==='Pixabay'&&PIXABAY.test(a.licence)&&a.kind==='music'&&/^https:\/\/pixabay\.com\/music\//.test(a.source))
     ||(a.provider==='OpenGameArt'&&a.licence==='CC0'&&a.kind==='music'&&/^https:\/\/opengameart\.org\/content\//.test(a.source))

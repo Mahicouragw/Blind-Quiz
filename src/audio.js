@@ -6,6 +6,11 @@ const BASE = './assets/audio/';
 const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin'];
 // Each category and mode gets its own music track from the available recordings.
 const TRACKS = ['music_menu', 'music_game1', 'music_game2', 'music_game3', 'music_results'];
+// A slot is a playlist: `music_menu`, then `music_menu2`, `music_menu3`… if the manifest has them.
+// Tracks take turns (each visit starts on the next one) and the next track fades in when one ends.
+const isTrack = k => TRACKS.some(t => k === t || new RegExp(`^${t}\\d+$`).test(k));
+const playlistTurn = {};
+let musicGroup = null;
 const GAME_TRACK = {
   animals: 'music_game1', birds: 'music_game1', nature: 'music_game1', instruments: 'music_game2', music: 'music_game2',
   science: 'music_game3', technology: 'music_game3', geography: 'music_game1', india: 'music_game2', history: 'music_game2',
@@ -29,7 +34,7 @@ async function manifest() {
       const res = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
       if (!res.ok) return new Set();
       const data = await res.json();
-      const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || TRACKS.includes(k)));
+      const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || isTrack(k)));
       for (const k of found) versions.set(k, data.assets[k].bytes || 0);
       if (found.size) available = found;
       return found;
@@ -116,22 +121,32 @@ export function musicFor(view, category, mode) {
   return 'music_menu';
 }
 
-/** Switches the looping background music, cross-fading from the current track. */
+/** Switches the background music playlist, cross-fading from the current track. */
 export async function playMusic(slot) {
   wantedSlot = slot;
   if (!prefs.music || !unlocked) return;
   const have = await manifest();
   if (!have.has(slot)) slot = have.has('music_menu') ? 'music_menu' : null;
   if (!slot) return;
-  if (musicSlot === slot && music && !music.paused) return;
+  if (musicGroup === slot && music && !music.paused) return;
+  const list = [slot, ...[...have].filter(k => new RegExp(`^${slot}\\d+$`).test(k)).sort((a, b) => parseInt(a.slice(slot.length), 10) - parseInt(b.slice(slot.length), 10))];
+  const turn = playlistTurn[slot] || 0;
+  playlistTurn[slot] = turn + 1;
+  startTrack(slot, list, turn % list.length);
+}
+
+function startTrack(group, list, index) {
+  const track = list[index];
   const startNext = () => {
-    if (music) music.pause();
-    music = element(slot);
-    musicSlot = slot;
-    music.loop = true;
+    if (music) { music.pause(); music.onended = null; }
+    music = element(track);
+    musicSlot = track;
+    musicGroup = group;
+    music.loop = list.length === 1;
+    music.onended = () => { if (musicGroup === group && prefs.music) { playlistTurn[group] = index + 2; startTrack(group, list, (index + 1) % list.length); } };
     music.volume = 0;
     music.currentTime = 0;
-    try { Promise.resolve(music.play()).then(() => fadeTo(prefs.musicVolume, 1200)).catch(() => { musicSlot = null; }); } catch { musicSlot = null; }
+    try { Promise.resolve(music.play()).then(() => fadeTo(prefs.musicVolume, 1200)).catch(() => { musicSlot = null; musicGroup = null; }); } catch { musicSlot = null; musicGroup = null; }
   };
   if (music && !music.paused) fadeTo(0, 500, startNext); else startNext();
 }
@@ -141,6 +156,7 @@ export function stopMusic() {
   const m = music;
   fadeTo(0, 400, () => { m.pause(); });
   musicSlot = null;
+  musicGroup = null;
 }
 
 /** Browsers only allow sound after a user gesture; call this from the first tap or key press. */
