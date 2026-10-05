@@ -65,14 +65,29 @@ jobs:
           sed -i 's#android:label="[^"]*"#android:label="Blind Quiz"#' "$MANIFEST"
           grep -n 'INTERNET\|android:label' "$MANIFEST"
 
-      - name: Get packages, analyze, and test
+      - name: Get packages
+        run: flutter pub get 2>&1 | tee "$RUNNER_TEMP/pub.log" || { sed 's/^/::error title=pub get::/' "$RUNNER_TEMP/pub.log" | tail -20; exit 1; }
+
+      # Log archives are not always downloadable, so problems are re-emitted as annotations.
+      - name: Analyze
         run: |
-          flutter pub get
-          flutter analyze --no-fatal-infos --no-fatal-warnings
-          flutter test
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings > "$RUNNER_TEMP/analyze.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/analyze.log"
+          grep -E '^\s*(error|warning) •' "$RUNNER_TEMP/analyze.log" | head -20 | sed 's/^\s*/::warning title=flutter analyze::/'
+          if [ $status -ne 0 ]; then grep -E '•' "$RUNNER_TEMP/analyze.log" | head -20 | sed 's/^\s*/::error title=flutter analyze::/'; fi
+          exit $status
+
+      - name: Test
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee "$RUNNER_TEMP/test.log" || { grep -iE 'error|fail|expected' "$RUNNER_TEMP/test.log" | head -20 | sed 's/^/::error title=flutter test::/'; exit 1; }
 
       - name: Build release APK
-        run: flutter build apk --release --build-name "$VERSION_NAME" --build-number "$VERSION_CODE"
+        run: |
+          set -o pipefail
+          flutter build apk --release --build-name "$VERSION_NAME" --build-number "$VERSION_CODE" 2>&1 | tee "$RUNNER_TEMP/build.log" || { grep -iE 'error|failed|what went wrong|exception' "$RUNNER_TEMP/build.log" | head -25 | sed 's/^/::error title=flutter build::/'; exit 1; }
 
       - name: Sign release APK
         env:
