@@ -16,8 +16,11 @@ const token = process.env.SUPABASE_ACCESS_TOKEN;
 const ref = process.env.PROJECT_REF || 'zchircgdkyjnowqcdwvf';
 const GH = !!process.env.GITHUB_ACTIONS;
 const findings = [];
-const info = (title, msg) => console.log(GH ? `::notice title=${title}::${msg}` : `[info] ${title}: ${msg}`);
-const finding = (sev, title, msg) => { findings.push({ sev, title, msg }); console.log(GH ? `::${sev === 'HIGH' || sev === 'CRITICAL' ? 'error' : 'warning'} title=${sev} ${title}::${msg}` : `[${sev}] ${title}: ${msg}`); };
+// Notices are buffered and emitted as a few grouped annotations (GitHub caps annotations per job).
+const notes = [];
+const info = (title, msg) => { notes.push(`${title}: ${msg}`); if (!GH) console.log(`[info] ${title}: ${msg}`); };
+const esc = s => String(s).replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A');
+const finding = (sev, title, msg) => { findings.push({ sev, title, msg }); console.log(GH ? `::${sev === 'HIGH' || sev === 'CRITICAL' ? 'error' : 'warning'} title=${sev} ${title}::${esc(msg)}` : `[${sev}] ${title}: ${msg}`); };
 
 async function mgmt(path, init = {}) {
   const res = await fetch(`https://api.supabase.com/v1/projects/${ref}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'blind-quiz-security-audit', ...(init.headers || {}) } });
@@ -66,8 +69,10 @@ if (token) {
     if (!f.definer && (f.anon_exec || f.auth_exec)) finding('LOW', 'Client-executable function', `public.${f.name}(${f.args}) is executable by anon/authenticated (runs with caller rights)`);
   }
 
-  const defaults = await sql(`select defaclobjtype as type, array_to_string(defaclacl, ',') as acl from pg_default_acl d join pg_namespace n on n.oid=d.defaclnamespace where n.nspname='public'`);
-  for (const d of defaults) if (/(^|,)(anon|authenticated)=/.test(d.acl)) finding('LOW', 'Default privileges', `new public objects of type ${d.type} are granted to client roles by default (${d.acl.replace(/\/\w+/g, '')})`);
+  const defaults = await sql(`select pg_get_userbyid(d.defaclrole) as owner, defaclobjtype as type, array_to_string(defaclacl, ',') as acl from pg_default_acl d join pg_namespace n on n.oid=d.defaclnamespace where n.nspname='public'`);
+  const openDefaults = defaults.filter(d => /(^|,)(anon|authenticated)=/.test(d.acl)).map(d => `${d.owner}:${({ r: 'tables', f: 'functions', S: 'sequences', T: 'types' })[d.type] || d.type}`);
+  if (openDefaults.length) finding('LOW', 'Default privileges', `objects created later in public are granted to anon/authenticated by default (${openDefaults.join(', ')}); existing tables are protected by revokes and RLS`);
+  else info('Default privileges', 'no default grants to anon/authenticated in public');
 
   const counts = await sql(`select (select count(*) from public.bq_profiles)::int as profiles,
       (select count(*) from public.bq_sessions where revoked_at is null and expires_at > now())::int as live_sessions,
@@ -132,8 +137,9 @@ for (const [t, row] of writes) {
   if (r.status === 401 || r.status === 403 || code === '42501') info('Anon write blocked', `${t}: HTTP ${r.status} ${code}`);
   else finding('HIGH', 'Anonymous write reached the table', `POST /rest/v1/${t} got HTTP ${r.status} ${code} (constraint, not permission, stopped it)`);
 }
-for (const t of ['bq_profiles', 'bq_sessions']) {
-  const u = await rest(`/rest/v1/${t}?id=eq.00000000-0000-0000-0000-000000000000`, { method: 'PATCH', body: JSON.stringify({ revoked_at: null }) });
+// Use real columns: PostgREST validates column names (PGRST204) before checking privileges.
+for (const [t, patch] of [['bq_profiles', { coins: 999999 }], ['bq_sessions', { revoked_at: null }]]) {
+  const u = await rest(`/rest/v1/${t}?id=eq.00000000-0000-0000-0000-000000000000`, { method: 'PATCH', body: JSON.stringify(patch) });
   const d = await rest(`/rest/v1/${t}?id=eq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
   for (const [verb, r] of [['PATCH', u], ['DELETE', d]]) {
     const code = typeof r.body === 'object' ? r.body.code : '';
@@ -175,9 +181,16 @@ const hdr = noSession.headers;
 info('Function response headers', `cache-control=${hdr.get('cache-control')} acao=${hdr.get('access-control-allow-origin')}`);
 
 // ---------------------------------------------------------------- Summary
+if (GH) {
+  // Emit buffered notices in chunks of about 3500 characters.
+  let chunk = [], size = 0, part = 1;
+  const flush = () => { if (chunk.length) console.log(`::notice title=Audit details ${part++}::${esc(chunk.join('\n'))}`); chunk = []; size = 0; };
+  for (const n of notes) { if (size + n.length > 3500) flush(); chunk.push(n); size += n.length + 1; }
+  flush();
+}
 const order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
 const tally = order.map(s => `${s}=${findings.filter(f => f.sev === s).length}`).join(' ');
-info('Audit summary', tally);
+console.log(GH ? `::notice title=Audit summary::${tally}` : `Audit summary: ${tally}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   const { appendFileSync } = await import('node:fs');
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Security audit\n\n${tally}\n\n${findings.map(f => `- **${f.sev}** ${f.title}: ${f.msg}`).join('\n')}\n`);
