@@ -1,7 +1,7 @@
 name: Live checks (read-only)
 
 # Runs `npm run test:live` against the production blind-quiz-api and checks that
-# Migration 010 questions award XP and coins. Never deploys the function and never
+# Migration 010 and 011 questions award XP and coins. Never deploys the function and never
 # touches migrations; uses only the public publishable key.
 
 on:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   live:
-    name: npm run test:live and Migration 010 rewards
+    name: npm run test:live and Migration 010/011 rewards
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,3 +36,6 @@ jobs:
       - name: Migration 010 questions award XP and coins
         if: ${{ !cancelled() }}
         run: node --no-warnings scripts/check-migration-010-live.mjs
+      - name: Migration 011 questions award XP and coins
+        if: ${{ !cancelled() }}
+        run: node --no-warnings scripts/check-migration-011-live.mjs
