@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:blind_quiz/main.dart';
 
@@ -5,5 +6,44 @@ void main() {
   test('the app wraps the live HTTPS site', () {
     expect(kLiveUrl, 'https://mahicouragw.github.io/Blind-Quiz/');
     expect(Uri.parse(kLiveUrl).scheme, 'https');
+  });
+
+  test('only the Blind Quiz site over HTTPS opens inside the app', () {
+    expect(classifyNavigation(kLiveUrl), NavDecision.inApp);
+    expect(classifyNavigation('https://mahicouragw.github.io/Blind-Quiz/privacy-policy.html'), NavDecision.inApp);
+    expect(classifyNavigation('https://mahicouragw.github.io/Blind-Quiz/terms-and-conditions.html'), NavDecision.inApp);
+    expect(classifyNavigation('https://mahicouragw.github.io/Blind-Quiz#settings'), NavDecision.inApp);
+  });
+
+  test('other HTTPS links open in the external browser', () {
+    expect(classifyNavigation('https://github.com/Mahicouragw/Blind-Quiz/issues'), NavDecision.external);
+    expect(classifyNavigation('https://mahicouragw.github.io/Other-Project/'), NavDecision.external);
+    expect(classifyNavigation('https://mahicouragw.github.io.evil.example/Blind-Quiz/'), NavDecision.external);
+  });
+
+  test('insecure and dangerous schemes are blocked', () {
+    for (final url in [
+      'http://mahicouragw.github.io/Blind-Quiz/',
+      'file:///data/data/io.github.mahicouragw.blind_quiz/shared_prefs/a.xml',
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'intent://scan/#Intent;scheme=zxing;end',
+      'content://com.android.contacts/contacts',
+      'https://user:pass@mahicouragw.github.io/Blind-Quiz/',
+      'not a url at all',
+    ]) {
+      expect(classifyNavigation(url), NavDecision.block, reason: url);
+    }
+  });
+
+  testWidgets('offline panel is announced and its Try again button works', (tester) async {
+    var retries = 0;
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: OfflineMessage(onRetry: () => retries++))));
+    expect(find.text('Blind Quiz could not load. Check your internet connection, then try again.'), findsOneWidget);
+    final handle = tester.ensureSemantics();
+    expect(tester.getSemantics(find.text('Try again')), matchesSemantics(isButton: true, hasTapAction: true, label: 'Try again', isEnabled: true, hasEnabledState: true, isFocusable: true, hasFocusAction: true));
+    await tester.tap(find.text('Try again'));
+    expect(retries, 1);
+    handle.dispose();
   });
 }

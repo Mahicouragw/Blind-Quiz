@@ -63,7 +63,10 @@ jobs:
           grep -q 'android.permission.INTERNET' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
           sed -i 's#android:label="[^"]*"#android:label="Blind Quiz"#' "$MANIFEST"
-          grep -n 'INTERNET\|android:label' "$MANIFEST"
+          # HTTPS only, and no cloud/device backups of WebView storage (remembered name/Login ID, session).
+          grep -q 'usesCleartextTraffic' "$MANIFEST" || \
+            sed -i 's#<application#<application android:usesCleartextTraffic="false" android:allowBackup="false" android:fullBackupContent="false"#' "$MANIFEST"
+          grep -n 'INTERNET\|android:label\|usesCleartextTraffic\|allowBackup' "$MANIFEST"
 
       - name: Get packages
         run: flutter pub get 2>&1 | tee "$RUNNER_TEMP/pub.log" || { sed 's/^/::error title=pub get::/' "$RUNNER_TEMP/pub.log" | tail -20; exit 1; }
@@ -121,6 +124,20 @@ jobs:
           echo "APK_PATH=$OUT" >> "$GITHUB_ENV"
           ls -l "$OUT"
 
+      - name: Audit the signed APK (permissions, debuggable, cleartext, backup)
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          PERMS=$("$BT/aapt2" dump permissions "$APK_PATH" | grep -oE "name='[^']+'" | sed "s/name='//;s/'//" | sort -u)
+          echo "Permissions:"; echo "$PERMS"
+          EXTRA=$(echo "$PERMS" | grep -vE '^(android\.permission\.INTERNET|io\.github\.mahicouragw\.blind_quiz\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)$' || true)
+          if [ -n "$EXTRA" ]; then echo "::error title=APK permissions::Unexpected permissions: $(echo $EXTRA)"; exit 1; fi
+          MAN=$("$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK_PATH")
+          if echo "$MAN" | grep -qE 'debuggable\([^)]*\)=(true|\(type 0x12\)0xffffffff)'; then echo "::error title=APK::APK is debuggable"; exit 1; fi
+          echo "$MAN" | grep -qE 'usesCleartextTraffic\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::usesCleartextTraffic=false missing"; exit 1; }
+          echo "$MAN" | grep -qE 'allowBackup\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::allowBackup=false missing"; exit 1; }
+          echo "::notice title=APK audit::Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -138,7 +155,7 @@ jobs:
           [ "$GITHUB_REF_NAME" = "main" ] || PRE="--prerelease"
           NOTES="Blind Quiz for Android $VERSION_NAME, built from ${GITHUB_SHA::7} on $GITHUB_REF_NAME.
 
-          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) with a Reload button, so new questions arrive without reinstalling.
+          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Only the INTERNET permission is requested.
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
           gh release create "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

@@ -134,4 +134,7 @@ assert(backend.includes('res.status===401&&session?.token'),'server-rejected ses
 assert(main.includes("async function restoreSession(){")&&main.includes("callApi('profile')"),'session is re-validated with the server after a reload');
 assert(main.includes("err.message==='invalid_credentials'?genericLogin:genericFailure"),'server failures are not reported as wrong credentials');
 assert(fn.includes("permitAccount('login'")&&fn.includes("permitAccount('recover'")&&fn.includes("permitAccount('question'")&&fn.includes("permitAccount('report'"),'IP-independent per-account rate limits');
+assert(dart.includes('NavDecision classifyNavigation(')&&dart.includes("if (uri.scheme != 'https') return NavDecision.block;")&&dart.includes('LaunchMode.externalApplication'),'Android wrapper: HTTPS-only allowlist, external links open in the browser');
+assert(dart.includes('AndroidWebViewController.enableDebugging(kDebugMode)')&&dart.includes('setAllowFileAccess(false)'),'Android wrapper: no WebView debugging in release, no file access');
+assert(dart.includes("Reload failed. Check your internet connection, then try again.")&&!dart.includes('clearLocalStorage'),'Android Reload reports failures and keeps web storage (session)');
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);
