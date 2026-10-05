@@ -52,6 +52,10 @@ const main=await readFile(new URL('../src/main.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator)/.test(main),'no synthetic Web Audio effects');
 const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
+const audioManifest=JSON.parse(await readFile(new URL('../assets/audio/manifest.json',import.meta.url),'utf8'));
+for(const slot of ['correct','wrong','tick','go','timeup','applause','cheer','click','music_menu','music_game1','music_game2','music_game3','music_results']){const a=audioManifest.assets[slot];assert(a&&/^(CC0|Public domain)$/i.test(a.licence)&&/^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(a.source),`${slot}: CC0/Public domain recording with a source`);const st=await import('node:fs').then(fs=>fs.statSync(new URL(`../${a.file}`,import.meta.url)));assert(st.size>1000&&st.size<1500000,`${slot}: encoded file present and small`)}
+const licences=await readFile(new URL('../AUDIO_LICENSES.md',import.meta.url),'utf8');
+for(const a of Object.values(audioManifest.assets))assert(licences.includes(a.file),`AUDIO_LICENSES.md documents ${a.file}`);
 assert(!/\btone\(/.test(main),'no leftover synthetic tone() calls (they crashed every round)');
 assert(main.includes('displayAnswers:shuffled(q.answers)'),'answer choices are shuffled independently');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');

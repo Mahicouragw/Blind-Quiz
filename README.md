@@ -8,7 +8,7 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 - The historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`. A live database check on 3 October 2026 found 114 rows with a highest existing ID of `bq-en-0414`, so the expansion safely uses `bq-en-0415`–`bq-en-0666` without filling or overwriting ID gaps.
 - Functional category, classic, rapid, random, vocabulary, abbreviations, and Braille rounds.
 - Four answer buttons are independently shuffled with Fisher–Yates while correctness remains tied to answer text. Buttons expose only the answer itself, not radio/checkbox or “Option A” semantics.
-- Essential content is text. No recorded music/audio is bundled, and synthetic Web Audio effects are not used.
+- Essential content is text. Recorded, royalty-free sound effects (bell for correct, buzzer for wrong, watch ticks and a referee whistle for the countdown, school bell when time runs out, applause and cheering at the end) and background music (Bach, Joplin, Grieg and Mozart recordings, a different track per screen and category group) are bundled from Wikimedia Commons under CC0 / Public domain. See `AUDIO_LICENSES.md`. Nothing is synthesised, and sound effects, music and music volume can be changed in Settings.
 - Custom account fields remain Name + Secret Question + Secret Answer for signup, and Name + Login ID + Secret Answer for login.
 
 ## Run and validate

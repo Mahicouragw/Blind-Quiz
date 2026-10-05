@@ -18,14 +18,21 @@ let available = null; // Set of slots that exist in assets/audio/manifest.json
 const cache = new Map();
 let music = null, musicSlot = null, fadeTimer = null, unlocked = false, wantedSlot = null;
 
+let pending = null;
+// The manifest is cached once it loads; a failed load (e.g. offline) is retried on the next sound.
 async function manifest() {
   if (available) return available;
-  try {
-    const res = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
-    const data = res.ok ? await res.json() : { assets: {} };
-    available = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || TRACKS.includes(k)));
-  } catch { available = new Set(); }
-  return available;
+  if (!pending) pending = (async () => {
+    try {
+      const res = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
+      if (!res.ok) return new Set();
+      const data = await res.json();
+      const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || TRACKS.includes(k)));
+      if (found.size) available = found;
+      return found;
+    } catch { return new Set(); } finally { pending = null; }
+  })();
+  return pending;
 }
 function element(slot) {
   if (!cache.has(slot)) { const a = new Audio(`${BASE}${slot}.mp3`); a.preload = 'auto'; cache.set(slot, a); }
@@ -91,7 +98,7 @@ export async function playMusic(slot) {
     music.loop = true;
     music.volume = 0;
     music.currentTime = 0;
-    music.play().then(() => fadeTo(prefs.musicVolume, 1200)).catch(() => { musicSlot = null; });
+    try { Promise.resolve(music.play()).then(() => fadeTo(prefs.musicVolume, 1200)).catch(() => { musicSlot = null; }); } catch { musicSlot = null; }
   };
   if (music && !music.paused) fadeTo(0, 500, startNext); else startNext();
 }
@@ -114,6 +121,6 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (!music) return;
     if (document.hidden) music.pause();
-    else if (prefs.music && musicSlot) music.play().catch(() => {});
+    else if (prefs.music && musicSlot) { try { Promise.resolve(music.play()).catch(() => {}); } catch { /* ignore */ } }
   });
 }

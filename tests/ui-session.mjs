@@ -10,10 +10,10 @@ let n=0;
 async function boot({session,fetchImpl}){
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
   const w=dom.window;
-  for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
+  for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
-  const calls=[];globalThis.fetch=async(url,init)=>{calls.push(JSON.parse(init.body).action);return fetchImpl(url,init)};
+  const calls=[];globalThis.fetch=async(url,init)=>{if(init?.body)calls.push(JSON.parse(init.body).action);return fetchImpl(url,init)};
   await import(ROOT+'src/main.js?'+(++n));
   await new Promise(r=>setTimeout(r,200));
   return {w,d:w.document,calls};
@@ -116,6 +116,37 @@ t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80)
 assert.equal(t.d.querySelector('#view-profile').hidden,false);assert.equal(t.d.querySelector('#profile-auth').hidden,true);
 assert.match(t.d.querySelector('#profile-stats').textContent,/goldfish.*Level.*XP.*Coins.*3 \(75%\)/s);
 console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile with stats');
+// 12. Recorded sounds: correct/wrong answers, countdown, GO, results, and music per screen.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const manifestBody=JSON.parse(readFileSync(ROOT+'assets/audio/manifest.json','utf8'));
+  t=await boot({fetchImpl:(u)=>String(u).includes('manifest.json')?json(200,manifestBody):(()=>{throw new Error('offline')})()});
+  const played=[];t.w.HTMLMediaElement.prototype.play=function(){played.push(this.src.split('/').pop());return Promise.resolve()};t.w.HTMLMediaElement.prototype.pause=function(){};
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms));
+  d.dispatchEvent(new t.w.Event('pointerdown'));await wait(20);
+  assert(played.includes('music_menu.mp3'),'home music after the first tap: '+JSON.stringify(played));
+  d.querySelector('#category-list [data-category="business"]').click();await wait(20);
+  assert(played.includes('music_game3.mp3'),'business has its own game music');
+  d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  assert(played.includes('click.mp3')&&played.filter(x=>x==='tick.mp3').length===3&&played.includes('go.mp3'),'countdown click, 3 ticks, GO whistle');
+  const titleQ=d.querySelector('#game-title').textContent;
+  const btns=[...d.querySelectorAll('.answer-button')];
+  // pick the correct one by checking the question bank
+  const { QUESTION_BANK }=await import(ROOT+'src/content.js');
+  const q=QUESTION_BANK.find(x=>titleQ.endsWith(x.question));btns.find(b=>b.textContent===q.correctAnswer).click();await wait(20);
+  assert(played.includes('correct.mp3'),'correct answer plays the bell');
+  d.querySelector('.next-question').click();await wait(10);
+  const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.textContent!==q2.correctAnswer).click();await wait(20);
+  assert(played.includes('wrong.mp3'),'wrong answer plays the buzzer');
+  for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.next-question')?.click();await wait(5);d.querySelector('.answer-button:not([disabled])')?.click();await wait(5)}
+  assert(played.includes('applause.mp3')||played.includes('cheer.mp3'),'results applause');assert(played.includes('music_results.mp3'),'results music');
+  // Settings: turning sound effects off silences them.
+  d.querySelector('#settings-open').click();await wait(10);d.querySelector('#sfx-on').checked=false;d.querySelector('#save-settings').click();await wait(10);
+  const before=played.length;d.querySelector('#category-list [data-category="animals"]').click();await wait(10);d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  assert(!played.slice(before).some(x=>/^(click|tick|go)\.mp3$/.test(x)),'sound effects can be switched off');
+  globalThis.setTimeout=fast;
+  console.log('ok 12 recorded sounds for countdown, GO, correct, wrong, results, and per-screen music; switchable in Settings');
+}
 // Legal pages
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);
