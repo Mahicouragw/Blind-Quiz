@@ -27,7 +27,7 @@ async function ogaPage(url) {
   const res = await fetch(url, { headers: { 'User-Agent': UA } });
   if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
   const html = await res.text();
-  const title = decode((html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/) || html.match(/<title>([^|<]+)/) || [])[1]);
+  const title = decode((html.match(/<title>([^|<]+)/) || [])[1]);
   const licBlock = (html.match(/field-name-field-art-licenses[\s\S]*?(?=<div class="field field-name-(?!field-art-licenses))/) || [''])[0];
   const licences = [...new Set([...licBlock.matchAll(/class=['"]license-name['"][^>]*>([^<]+)/g)].map(m => decode(m[1])))];
   const authorBlock = (html.match(/field-name-author-submitter[\s\S]{0,800}/) || [''])[0];

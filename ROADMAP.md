@@ -137,3 +137,4 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - Letters to Words shows word slots, numbers the pick order on tiles, adds goal pips and found-word chips
   - home shows the current category count (25) and "Tap, click, keys A–D or screen reader"
   - all animations are disabled by Reduce motion and `prefers-reduced-motion`
+- [x] **15.4 OpenGameArt music:** all 5 music slots now use CC0 tracks by human composers from OpenGameArt.org, pinned by page and file in `scripts/audio/sources.json`: menu "The Field Of Dreams" (pauliuw), game1 "Town Theme RPG" (cynicmusic), game2 "Crystal Cave" (cynicmusic), game3 "Feel Good Island" (HaelDB), results "Children's March Theme" (CleytonKauffman). `stock-audio.mjs` reads each live page on every build and fails unless CC0 is listed. A hand-uploaded Pixabay track for a slot still takes priority.

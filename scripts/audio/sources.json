@@ -74,23 +74,43 @@
   "music": {
     "menu": {
       "use": "Home, sign in, settings, profile",
-      "max": 80
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/the-field-of-dreams",
+        "file": "the_field_of_dreams.mp3"
+      }
     },
     "game1": {
       "use": "Game music: nature, animals, vocabulary, commerce, geography, birds, general, biology, medical",
-      "max": 80
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/town-theme-rpg",
+        "file": "TownTheme.mp3"
+      }
     },
     "game2": {
       "use": "Game music: music, instruments, India, history, civics, braille, accounting, chemistry, random, Letters to Words",
-      "max": 80
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/crystal-cave-song18",
+        "file": "song18.mp3"
+      }
     },
     "game3": {
       "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire, math, physics",
-      "max": 80
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/feel-good-island",
+        "file": "island_0.flac"
+      }
     },
     "results": {
       "use": "Results screen",
-      "max": 60
+      "max": 60,
+      "oga": {
+        "page": "https://opengameart.org/content/childrens-march-theme",
+        "file": "Children's March Theme.mp3"
+      }
     }
   },
   "ogaCandidates": [
