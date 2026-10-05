@@ -1,18 +1,21 @@
-name: Recorded audio assets (Wikimedia Commons, CC0 / Public domain)
+name: Recorded audio assets (Mixkit sound effects, Pixabay music)
 
-# Lists licence-checked candidates, then downloads ONLY the pinned recordings in
-# scripts/audio/sources.json, re-verifies each licence through the Commons API, encodes them
-# with ffmpeg into assets/audio/, and commits the result to this branch.
+# Downloads the Mixkit sound effects pinned in scripts/audio/sources.json (Sound Effects Free License),
+# encodes any Pixabay music uploaded by hand to assets/audio/incoming/, regenerates manifest.json and
+# AUDIO_LICENSES.md, commits the result, and redeploys GitHub Pages. Never downloads from Pixabay.
 on:
   push:
     branches: ['arena/**']
     paths:
-      - 'scripts/audio/**'
+      - 'scripts/audio/stock-audio.mjs'
+      - 'scripts/audio/sources.json'
+      - 'assets/audio/incoming/**'
       - '.github/workflows/audio-assets.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: audio-assets-${{ github.ref }}
@@ -30,20 +33,21 @@ jobs:
           node-version: 22
       - name: Install ffmpeg
         run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-      - name: List CC0 / Public domain candidates
-        run: node --no-warnings scripts/audio/commons-audio.mjs --list
-      - name: Download, verify, and encode pinned recordings
-        run: |
-          if node -e "process.exit(Object.keys(require('./scripts/audio/sources.json').pinned).length?0:1)"; then
-            node --no-warnings scripts/audio/commons-audio.mjs --fetch
-          else
-            echo "No pinned recordings yet."
-          fi
+      - name: Download, encode and document recordings
+        run: node --no-warnings scripts/audio/stock-audio.mjs
       - name: Commit encoded audio
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets/audio || true
-          if git diff --cached --quiet; then echo "No audio changes."; exit 0; fi
-          git commit -m "Audio: encode licence-verified CC0/Public domain recordings from Wikimedia Commons"
+          git add -A assets/audio AUDIO_LICENSES.md
+          if git diff --cached --quiet; then echo "No audio changes."; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git commit -m "Audio: encode Mixkit sound effects and Pixabay music (licence-documented)"
+          git pull --rebase -q origin ${{ github.ref_name }}
           git push origin HEAD:${{ github.ref_name }}
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Redeploy GitHub Pages with the new audio
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-pages.yml --ref ${{ github.ref_name }} -R ${{ github.repository }}

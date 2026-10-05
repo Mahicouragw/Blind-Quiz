@@ -59,7 +59,21 @@ assert(!/(AudioContext|createOscillator)/.test(main),'no synthetic Web Audio eff
 const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
 const audioManifest=JSON.parse(await readFile(new URL('../assets/audio/manifest.json',import.meta.url),'utf8'));
-for(const slot of ['correct','wrong','tick','go','timeup','applause','cheer','click','music_menu','music_game1','music_game2','music_game3','music_results']){const a=audioManifest.assets[slot];assert(a&&/^(CC0|Public domain)$/i.test(a.licence)&&/^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(a.source),`${slot}: CC0/Public domain recording with a source`);const st=await import('node:fs').then(fs=>fs.statSync(new URL(`../${a.file}`,import.meta.url)));assert(st.size>1000&&st.size<1500000,`${slot}: encoded file present and small`)}
+const stockSrc=JSON.parse(await readFile(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));
+const SFX_SLOTS=['correct','wrong','tick','go','timeup','applause','cheer','click','levelup','coin'];
+assert.deepEqual(Object.keys(stockSrc.sfx).sort(),[...SFX_SLOTS].sort(),'every sound effect is pinned to a Mixkit asset');
+for(const [slot,pin] of Object.entries(stockSrc.sfx))assert(Number.isInteger(pin.mixkitId)&&pin.title&&pin.category&&pin.max>0&&pin.max<=8,`${slot}: Mixkit pin is complete`);
+assert.deepEqual(Object.keys(stockSrc.music),['menu','game1','game2','game3','results'],'five music slots');
+const audioBuilder=await readFile(new URL('../scripts/audio/stock-audio.mjs',import.meta.url),'utf8');
+assert(!/fetch\([^)]*pixabay/i.test(audioBuilder)&&audioBuilder.includes('assets.mixkit.co/active_storage/sfx/')&&!/mixkit\.co\/free-stock-music/.test(audioBuilder),'Mixkit sound effects only; Pixabay music is never fetched automatically; no Mixkit music');
+const MIXKIT=/^Mixkit Sound Effects Free License$/,PIXABAY=/^Pixabay Content License$/,COMMONS=/^(CC0|Public domain)$/i;
+for(const slot of [...SFX_SLOTS,'music_menu','music_game1','music_game2','music_game3','music_results']){const a=audioManifest.assets[slot];
+  const ok=a&&((a.provider==='Mixkit'&&MIXKIT.test(a.licence)&&a.kind==='sfx'&&/^https:\/\/mixkit\.co\/free-sound-effects\//.test(a.source))
+    ||(a.provider==='Pixabay'&&PIXABAY.test(a.licence)&&a.kind==='music'&&/^https:\/\/pixabay\.com\/music\//.test(a.source))
+    ||(COMMONS.test(a.licence)&&/^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(a.source)));
+  assert(ok,`${slot}: licensed recording with a source`);
+  const st=await import('node:fs').then(fs=>fs.statSync(new URL(`../${a.file}`,import.meta.url)));assert(st.size>1000&&st.size<1500000,`${slot}: encoded file present and small`)}
+assert(!Object.values(audioManifest.assets).some(a=>a.provider==='Mixkit'&&a.kind==='music'),'Mixkit music is never used');
 const licences=await readFile(new URL('../AUDIO_LICENSES.md',import.meta.url),'utf8');
 for(const a of Object.values(audioManifest.assets))assert(licences.includes(a.file),`AUDIO_LICENSES.md documents ${a.file}`);
 assert(!/\btone\(/.test(main),'no leftover synthetic tone() calls (they crashed every round)');
@@ -120,7 +134,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v11'"),'service worker cache is v11');
+assert(sw.includes("const CACHE='blind-quiz-shell-v12'"),'service worker cache is v12');
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
@@ -199,8 +213,7 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   const ui=await readFile(new URL('../src/letters-ui.js',import.meta.url),'utf8');
   assert(/playSequence\(res\.levelledUp \|\| profileUp \? \['applause', 'levelup'\] : \['applause'\]\)/.test(ui),'round sound, then the level-up sound');
   assert(ui.includes('Level up! You are now Level')&&ui.includes('focusStatus(text)')&&!ui.includes('letters-next'),'level-up announced and focused; no manual level button');
-  const src=JSON.parse(await readFile(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));
-  assert(src.pinned.levelup&&src.pinned.coin,'level-up and coin sounds are pinned Commons recordings');
+  assert(stockSrc.sfx.levelup&&stockSrc.sfx.coin,'level-up and coin sounds are pinned recordings');
   assert(/'levelup', 'coin'/.test(audioSrc)&&/export async function playSequence/.test(audioSrc),'audio knows the new sounds and plays effects in sequence');
   assert(/levelUpLine\(prevLevel,saved\.profile\?\.level\)/.test(main)&&/playSequence\(up\?\['coin','levelup'\]:\['coin'\]\)/.test(main),'quiz announces profile level-ups with the level-up sound');
 }

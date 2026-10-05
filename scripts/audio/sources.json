@@ -1,127 +1,21 @@
 {
-  "search": {
-    "correct": {
-      "queries": [
-        "handbell",
-        "glass clink",
-        "singing bowl",
-        "tingsha",
-        "triangle percussion",
-        "xylophone note",
-        "kalimba",
-        "bell hit",
-        "small bell",
-        "ding"
-      ],
-      "min": 0.2,
-      "max": 5,
-      "show": 30
-    },
-    "go": {
-      "queries": [
-        "whistle blow",
-        "football whistle",
-        "sports whistle",
-        "referee",
-        "pea whistle",
-        "coach whistle",
-        "whistle sound"
-      ],
-      "min": 0.2,
-      "max": 4,
-      "show": 30
-    }
+  "sfx": {
+    "correct":  { "mixkitId": 2870, "title": "Correct answer tone",             "category": "game-show",    "use": "Correct answer",            "max": 1.5 },
+    "wrong":    { "mixkitId": 948,  "title": "Wrong answer bass buzzer",        "category": "wrong",        "use": "Wrong answer",              "max": 1.2 },
+    "tick":     { "mixkitId": 1061, "title": "Clock ticker single",             "category": "clock",        "use": "Countdown 3-2-1",           "max": 0.4 },
+    "go":       { "mixkitId": 615,  "title": "Police short whistle",            "category": "whistle",      "use": "GO! after the countdown",   "max": 1.6 },
+    "timeup":   { "mixkitId": 1791, "title": "Cooking bell ding",               "category": "bell",         "use": "Time is up",                "max": 2.5 },
+    "applause": { "mixkitId": 518,  "title": "Small group cheer and applause",  "category": "applause",     "use": "Round complete",            "max": 6 },
+    "cheer":    { "mixkitId": 462,  "title": "Huge crowd cheering victory",     "category": "win",          "use": "Perfect round",             "max": 7 },
+    "click":    { "mixkitId": 1109, "title": "Select click",                    "category": "click",        "use": "Get ready / start",         "max": 0.5 },
+    "levelup":  { "mixkitId": 226,  "title": "Medieval show fanfare announcement", "category": "win",       "use": "Level up",                  "max": 4.7 },
+    "coin":     { "mixkitId": 1993, "title": "Clinking coins",                  "category": "coin",         "use": "XP and coins earned",       "max": 1.4 }
   },
-  "pinned": {
-    "wrong": {
-      "file": "Buzzer.ogg",
-      "kind": "sfx",
-      "use": "Wrong answer",
-      "max": 1.2
-    },
-    "tick": {
-      "file": "Watch tick.ogg",
-      "kind": "sfx",
-      "use": "Countdown 3-2-1",
-      "max": 0.4
-    },
-    "timeup": {
-      "file": "Old school bell 4.ogg",
-      "kind": "sfx",
-      "use": "Time is up",
-      "max": 2.5
-    },
-    "applause": {
-      "file": "Applause ii.ogg",
-      "kind": "sfx",
-      "use": "Round complete",
-      "max": 6
-    },
-    "cheer": {
-      "file": "Clapping hurray.ogg",
-      "kind": "sfx",
-      "use": "Perfect round",
-      "max": 7
-    },
-    "click": {
-      "file": "Computer mouse single click.ogg",
-      "kind": "sfx",
-      "use": "Get ready / start",
-      "max": 0.5
-    },
-    "music_menu": {
-      "file": "Bach, Goldberg Variations, Aria (Musopen version).ogg",
-      "kind": "music",
-      "use": "Home, sign in, settings, profile",
-      "max": 80
-    },
-    "music_game1": {
-      "file": "Maple Leaf Rag - played by Scott Joplin 1916 sample.ogg",
-      "kind": "music",
-      "use": "Game music: nature, animals, vocabulary, commerce, general",
-      "max": 80
-    },
-    "music_game2": {
-      "file": "Musopen - Morning.ogg",
-      "kind": "music",
-      "use": "Game music: music, instruments, India, history, civics, braille, accounting, random",
-      "max": 80
-    },
-    "music_game3": {
-      "file": "Musopen - In the Hall Of The Mountain King.ogg",
-      "kind": "music",
-      "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire",
-      "max": 80
-    },
-    "music_results": {
-      "file": "Mozart - Le nozze di Figaro, K492 - Overture (Musopen Symphony).flac",
-      "kind": "music",
-      "use": "Results screen",
-      "max": 60
-    },
-    "correct": {
-      "file": "406243 stubb typewriter-ding-near-mono.wav",
-      "kind": "sfx",
-      "use": "Correct answer",
-      "max": 1.1
-    },
-    "go": {
-      "file": "218318 splicesound referee-whistle-blow-gymnasium.wav",
-      "kind": "sfx",
-      "use": "GO! after the countdown",
-      "max": 1.6
-    },
-    "levelup": {
-      "file": "Band Call.ogg",
-      "kind": "sfx",
-      "use": "Level up (bugle call, U.S. Marine Band)",
-      "max": 4.7
-    },
-    "coin": {
-      "file": "Coins dropped in metallic moneybox 0.ogg",
-      "kind": "sfx",
-      "use": "XP and coins earned",
-      "max": 1.4
-    }
+  "music": {
+    "menu":    { "use": "Home, sign in, settings, profile", "max": 80 },
+    "game1":   { "use": "Game music: nature, animals, vocabulary, commerce, geography, birds, general, biology, medical", "max": 80 },
+    "game2":   { "use": "Game music: music, instruments, India, history, civics, braille, accounting, chemistry, random, Letters to Words", "max": 80 },
+    "game3":   { "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire, math, physics", "max": 80 },
+    "results": { "use": "Results screen", "max": 60 }
   }
 }

@@ -20,6 +20,7 @@ const cache = new Map();
 let music = null, musicSlot = null, fadeTimer = null, unlocked = false, wantedSlot = null;
 
 let pending = null;
+const versions = new Map(); // slot -> file size, appended to the URL so replaced recordings are never served stale
 // The manifest is cached once it loads; a failed load (e.g. offline) is retried on the next sound.
 async function manifest() {
   if (available) return available;
@@ -29,6 +30,7 @@ async function manifest() {
       if (!res.ok) return new Set();
       const data = await res.json();
       const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || TRACKS.includes(k)));
+      for (const k of found) versions.set(k, data.assets[k].bytes || 0);
       if (found.size) available = found;
       return found;
     } catch { return new Set(); } finally { pending = null; }
@@ -36,7 +38,7 @@ async function manifest() {
   return pending;
 }
 function element(slot) {
-  if (!cache.has(slot)) { const a = new Audio(`${BASE}${slot}.mp3`); a.preload = 'auto'; cache.set(slot, a); }
+  if (!cache.has(slot)) { const a = new Audio(`${BASE}${slot}.mp3${versions.get(slot) ? `?v=${versions.get(slot)}` : ''}`); a.preload = 'auto'; cache.set(slot, a); }
   return cache.get(slot);
 }
 
