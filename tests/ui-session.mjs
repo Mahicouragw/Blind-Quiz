@@ -91,7 +91,7 @@ console.log('ok 9 back navigation returns to Home');
   const cats=[...d.querySelectorAll('#category-list [data-category]')].map(b=>b.dataset.category);
   assert.equal(cats.length,20);
   for(const c of cats){d.querySelector('#view-results [data-go="home"]')?.click();go:{d.querySelector(`#category-list [data-category="${c}"]`).click()}await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,`${c} opens`);await play()}
-  for(const m of [...d.querySelectorAll('#mode-list [data-mode]')].map(b=>b.dataset.mode)){d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector(`#mode-list [data-mode="${m}"]`).click();await wait(5);await play()}
+  for(const m of [...d.querySelectorAll('#mode-list [data-mode]')].map(b=>b.dataset.mode).filter(m=>m!=='letters')){d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector(`#mode-list [data-mode="${m}"]`).click();await wait(5);await play()}
   d.querySelector('#play-again').click();await wait(5);await play();
   // Leave during the countdown, then start a different game straight away.
   d.querySelector('#view-results [data-go="home"]').click();await wait(5);
@@ -181,6 +181,94 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(d.activeElement.textContent,new RegExp(`^Incorrect\\. The correct answer is ${q2.correctAnswer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\..*Streak reset\\.`));
   globalThis.setTimeout=fast;
   console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
+}
+// 14. Profile Change: read-only User ID, username cooldown message, uniqueness error, current answer required, instant refresh.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  let server={name:'goldfish',loginId:'ABCD2345',secretQuestion:'What is your favorite color?',nameChangeCount:0,nextNameChangeAt:null,xp:90,coins:18,level:1,currentStreak:5,bestStreak:5,questionsAnswered:10,questionsCorrect:9,quizzesCompleted:1};
+  const bodies=[];
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:server,loginId:'ABCD2345'},fetchImpl:(u,init)=>{const b=init?.body?JSON.parse(init.body):{};
+    if(b.action==='update-profile'){bodies.push(b);if(b.currentAnswer!=='blue')return json(403,{ok:false,code:'wrong_answer'});if(b.name&&b.name.toLowerCase()==='shark')return json(409,{ok:false,code:'name_taken'});
+      const changed=[];if(b.name){server={...server,name:b.name,nameChangeCount:server.nameChangeCount+1,nextNameChangeAt:new Date(Date.now()+7*86400000).toISOString()};changed.push('name')}if(b.question){server={...server,secretQuestion:b.question};changed.push('question')}if(b.answer)changed.push('answer');return json(200,{ok:true,changed,profile:server})}
+    return json(200,{ok:true,profile:server})}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
+  $('#account-open').click();await wait(20);
+  assert(!$('#view-profile dl, #view-profile dt, #view-profile dd'),'no definition-list semantics on the profile');
+  const rows=[...d.querySelectorAll('#profile-stats li')].map(li=>li.textContent);
+  for(const r of ['Player, goldfish','Level, 1','XP, 90','Coins, 18','Current streak, 5','Best streak, 5','Questions answered, 10','Correct answers, 9, 90 percent'])assert(rows.includes(r),'profile row: '+r+' in '+JSON.stringify(rows));
+  assert(rows.some(r=>r.startsWith('User ID, ABCD2345')),'User ID row');
+  assert.equal($('#profile-change').hidden,false);assert.equal($('#profile-change').textContent,'Change');
+  $('#profile-change').click();await wait(20);
+  assert.equal($('#view-profile-edit').hidden,false);
+  assert.match($('#edit-userid').textContent,/User ID: ABCD2345A B C D 2 3 4 5\. Permanent, it cannot be changed\./);assert(!$('#edit-userid input'),'User ID is not an editable field');
+  assert.equal($('#edit-name').value,'goldfish');assert.match($('#edit-name-note').textContent,/change your username now.*after 7 days/);
+  assert.match($('#edit-question-note').textContent,/favorite color/);
+  $('#edit-name').value='Whale';$('#profile-edit-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await wait(20);
+  assert.match($('#edit-error').textContent,/current secret answer/);assert.equal(d.activeElement,$('#edit-current'));assert.equal(bodies.length,0,'nothing sent without the current answer');
+  $('#edit-name').value='SHARK';$('#edit-current').value='blue';$('#profile-edit-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await wait(20);
+  assert.equal($('#edit-error').textContent,'This username already exists. Please choose another one.');assert.equal(d.activeElement,$('#edit-name'));assert.equal($('#edit-name').getAttribute('aria-invalid'),'true');
+  $('#edit-name').value='Whale';$('#edit-current').value='green';$('#profile-edit-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await wait(20);
+  assert.match($('#edit-error').textContent,/incorrect/);
+  $('#edit-name').value='Whale';$('#edit-current').value='blue';$('#profile-edit-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));for(let i=0;i<40&&d.activeElement!==$('#profile-notice');i++)await wait(5);
+  assert.equal($('#view-profile').hidden,false,'back on the profile');assert.equal(d.activeElement,$('#profile-notice'),'focus on '+d.activeElement.id+' notice='+$('#profile-notice').textContent+' tab='+$('#profile-notice').tabIndex);
+  assert.match($('#profile-notice').textContent,/^Profile updated\. Your username is now Whale\..*again in 7 days, on /);
+  assert.equal($('#top-meta').textContent,'Signed in as Whale');assert([...d.querySelectorAll('#profile-stats li')].some(li=>li.textContent==='Player, Whale'),'profile shows the new name at once');
+  const ss=JSON.parse(t.w.sessionStorage.getItem('blindquiz.session.v1'));assert.equal(ss.profile.name,'Whale');assert.equal(ss.loginId,'ABCD2345');
+  for(const b of bodies)assert(Object.keys(b).every(k=>['action','currentAnswer','name','question','answer'].includes(k)),'only own-profile fields are sent; no user id');
+  $('#profile-change').click();await wait(20);
+  assert.equal($('#edit-name').readOnly,true,'username locked during the cooldown');assert.match($('#edit-name-note').textContent,/^You can change your username again in 7 days, on .+\. Until then your username stays Whale\./);
+  $('#edit-question').value='Who was your first teacher?';$('#edit-question').dispatchEvent(new t.w.Event('change'));$('#edit-current').value='blue';$('#profile-edit-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await wait(20);
+  assert.match($('#edit-error').textContent,/needs a new secret answer/);assert.equal(d.activeElement,$('#edit-answer'));
+  $('#edit-answer').value='Mrs Rao';$('#profile-edit-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await wait(30);
+  assert.match($('#profile-notice').textContent,/secret question was changed.*secret answer was changed/);assert(!bodies.at(-1).name,'locked username is not sent');
+  assert(!t.w.localStorage.getItem('blindquiz.remembered.v1')?.includes('Mrs Rao')&&!t.w.sessionStorage.getItem('blindquiz.session.v1').includes('Mrs Rao'),'secret answer never stored in the browser');
+  globalThis.setTimeout=fast;
+  console.log('ok 14 profile Change: read-only User ID, cooldown message, "This username already exists.", current answer required, profile refreshes instantly');
+}
+// 15. Letters to Words: real letter buttons, automatic word recognition, server rewards, invalid words, level progression.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const { solutionsFor, isPrefix }=await import(ROOT+'src/letters.js');
+  const p0={name:'goldfish',loginId:'ABCD2345',xp:90,coins:18,level:1,currentStreak:5,bestStreak:5,questionsAnswered:10,questionsCorrect:9};
+  const words=[];let xp=90;
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:p0,loginId:'ABCD2345'},fetchImpl:(u,init)=>{const b=init?.body?JSON.parse(init.body):{};
+    if(b.action==='record-word'){words.push(b);xp+=b.word.length-1;return json(200,{ok:true,valid:true,alreadyFound:false,xp:b.word.length-1,coins:1,profile:{...p0,xp,currentStreak:6}})}
+    return json(200,{ok:true,profile:p0})}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
+  assert(d.querySelector('#mode-list [data-mode="letters"]'),'Letters to Words is listed with the game modes');
+  $('#letters-open').click();await wait(20);
+  assert.equal($('#view-letters').hidden,false);assert(!d.querySelector('#view-letters input, #view-letters textarea'),'no typing anywhere in the game');
+  const tiles=()=>[...d.querySelectorAll('#letters-tiles .letter-tile')];
+  assert.equal(tiles().length,4,'level 1 has 4 letters');
+  for(const b of tiles()){assert.equal(b.tagName,'BUTTON');assert.match(b.getAttribute('aria-label'),/^Letter [A-Z]$/);assert.equal(b.getAttribute('aria-pressed'),'false')}
+  assert.match($('#letters-status').textContent,/^Level 1\. Your letters are [A-Z], [A-Z], [A-Z], [A-Z]\./);
+  const letters=()=>tiles().map(b=>b.textContent.toLowerCase());
+  const spellWord=async w=>{const used=new Set();for(const ch of w){const i=letters().findIndex((c,k)=>c===ch&&!used.has(k));used.add(i);tiles()[i].click();await wait(3)}await wait(20)};
+  // An invalid start is rejected and cleared.
+  const sols=solutionsFor(letters().join(''));let bad=null;
+  for(let i=0;i<4&&!bad;i++)for(let j=0;j<4&&!bad;j++)if(i!==j&&!isPrefix(letters()[i]+letters()[j],sols))bad=[i,j];
+  if(bad){tiles()[bad[0]].click();await wait(3);if(!/Not a valid word/.test($('#letters-status').textContent)){tiles()[bad[1]].click();await wait(3)}assert.match($('#letters-status').textContent,/Not a valid word\. Letters cleared/);assert(tiles().every(b=>b.getAttribute('aria-pressed')==='false'),'selection cleared')}
+  // First letter is announced as selected, then Remove last letter undoes it.
+  const first=sols[0];const i0=letters().indexOf(first[0]);tiles()[i0].click();await wait(3);
+  assert.equal(tiles()[i0].getAttribute('aria-pressed'),'true');assert.match($('#letters-status').textContent,new RegExp(`^${first[0].toUpperCase()} selected\\. Your word: ${first[0].toUpperCase()}\\.`));
+  $('#letters-remove').click();await wait(3);assert.equal(tiles()[i0].getAttribute('aria-pressed'),'false');
+  // Words are recognised automatically and rewarded by the server.
+  const goal=Number($('#letters-level').textContent.match(/Find (\d+) words/)[1]);
+  // Words that neither extend nor contain a shorter answer as a prefix (spelling BOOT also finds BOO on the way).
+  const targets=sols.filter(w=>!sols.some(x=>x!==w&&(x.startsWith(w)||w.startsWith(x)))).slice(0,goal);
+  const w1=targets[0];await spellWord(w1);
+  assert.match($('#letters-status').textContent,new RegExp(`^Word found: ${w1.toUpperCase()}\\. You earned ${w1.length-1} XP and 1 coin\\. Streak: 6\\.`));
+  assert.deepEqual(words[0],{action:'record-word',letters:words[0].letters,word:w1});assert.equal([...words[0].letters].sort().join(''),letters().sort().join(''));
+  assert([...d.querySelectorAll('#letters-found li')].some(li=>li.textContent===w1.toUpperCase()),'found list');
+  assert.equal($('#top-meta').textContent,'Signed in as goldfish');
+  for(const w of targets.slice(1))await spellWord(w);
+  await wait(40);
+  if(targets.length>=goal){assert.equal($('#letters-next').hidden,false,'next level opens when the goal is reached');assert.equal(d.activeElement,$('#letters-next'));assert.match($('#letters-status').textContent,/Level 1 complete!/);
+    $('#letters-next').click();await wait(20);assert.equal(tiles().length,5,'level 2 has 5 letters');assert.match($('#letters-level').textContent,/^Level 2\./)}
+  // Leaving the game and coming back keeps everything working.
+  d.querySelector('#view-letters [data-go="home"]').click();await wait(10);d.querySelector('#category-list [data-category="business"]').click();await wait(10);assert.equal($('#view-game').hidden,false);
+  globalThis.setTimeout=fast;
+  console.log(`ok 15 Letters to Words: letter buttons ("Letter X"), automatic recognition ("Word found"), server XP/coins, invalid words cleared, level ${targets.length>=goal?'progression':'goal'} verified`);
 }
 // Legal pages
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}

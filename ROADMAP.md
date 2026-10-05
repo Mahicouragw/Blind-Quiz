@@ -83,3 +83,22 @@ Owner approvals given during this task: apply an additive privilege-only Migrati
 - [x] Sign-in confusion: the profile screen was never reachable and the home button kept saying "Sign in or create account" after login, with only "goldfish · Login ID account" at the top. Now the top shows "Signed in as goldfish", the home button says "Your profile: goldfish" and opens a profile with level, XP, coins, streaks and accuracy, plus Log out.
 - [x] Recorded audio: `scripts/audio/commons-audio.mjs` + `audio-assets.yml`. It downloads pinned Wikimedia Commons recordings, re-verifies CC0/Public domain through the API, trims and normalises them with ffmpeg, and commits `assets/audio/*.mp3` + `manifest.json`. That's 13 files, about 4.7 MB. `src/audio.js` plays them with HTML audio elements (no Web Audio, no synthesis): bell (correct), buzzer (wrong), watch ticks + referee whistle (countdown), school bell (time up), applause / cheering (results), and music per screen and category group. Settings: Sound effects, Background music, Music volume. Music starts after the first tap, pauses in the background, and if a file is missing the game stays silent instead of failing.
 - [x] Tests: `tests/ui-session.mjs` now plays all 20 categories and 6 modes to the results screen. It also covers leaving mid-countdown and mid-timer, Play again, Surprise me, Braille, the signed-in profile, and which recorded sound plays for each event. `tests/smoke.mjs` checks the audio licences and files.
+
+## Task 11 - TalkBack, profile Change, Letters to Words (same session, same PR #5)
+
+- [x] **TalkBack bug, "Sign in…" read after answering:**
+  - Cause 1: every saved answer refreshed the header "Signed in as …", which was an `aria-live` region.
+  - Cause 2: the answer buttons were `disabled`, which dropped TalkBack focus.
+  - Fix: the header is not live and only changes when its text changes. Answer buttons use `aria-disabled`. Focus moves to the result (verdict, correct answer, XP, coins, streak, explanation), followed by Next question. Hidden views are `hidden` + `inert` + `aria-hidden`.
+- [x] **Profile semantics:** a plain list read as "Player, goldfish", "Level, 1", … "Correct answers, 9, 90 percent". The User ID is spoken letter by letter. There is no definition list any more.
+- [x] **Profile Change:**
+  - The User ID is read-only.
+  - Username, secret question and secret answer can be changed. The current secret answer is required (owner decision).
+  - Cooldown of 7/14/30/60 days, stored in the database: `name_change_count` and `name_changed_at`, enforced by `bq_change_name` under a row lock.
+  - Uniqueness is enforced by the existing UNIQUE `name_normalized` (case-insensitive, race-safe).
+  - The secret answer is re-hashed with a new salt, and other sessions are revoked.
+  - The profile refreshes immediately. Progress stays on the same profile id.
+- [x] **Letters to Words:** new game with a SCOWL dictionary of 17,461 words in 3 tiers, an offensive-word blocklist, 7 levels (4→7 letters) and generated puzzles that are always solvable. XP and coins are checked by the server: `record-word` checks the letters, and `bq_record_word` checks the dictionary and pays only on the first find.
+- [x] **Migration 013** (owner-approved, additive), applied by `apply-migration-013.yml` with static guards and verification. Migrations 001–012 are pinned by SHA-256 in `tests/smoke.mjs`.
+- [x] **blind-quiz-api** (owner-approved): new `update-profile` and `record-word` actions. The profile also returns the User ID, your own secret question and the cooldown. Live API checks: 47/47 (34 previous + 13 new).
+- [x] **QA:** jsdom scenarios 13–15 (TalkBack focus, profile Change, Letters to Words). The smoke test generates 60 puzzles per level and checks they are all solvable.

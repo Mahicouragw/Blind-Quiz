@@ -40,14 +40,15 @@
     <h2 id="collect">Information we collect</h2>
     <h3>When you create an account</h3>
     <ul>
-      <li><strong>Name</strong> you choose. It must be unique, so the app tells you if a name is already taken. Please do not use your full legal name if you prefer not to.</li>
+      <li><strong>Name</strong> you choose. It must be unique, so the app tells you if a name is already taken. Please do not use your full legal name if you prefer not to. You can change it on your Profile; we store how many times you have changed it and when you last did, so the waiting time between changes (7, 14, 30, then 60 days) can be applied.</li>
       <li><strong>Login ID</strong>: an eight-character code generated for you.</li>
-      <li><strong>Secret question</strong> you pick or write.</li>
+      <li><strong>Secret question</strong> you pick or write. You can change it, and your answer, on your Profile after confirming your current answer.</li>
       <li><strong>Secret answer</strong>: stored only as a salted, one-way cryptographic hash (PBKDF2). We cannot read it or send it back to you.</li>
     </ul>
     <h3>When you play while signed in</h3>
     <ul>
       <li><strong>Game progress</strong>: XP, coins, level, current and best streak, number of questions answered and answered correctly, and quizzes completed.</li>
+      <li><strong>Letters to Words records</strong>: each word you find while signed in, with the XP and coins it awarded and when, so each word rewards you only once.</li>
       <li><strong>Answer records</strong>: which question you answered, whether it was correct, the XP and coins awarded, and when. Your chosen answer text is checked and then discarded; it is not stored.</li>
       <li><strong>Sign-in sessions</strong>: when you sign in, a random session token is created. The server keeps only a hash of it, with its expiry time (7 days) and whether you signed out. Expired and signed-out sessions are deleted the next time you sign in.</li>
       <li><strong>Last sign-in time</strong> and the date your account was created.</li>
@@ -59,6 +60,7 @@
     <h3>Stored on your device only</h3>
     <ul>
       <li><strong>Settings</strong> (large text, high contrast, reduced motion, announcements, sound effects, music and music volume, timer) in your browser&rsquo;s local storage.</li>
+      <li><strong>Letters to Words level</strong> and recently played letter sets, in local storage, so the game continues at your level and does not repeat puzzles.</li>
       <li><strong>Remembered name and Login ID</strong> after you sign in, so the sign-in form can be filled in for you. Your secret answer is never saved on the device. Use <em>&ldquo;Not you? Forget this device&rdquo;</em> on the sign-in screen to remove them.</li>
       <li><strong>Session token</strong> in session storage. It lasts until you sign out or close the browser tab or the app, and is cleared automatically if the server reports it has expired.</li>
       <li><strong>Offline copy of the app</strong>: a service worker caches the game&rsquo;s own files and question pack so it loads quickly and works offline. It does not cache your account data.</li>

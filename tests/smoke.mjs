@@ -107,7 +107,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v7'"),'service worker cache is v7');
+assert(sw.includes("const CACHE='blind-quiz-shell-v8'"),'service worker cache is v8');
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
@@ -163,5 +163,20 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   const set=new Set(all);assert(block.every(w=>!set.has(w)),'no blocklisted word in the dictionary');
   assert(WORD_TIERS[0].split(' ').length>2000&&set.has('for')&&set.has('ford')&&!set.has('hes')&&!set.has('sex'),'tier 1 holds the common words');
   assert(existsSync(new URL('../WORDS_LICENSE.md',import.meta.url))&&(await readFile(new URL('../WORDS_LICENSE.md',import.meta.url),'utf8')).includes('Kevin Atkinson'),'SCOWL licence notice is shipped');
+}
+// Letters to Words: every generated puzzle is solvable, uses only the seed's letters, and grows harder.
+{
+  const { makePuzzle, LEVELS, fits, isWord }=await import('../src/letters.js');
+  let prev=0;
+  for(let level=1;level<=LEVELS.length+2;level++){
+    const rules=LEVELS[Math.min(level,LEVELS.length)-1];assert(rules.letters>=prev,'levels never get shorter');prev=rules.letters;
+    for(let i=0;i<60;i++){const p=makePuzzle(level);const L=p.letters.join('');
+      assert(p.letters.length===rules.letters&&p.solutions.length>=1&&p.common.length>=p.goal&&p.goal>=Math.min(rules.goal,p.common.length),`level ${level} puzzle ${L} is solvable with goal ${p.goal}`);
+      assert(p.solutions.every(w=>isWord(w)&&fits(w,L)&&w.length>=3),`level ${level}: answers use only the supplied letters`);}
+  }
+  const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+  assert(html.includes('id="view-letters"')&&html.includes('id="letters-tiles" role="group" aria-label="Letters"')&&!/id="view-letters"[\s\S]*?<input[\s\S]*?id="view-settings"/.test(html),'Letters to Words view has a letter group and no text inputs');
+  assert(html.includes('id="profile-change"')&&html.includes('id="edit-userid"')&&!html.includes('id="edit-userid"><input'),'profile Change screen with read-only User ID');
+  assert(!html.includes('<dl class="profile-stats"'),'profile stats are not a definition list');
 }
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);

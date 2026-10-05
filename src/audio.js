@@ -79,6 +79,7 @@ function fadeTo(target, ms, done) {
 
 export function musicFor(view, category, mode) {
   if (view === 'game') return GAME_TRACK[mode] && mode !== 'classic' ? GAME_TRACK[mode] : (GAME_TRACK[category] || 'music_game1');
+  if (view === 'letters') return 'music_game2';
   if (view === 'results') return 'music_results';
   return 'music_menu';
 }
