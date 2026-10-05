@@ -104,4 +104,9 @@ assert(main.includes('are already filled in. Type your secret answer to sign in.
 assert(main.includes("getRemembered()?'#login-answer':'#login-name'"),'focus goes straight to the secret answer when prefilled');
 const manifest=JSON.parse(await readFile(new URL('../manifest.webmanifest',import.meta.url),'utf8'));
 assert.equal(manifest.name.startsWith('Blind Quiz'),true);
+// Installable PWA stays intact alongside the Android wrapper.
+assert(manifest.display==='standalone'&&manifest.start_url&&manifest.scope&&manifest.icons?.length,'PWA manifest is installable');
+assert(html.includes('rel="manifest" href="manifest.webmanifest"')&&main.includes("navigator.serviceWorker.register('./sw.js')"),'PWA manifest link and service worker registration');
+const dart=await readFile(new URL('../android-app/lib/main.dart',import.meta.url),'utf8');
+assert(dart.includes("const String kLiveUrl = 'https://mahicouragw.github.io/Blind-Quiz/'")&&dart.includes("label: 'Reload to get the latest version'")&&dart.includes('_controller.reload()'),'Android wrapper loads the live URL and has an accessible Reload button');
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);
