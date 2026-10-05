@@ -120,7 +120,7 @@ const rest = async (path, init = {}) => {
   const text = await res.text(); let body; try { body = JSON.parse(text); } catch { body = text; }
   return { status: res.status, body };
 };
-const tablesToProbe = ['bq_profiles', 'bq_sessions', 'bq_questions', 'bq_answer_events', 'bq_rate_limits', 'bq_question_reports'];
+const tablesToProbe = ['bq_profiles', 'bq_sessions', 'bq_questions', 'bq_answer_events', 'bq_rate_limits', 'bq_question_reports', 'bq_words', 'bq_word_finds'];
 for (const t of tablesToProbe) {
   const r = await rest(`/rest/v1/${t}?select=*&limit=1`);
   const rows = Array.isArray(r.body) ? r.body.length : 0;
@@ -153,6 +153,8 @@ for (const [t, patch] of [['bq_profiles', { coins: 999999 }], ['bq_sessions', { 
 const rpcs = [
   ['bq_record_answer', { p_profile_id: '00000000-0000-0000-0000-000000000000', p_question_id: '__nope__', p_choice: 'x' }],
   ['bq_consume_attempt', { p_bucket: 'audit-probe', p_limit: 0, p_window_seconds: 1 }],
+  ['bq_change_name', { p_profile_id: '00000000-0000-0000-0000-000000000000', p_name: 'audit probe', p_normalized: 'audit probe' }],
+  ['bq_record_word', { p_profile_id: '00000000-0000-0000-0000-000000000000', p_word: 'for' }],
 ];
 for (const [fn, args] of rpcs) {
   const r = await rest(`/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });

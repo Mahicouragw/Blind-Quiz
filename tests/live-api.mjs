@@ -1,8 +1,9 @@
 // Live verification for the deployed blind-quiz-api Edge Function.
 //
 // Scope: signup, Login ID shape, login, Login ID recovery, logout + session
-// revocation, server-validated answer rewards, generic client errors, and rate
-// limiting.
+// revocation, server-validated answer rewards, generic client errors, rate
+// limiting, own-profile changes (username cooldown, uniqueness, secret change),
+// and server-verified Letters to Words rewards.
 //
 // Safety rules enforced by this file:
 //   * Uses only the PUBLIC publishable key that ships to browsers. It never
@@ -249,6 +250,49 @@ check('Revoked session cannot record answers', revokedReward.status === 401 && r
 const relogin = await post({ action: 'login', name: NAME, loginId, answer: ANSWER });
 check('A fresh login still works after logout', relogin.status === 200 && !!relogin.body?.token, `code ${codeOf(relogin)}`);
 if (relogin.body?.token) await post({ action: 'logout' }, { token: relogin.body.token });
+
+// --- 10. Profile changes (own profile only) and Letters to Words rewards. ----
+// Runs last because it renames the verification account and changes its secret answer.
+const OTHER_NAME = `BQ Other ${tokenish()}`;
+const other = await post({ action: 'signup', name: OTHER_NAME, question: QUESTION, answer: guard(`other-${hex(12)}`) });
+const session2 = await post({ action: 'login', name: NAME, loginId, answer: ANSWER });
+const tok = guard(session2.body?.token || '');
+const before = session2.body?.profile || {};
+check('Profile returns the read-only User ID and own secret question', before.loginId === loginId && before.secretQuestion === QUESTION && before.nameChangeCount >= 0, `loginId match=${before.loginId === loginId}`);
+const noAuthChange = await post({ action: 'update-profile', currentAnswer: ANSWER, name: `x${tokenish()}` });
+check('Profile change without a session is refused', noAuthChange.status === 401 && noAuthChange.body?.code === 'session_expired', `code ${codeOf(noAuthChange)}`);
+const wrongCurrent = await post({ action: 'update-profile', currentAnswer: WRONG_ANSWER, name: `BQ Renamed ${tokenish()}` }, { token: tok });
+check('Profile change needs the current secret answer', wrongCurrent.status === 403 && wrongCurrent.body?.code === 'wrong_answer', `code ${codeOf(wrongCurrent)}`);
+const takenChange = await post({ action: 'update-profile', currentAnswer: ANSWER, name: OTHER_NAME.toUpperCase() }, { token: tok });
+check('Username already used by another account is rejected (case-insensitive)', other.status === 201 && takenChange.status === 409 && takenChange.body?.code === 'name_taken', `code ${codeOf(takenChange)}`);
+const NEW_NAME = `BQ Renamed ${tokenish()}`;
+const renamed = await post({ action: 'update-profile', currentAnswer: ANSWER, name: NEW_NAME }, { token: tok });
+const rp = renamed.body?.profile || {};
+const days = rp.nextNameChangeAt ? (Date.parse(rp.nextNameChangeAt) - Date.now()) / 86400000 : 0;
+check('Username change keeps the same User ID and progress', renamed.status === 200 && rp.name === NEW_NAME && rp.loginId === loginId && rp.xp === before.xp && rp.coins === before.coins && rp.questionsAnswered === before.questionsAnswered, `status ${renamed.status}, code ${codeOf(renamed)}`);
+check('First username change starts a 7-day cooldown stored on the server', rp.nameChangeCount === 1 && days > 6.9 && days <= 7.01, `count=${rp.nameChangeCount}, days=${days.toFixed(2)}`);
+const tooSoon = await post({ action: 'update-profile', currentAnswer: ANSWER, name: `BQ Again ${tokenish()}` }, { token: tok });
+check('A second username change inside the cooldown is refused with the date', tooSoon.status === 409 && tooSoon.body?.code === 'name_cooldown' && Date.parse(tooSoon.body?.nextChangeAt) > Date.now(), `code ${codeOf(tooSoon)}`);
+const NEW_ANSWER = guard(`changed-${hex(12)}`), NEW_QUESTION = 'Who was your first teacher?';
+const secretChange = await post({ action: 'update-profile', currentAnswer: ANSWER, question: NEW_QUESTION, answer: NEW_ANSWER }, { token: tok });
+check('Secret question and answer can be changed', secretChange.status === 200 && secretChange.body?.profile?.secretQuestion === NEW_QUESTION && !secretChange.text.includes(NEW_ANSWER), `code ${codeOf(secretChange)}`);
+const loginNew = await post({ action: 'login', name: NEW_NAME.toLowerCase(), loginId, answer: NEW_ANSWER });
+const loginOldAnswer = await post({ action: 'login', name: NEW_NAME, loginId, answer: ANSWER });
+const loginOldName = await post({ action: 'login', name: NAME, loginId, answer: NEW_ANSWER });
+check('Login works with the new username and new answer; old ones are refused', loginNew.status === 200 && loginNew.body?.profile?.loginId === loginId && loginOldAnswer.status === 401 && loginOldName.status === 401, `${loginNew.status}/${loginOldAnswer.status}/${loginOldName.status}`);
+const wtok = guard(loginNew.body?.token || '');
+const word1 = await post({ action: 'record-word', letters: 'DROF', word: 'FOR' }, { token: wtok });
+const word2 = await post({ action: 'record-word', letters: 'DROF', word: 'FOR' }, { token: wtok });
+const wordBad = await post({ action: 'record-word', letters: 'DROF', word: 'ROD' }, { token: wtok });
+const wordFake = await post({ action: 'record-word', letters: 'DROF', word: 'DRO' }, { token: wtok });
+const wordLetters = await post({ action: 'record-word', letters: 'DROF', word: 'FOX' }, { token: wtok });
+check('Letters to Words: a real word earns XP and coins the first time', word1.body?.valid === true && word1.body.xp > 0 && word1.body.coins > 0 && word1.body.profile?.xp === loginNew.body.profile.xp + word1.body.xp, `xp=${word1.body?.xp}, coins=${word1.body?.coins}`);
+check('Letters to Words: finding the same word again pays nothing', word2.body?.valid === true && word2.body.alreadyFound === true && word2.body.xp === 0, `alreadyFound=${word2.body?.alreadyFound}`);
+check('Letters to Words: non-words and letters not in the puzzle are rejected', wordFake.body?.valid === false && wordFake.body.xp === 0 && wordLetters.status === 400 && wordLetters.body?.code === 'invalid_word' && wordBad.body?.valid === true, `${codeOf(wordFake)} valid=${wordFake.body?.valid}, ${codeOf(wordLetters)}`);
+for (const t of [tok, wtok]) if (t) await post({ action: 'logout' }, { token: t });
+const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters];
+check('Profile and word responses never contain hashes, salts, or the secret answers',
+  !/answer_hash|answer_salt|token_hash|name_normalized/.test(profileResponses.map(r => r.text).join('\n')) && !profileResponses.some(r => r.text.includes(ANSWER) || r.text.includes(NEW_ANSWER)));
 
 // --- 9. Response hygiene across every body received. --------------------------
 // Login responses legitimately carry the new session token, so they are the

@@ -31,8 +31,11 @@ async function consume(key:string,limit:number,window:number){const bucket=await
 async function permit(req:Request,scope:string,identity:string,limit=8,window=900){return consume(`${scope}|${ipOf(req)}|${identity}`,limit,window)}
 // IP-independent ceiling per account (or per action): rotating or spoofed IPs cannot multiply guesses against one account.
 async function permitAccount(scope:string,identity:string,limit:number,window:number){return consume(`${scope}|account|${identity}`,limit,window)}
-async function session(req:Request){const token=(req.headers.get('authorization')??'').replace(/^Bearer\s+/i,'').trim();if(token.length<35)return null;const tokenHash=await digest(token);const {data,error}=await admin.from('bq_sessions').select('id,profile_id,expires_at,revoked_at,bq_profiles(id,display_name,xp,coins,level,current_streak,best_streak,questions_answered,questions_correct,quizzes_completed)').eq('token_hash',tokenHash).gt('expires_at',new Date().toISOString()).is('revoked_at',null).maybeSingle();if(error||!data)return null;return {row:data,profile:Array.isArray(data.bq_profiles)?data.bq_profiles[0]:data.bq_profiles}}
-function publicProfile(p:any){return {name:p.display_name,xp:p.xp,coins:p.coins,level:p.level,currentStreak:p.current_streak,bestStreak:p.best_streak,questionsAnswered:p.questions_answered,questionsCorrect:p.questions_correct,quizzesCompleted:p.quizzes_completed}}
+// Own-profile fields only (never hashes or salts). Username cooldown after the 1st/2nd/3rd/4th+ change: 7/14/30/60 days, as in bq_name_cooldown_days.
+const PROFILE_COLS='id,display_name,login_id,secret_question,name_change_count,name_changed_at,xp,coins,level,current_streak,best_streak,questions_answered,questions_correct,quizzes_completed';
+const cooldownDays=(n:number)=>n<=0?0:n===1?7:n===2?14:n===3?30:60;
+async function session(req:Request){const token=(req.headers.get('authorization')??'').replace(/^Bearer\s+/i,'').trim();if(token.length<35)return null;const tokenHash=await digest(token);const {data,error}=await admin.from('bq_sessions').select(`id,profile_id,expires_at,revoked_at,bq_profiles(${PROFILE_COLS})`).eq('token_hash',tokenHash).gt('expires_at',new Date().toISOString()).is('revoked_at',null).maybeSingle();if(error||!data)return null;return {row:data,profile:Array.isArray(data.bq_profiles)?data.bq_profiles[0]:data.bq_profiles}}
+function publicProfile(p:any){const changes=p.name_change_count??0;return {name:p.display_name,loginId:p.login_id,secretQuestion:p.secret_question,nameChangeCount:changes,nextNameChangeAt:p.name_changed_at?new Date(Date.parse(p.name_changed_at)+cooldownDays(changes)*86400000).toISOString():null,xp:p.xp,coins:p.coins,level:p.level,currentStreak:p.current_streak,bestStreak:p.best_streak,questionsAnswered:p.questions_answered,questionsCorrect:p.questions_correct,quizzesCompleted:p.quizzes_completed}}
 async function handler(req:Request){
  const origin=req.headers.get('origin');if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors(origin)});if(req.method!=='POST')return json({ok:false,code:'method_not_allowed'},405,origin);if(origin&&!ALLOWED_ORIGINS.has(origin))return json({ok:false,code:'origin_not_allowed'},403,origin);
  const key=req.headers.get('apikey')??'';if(!key.startsWith('sb_publishable_'))return json({ok:false,code:'unauthorized'},401,origin);
@@ -70,7 +73,7 @@ async function handler(req:Request){
   if(body.action==='login'){
    const name=clean(body.name,40),normalized=normalize(name),loginId=clean(body.loginId,8).toUpperCase(),answer=clean(body.answer,120);if(normalized.length<2||loginId.length!==8||answer.length<2)return json({ok:false,code:'invalid_credentials'},401,origin);
    if(!await permit(req,'login',`${normalized}:${loginId}`,7,900)||!await permitAccount('login',`${normalized}:${loginId}`,20,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const {data:p}=await admin.from('bq_profiles').select('id,display_name,xp,coins,level,current_streak,best_streak,questions_answered,questions_correct,quizzes_completed,last_login_at,answer_salt,answer_hash').eq('name_normalized',normalized).eq('login_id',loginId).maybeSingle();
+   const {data:p}=await admin.from('bq_profiles').select(`${PROFILE_COLS},last_login_at,answer_salt,answer_hash`).eq('name_normalized',normalized).eq('login_id',loginId).maybeSingle();
    const candidate=await answerHash(answer,p?.answer_salt??'00000000000000000000000000000000');if(!p||!constantTimeEqual(candidate,p.answer_hash))return json({ok:false,code:'invalid_credentials'},401,origin);
    const firstLogin=!p.last_login_at,nowIso=new Date().toISOString();await admin.from('bq_sessions').delete().eq('profile_id',p.id).or(`expires_at.lt.${nowIso},revoked_at.not.is.null`);await admin.from('bq_profiles').update({last_login_at:new Date().toISOString()}).eq('id',p.id);const raw=tokenText(randomBytes(32)),tokenHash=await digest(raw),expiresAt=new Date(Date.now()+7*86400000).toISOString();const {error}=await admin.from('bq_sessions').insert({profile_id:p.id,token_hash:tokenHash,expires_at:expiresAt});if(error){console.error('Session create failed',error.code);return json({ok:false,code:'service_error'},500,origin)}return json({ok:true,firstLogin,token:raw,expiresAt,profile:publicProfile(p)},200,origin);
   }
@@ -80,6 +83,28 @@ async function handler(req:Request){
   if(body.action==='record-answer'){
    const questionId=clean(body.questionId,100),choice=clean(body.choice,250);if(!questionId||!choice)return json({ok:false,code:'invalid_request'},400,origin);if(!await permit(req,'answer',profileId,180,86400))return json({ok:false,code:'rate_limited'},429,origin);
    const {data,error}=await admin.rpc('bq_record_answer',{p_profile_id:profileId,p_question_id:questionId,p_choice:choice});if(error){console.error('Answer record failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return json({ok:true,...data},200,origin);
+  }
+  // Own profile only: the profile id always comes from the session, never from the request body. The current secret answer is required.
+  if(body.action==='update-profile'){
+   if(!await permitAccount('profile-change',profileId,6,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const current=clean(body.currentAnswer,120),name=clean(body.name,40),question=clean(body.question,120),answer=clean(body.answer,120);
+   if(current.length<2||(!name&&!answer)||(name&&normalize(name).length<2)||(question&&(question.length<8||!answer))||(answer&&answer.length<2))return json({ok:false,code:'invalid_request'},400,origin);
+   const {data:p}=await admin.from('bq_profiles').select('display_name,answer_salt,answer_hash').eq('id',profileId).single();
+   if(!p||!constantTimeEqual(await answerHash(current,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
+   const changed:string[]=[];
+   if(name&&name!==p.display_name){const {data:r,error}=await admin.rpc('bq_change_name',{p_profile_id:profileId,p_name:name,p_normalized:normalize(name)});if(error){console.error('Name change failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+    if(r?.code==='name_taken')return json({ok:false,code:'name_taken'},409,origin);if(r?.code==='name_cooldown')return json({ok:false,code:'name_cooldown',nextChangeAt:r.nextChangeAt},409,origin);if(r?.code!=='ok'&&r?.code!=='unchanged')return json({ok:false,code:'invalid_request'},400,origin);if(r.code==='ok')changed.push('name')}
+   if(answer){const saltHex=hex(randomBytes(16)),update:any={answer_salt:saltHex,answer_hash:await answerHash(answer,saltHex),updated_at:new Date().toISOString()};if(question)update.secret_question=question;const {error}=await admin.from('bq_profiles').update(update).eq('id',profileId);if(error){console.error('Secret update failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+    if(question)changed.push('question');changed.push('answer');await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('profile_id',profileId).neq('id',auth.row.id).is('revoked_at',null)}
+   const {data:fresh}=await admin.from('bq_profiles').select(PROFILE_COLS).eq('id',profileId).single();return json({ok:true,changed,profile:publicProfile(fresh)},200,origin);
+  }
+  // Letters to Words: the word must use only the puzzle letters; bq_record_word checks the dictionary and pays XP/coins on the first find only.
+  if(body.action==='record-word'){
+   const word=clean(body.word,20).toLowerCase(),letters=clean(body.letters,20).toLowerCase();if(!/^[a-z]{3,7}$/.test(word)||!/^[a-z]{4,9}$/.test(letters))return json({ok:false,code:'invalid_request'},400,origin);
+   const pool=[...letters];for(const ch of word){const i=pool.indexOf(ch);if(i<0)return json({ok:false,code:'invalid_word'},400,origin);pool.splice(i,1)}
+   if(!await permitAccount('word',profileId,400,86400))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data,error}=await admin.rpc('bq_record_word',{p_profile_id:profileId,p_word:word});if(error){console.error('Word record failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!data?.valid)return json({ok:true,valid:false,xp:0,coins:0},200,origin);return json({ok:true,valid:true,alreadyFound:data.alreadyFound,xp:data.xp,coins:data.coins,profile:{...publicProfile(auth.profile),...data.profile}},200,origin);
   }
   if(body.action==='submit-report'){
    const questionId=clean(body.questionId,100),reason=clean(body.reason,20),details=clean(body.details,500);if(!questionId||!['incorrect','ambiguous','language','duplicate','inappropriate','other'].includes(reason))return json({ok:false,code:'invalid_request'},400,origin);if(!await permitAccount('report',profileId,20,86400))return json({ok:false,code:'rate_limited'},429,origin);const {error}=await admin.from('bq_question_reports').insert({profile_id:profileId,question_id:questionId,reason,details});if(error)return json({ok:false,code:error.code==='23503'?'invalid_request':'service_error'},error.code==='23503'?400:503,origin);return json({ok:true},201,origin);
