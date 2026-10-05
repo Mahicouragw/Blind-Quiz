@@ -8,6 +8,17 @@ reloads, and the site's network-first service worker serves the newest files.
 The installable PWA keeps working independently: open the site in Chrome and choose
 "Install app" / "Add to Home screen".
 
+## Security
+
+- Only `https://mahicouragw.github.io/Blind-Quiz/...` loads inside the app; other HTTPS links open in the
+  system browser and every other scheme (http, file, intent, javascript, data, ...) is blocked.
+- Release builds disable WebView remote debugging and file access; the manifest sets
+  `usesCleartextTraffic="false"` and `allowBackup="false"`. The only permission is `INTERNET`
+  (verified by the workflow on every signed APK).
+- Reload clears only the HTTP cache. Web storage is kept, so a still-valid sign-in session survives;
+  the site re-checks it with the server and shows Sign In when it has expired. Success and failure
+  are announced to TalkBack.
+
 ## Building
 
 The APK is built in GitHub Actions by `.github/workflows/build-android.yml`
