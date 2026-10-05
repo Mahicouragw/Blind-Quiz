@@ -180,8 +180,14 @@ const noSession = await fn({ action: 'record-answer', questionId: 'bq-en-0001', 
 if (noSession.status === 401) info('Unauthenticated answer', 'rejected (401)'); else finding('HIGH', 'Unauthenticated answer accepted', `HTTP ${noSession.status}`);
 const idor = await fn({ action: 'record-answer', questionId: 'bq-en-0001', choice: 'x', profileId: '00000000-0000-0000-0000-000000000000', p_profile_id: '00000000-0000-0000-0000-000000000000' });
 if (idor.status === 401) info('IDOR via body profile id', 'ignored; session required (401)'); else finding('HIGH', 'IDOR', `HTTP ${idor.status}`);
+const authSignup = await fetch(`${SUPABASE_URL}/auth/v1/signup`, { method: 'POST', headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `audit-${Date.now()}@example.invalid`, password: 'Audit-' + Math.random().toString(36).slice(2) + 'X9!' }) });
+if (authSignup.status >= 400) info('Supabase Auth signup', `rejected for the public (HTTP ${authSignup.status})`); else finding('MEDIUM', 'Supabase Auth signup open', `POST /auth/v1/signup returned HTTP ${authSignup.status}`);
+const removed = await fetch(`${SUPABASE_URL}/functions/v1/smooth-processor`, { method: 'POST', headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' }, body: '{}' });
+info('Removed function smooth-processor', `HTTP ${removed.status}`);
+const report = await fn({ action: 'submit-report', questionId: 'bq-en-0001', reason: 'other' });
+if (report.status === 401) info('Unauthenticated report', 'rejected (401)'); else finding('MEDIUM', 'Unauthenticated report accepted', `HTTP ${report.status}`);
 const hdr = noSession.headers;
-info('Function response headers', `cache-control=${hdr.get('cache-control')} acao=${hdr.get('access-control-allow-origin')}`);
+info('Function response headers', `cache-control=${hdr.get('cache-control')} acao=${hdr.get('access-control-allow-origin')} nosniff=${hdr.get('x-content-type-options')}`);
 
 // ---------------------------------------------------------------- Summary
 if (GH) {
