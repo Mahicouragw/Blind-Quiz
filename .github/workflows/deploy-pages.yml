@@ -2,7 +2,7 @@ name: Deploy Blind Quiz to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/**']
   workflow_dispatch:
 
 permissions:
