@@ -1,4 +1,4 @@
-name: Recorded audio assets (Mixkit sound effects, Pixabay music)
+name: Recorded audio assets (Mixkit sound effects, OpenGameArt and Pixabay music)
 
 # Downloads the Mixkit sound effects pinned in scripts/audio/sources.json (Sound Effects Free License),
 # encodes any Pixabay music uploaded by hand to assets/audio/incoming/, regenerates manifest.json and
@@ -33,6 +33,8 @@ jobs:
           node-version: 22
       - name: Install ffmpeg
         run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: List OpenGameArt music candidates (licence and files)
+        run: node --no-warnings scripts/audio/stock-audio.mjs --list
       - name: Download, encode and document recordings
         run: node --no-warnings scripts/audio/stock-audio.mjs
       - name: Commit encoded audio

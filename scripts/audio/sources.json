@@ -1,21 +1,120 @@
 {
   "sfx": {
-    "correct":  { "mixkitId": 2870, "title": "Correct answer tone",             "category": "game-show",    "use": "Correct answer",            "max": 1.5 },
-    "wrong":    { "mixkitId": 948,  "title": "Wrong answer bass buzzer",        "category": "wrong",        "use": "Wrong answer",              "max": 1.2 },
-    "tick":     { "mixkitId": 1061, "title": "Clock ticker single",             "category": "clock",        "use": "Countdown 3-2-1",           "max": 0.4 },
-    "go":       { "mixkitId": 615,  "title": "Police short whistle",            "category": "whistle",      "use": "GO! after the countdown",   "max": 1.6 },
-    "timeup":   { "mixkitId": 1791, "title": "Cooking bell ding",               "category": "bell",         "use": "Time is up",                "max": 2.5 },
-    "applause": { "mixkitId": 518,  "title": "Small group cheer and applause",  "category": "applause",     "use": "Round complete",            "max": 6 },
-    "cheer":    { "mixkitId": 462,  "title": "Huge crowd cheering victory",     "category": "win",          "use": "Perfect round",             "max": 7 },
-    "click":    { "mixkitId": 1109, "title": "Select click",                    "category": "click",        "use": "Get ready / start",         "max": 0.5 },
-    "levelup":  { "mixkitId": 226,  "title": "Medieval show fanfare announcement", "category": "win",       "use": "Level up",                  "max": 4.7 },
-    "coin":     { "mixkitId": 1993, "title": "Clinking coins",                  "category": "coin",         "use": "XP and coins earned",       "max": 1.4 }
+    "correct": {
+      "mixkitId": 2870,
+      "title": "Correct answer tone",
+      "category": "game-show",
+      "use": "Correct answer",
+      "max": 1.5
+    },
+    "wrong": {
+      "mixkitId": 948,
+      "title": "Wrong answer bass buzzer",
+      "category": "wrong",
+      "use": "Wrong answer",
+      "max": 1.2
+    },
+    "tick": {
+      "mixkitId": 1061,
+      "title": "Clock ticker single",
+      "category": "clock",
+      "use": "Countdown 3-2-1",
+      "max": 0.4
+    },
+    "go": {
+      "mixkitId": 615,
+      "title": "Police short whistle",
+      "category": "whistle",
+      "use": "GO! after the countdown",
+      "max": 1.6
+    },
+    "timeup": {
+      "mixkitId": 1791,
+      "title": "Cooking bell ding",
+      "category": "bell",
+      "use": "Time is up",
+      "max": 2.5
+    },
+    "applause": {
+      "mixkitId": 518,
+      "title": "Small group cheer and applause",
+      "category": "applause",
+      "use": "Round complete",
+      "max": 6
+    },
+    "cheer": {
+      "mixkitId": 462,
+      "title": "Huge crowd cheering victory",
+      "category": "win",
+      "use": "Perfect round",
+      "max": 7
+    },
+    "click": {
+      "mixkitId": 1109,
+      "title": "Select click",
+      "category": "click",
+      "use": "Get ready / start",
+      "max": 0.5
+    },
+    "levelup": {
+      "mixkitId": 226,
+      "title": "Medieval show fanfare announcement",
+      "category": "win",
+      "use": "Level up",
+      "max": 4.7
+    },
+    "coin": {
+      "mixkitId": 1993,
+      "title": "Clinking coins",
+      "category": "coin",
+      "use": "XP and coins earned",
+      "max": 1.4
+    }
   },
   "music": {
-    "menu":    { "use": "Home, sign in, settings, profile", "max": 80 },
-    "game1":   { "use": "Game music: nature, animals, vocabulary, commerce, geography, birds, general, biology, medical", "max": 80 },
-    "game2":   { "use": "Game music: music, instruments, India, history, civics, braille, accounting, chemistry, random, Letters to Words", "max": 80 },
-    "game3":   { "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire, math, physics", "max": 80 },
-    "results": { "use": "Results screen", "max": 60 }
-  }
+    "menu": {
+      "use": "Home, sign in, settings, profile",
+      "max": 80
+    },
+    "game1": {
+      "use": "Game music: nature, animals, vocabulary, commerce, geography, birds, general, biology, medical",
+      "max": 80
+    },
+    "game2": {
+      "use": "Game music: music, instruments, India, history, civics, braille, accounting, chemistry, random, Letters to Words",
+      "max": 80
+    },
+    "game3": {
+      "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire, math, physics",
+      "max": 80
+    },
+    "results": {
+      "use": "Results screen",
+      "max": 60
+    }
+  },
+  "ogaCandidates": [
+    "https://opengameart.org/content/the-field-of-dreams",
+    "https://opengameart.org/content/caketown-cuteplayful",
+    "https://opengameart.org/content/path-to-lake-land",
+    "https://opengameart.org/content/feel-good-island",
+    "https://opengameart.org/content/childrens-march-theme",
+    "https://opengameart.org/content/soliloquy",
+    "https://opengameart.org/content/woodland-fantasy",
+    "https://opengameart.org/content/town-theme-rpg",
+    "https://opengameart.org/content/crystal-cave-song18",
+    "https://opengameart.org/content/another-space-background-track",
+    "https://opengameart.org/content/menu-music",
+    "https://opengameart.org/content/loading-screen-loop",
+    "https://opengameart.org/content/mystical-theme",
+    "https://opengameart.org/content/no-more-magic",
+    "https://opengameart.org/content/cyberpunk-moonlight-sonata",
+    "https://opengameart.org/content/4-chiptunes-adventure",
+    "https://opengameart.org/content/5-chiptunes-action",
+    "https://opengameart.org/content/free-music-pack",
+    "https://opengameart.org/content/short-loops-background-music-pack",
+    "https://opengameart.org/content/menu-loop",
+    "https://opengameart.org/content/funky-menu-loop",
+    "https://opengameart.org/content/heroic-demise-updated-version"
+  ]
 }
