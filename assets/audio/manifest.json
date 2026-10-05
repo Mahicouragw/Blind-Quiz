@@ -1,0 +1,127 @@
+{
+  "generated": "2026-10-05",
+  "policy": "Recorded audio only; Wikimedia Commons files licensed CC0 or Public domain, verified through the Commons API at download time.",
+  "assets": {
+    "wrong": {
+      "file": "assets/audio/wrong.mp3",
+      "kind": "sfx",
+      "use": "Wrong answer",
+      "title": "Buzzer.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Buzzer.ogg",
+      "creator": "BlastOButter42",
+      "licence": "Public domain",
+      "duration": 1,
+      "bytes": 10755
+    },
+    "tick": {
+      "file": "assets/audio/tick.mp3",
+      "kind": "sfx",
+      "use": "Countdown 3-2-1",
+      "title": "Watch tick.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Watch_tick.ogg",
+      "creator": "Marble Toast",
+      "licence": "CC0",
+      "duration": 0.2,
+      "bytes": 1874
+    },
+    "timeup": {
+      "file": "assets/audio/timeup.mp3",
+      "kind": "sfx",
+      "use": "Time is up",
+      "title": "Old school bell 4.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Old_school_bell_4.ogg",
+      "creator": "ezwa",
+      "licence": "Public domain",
+      "duration": 2.5,
+      "bytes": 25645
+    },
+    "applause": {
+      "file": "assets/audio/applause.mp3",
+      "kind": "sfx",
+      "use": "Round complete",
+      "title": "Applause ii.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Applause_ii.ogg",
+      "creator": "thore",
+      "licence": "Public domain",
+      "duration": 6,
+      "bytes": 60649
+    },
+    "cheer": {
+      "file": "assets/audio/cheer.mp3",
+      "kind": "sfx",
+      "use": "Perfect round",
+      "title": "Clapping hurray.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Clapping_hurray.ogg",
+      "creator": "starlite",
+      "licence": "Public domain",
+      "duration": 7,
+      "bytes": 70576
+    },
+    "click": {
+      "file": "assets/audio/click.mp3",
+      "kind": "sfx",
+      "use": "Get ready / start",
+      "title": "Computer mouse single click.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Computer_mouse_single_click.ogg",
+      "creator": "Darklanlan",
+      "licence": "CC0",
+      "duration": 0.5,
+      "bytes": 5792
+    },
+    "music_menu": {
+      "file": "assets/audio/music_menu.mp3",
+      "kind": "music",
+      "use": "Home, sign in, settings, profile",
+      "title": "Bach, Goldberg Variations, Aria (Musopen version).ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Bach%2C_Goldberg_Variations%2C_Aria_(Musopen_version).ogg",
+      "creator": "Johann Sebastian Bach",
+      "licence": "CC0",
+      "duration": 80,
+      "bytes": 960828
+    },
+    "music_game1": {
+      "file": "assets/audio/music_game1.mp3",
+      "kind": "music",
+      "use": "Game music: nature, animals, vocabulary, commerce, general",
+      "title": "Maple Leaf Rag - played by Scott Joplin 1916 sample.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Maple_Leaf_Rag_-_played_by_Scott_Joplin_1916_sample.ogg",
+      "creator": "Scott Joplin",
+      "licence": "Public domain",
+      "duration": 80,
+      "bytes": 960828
+    },
+    "music_game2": {
+      "file": "assets/audio/music_game2.mp3",
+      "kind": "music",
+      "use": "Game music: music, instruments, India, history, civics, braille, accounting, random",
+      "title": "Musopen - Morning.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Musopen_-_Morning.ogg",
+      "creator": "Grieg, Edvard; Musopen Symphony Orchestra",
+      "licence": "Public domain",
+      "duration": 80,
+      "bytes": 960828
+    },
+    "music_game3": {
+      "file": "assets/audio/music_game3.mp3",
+      "kind": "music",
+      "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire",
+      "title": "Musopen - In the Hall Of The Mountain King.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Musopen_-_In_the_Hall_Of_The_Mountain_King.ogg",
+      "creator": "Grieg, Edvard; Musopen Symphony Orchestra",
+      "licence": "Public domain",
+      "duration": 80,
+      "bytes": 960828
+    },
+    "music_results": {
+      "file": "assets/audio/music_results.mp3",
+      "kind": "music",
+      "use": "Results screen",
+      "title": "Mozart - Le nozze di Figaro, K492 - Overture (Musopen Symphony).flac",
+      "source": "https://commons.wikimedia.org/wiki/File:Mozart_-_Le_nozze_di_Figaro%2C_K492_-_Overture_(Musopen_Symphony).flac",
+      "creator": "Wolfgang Amadeus Mozart",
+      "licence": "Public domain",
+      "duration": 60,
+      "bytes": 720981
+    }
+  }
+}
