@@ -122,3 +122,9 @@ Owner approvals given during this task: apply an additive privilege-only Migrati
 - [x] **Profile level-ups in every game:** the server raises the profile level every 100 XP. The quiz and Letters to Words now detect it, play the coin and level-up sounds, and say "Level up! You reached Level N." Quiz results also say the XP and coins earned in the round.
 - [x] **Audio:** new recorded `levelup` and `coin` effects (Wikimedia Commons, public domain, encoded by the audio workflow). `playSequence` plays effects one after another and lowers the music while they play, so sounds never pile up.
 - [x] **Tests:** smoke checks for the level design, XP scale and sounds. jsdom scenario 17 checks the automatic level-up (applause, then the bugle, announcement, 5-letter level, focus). Scenario 15 checks the round result. Service worker cache v11.
+
+## Task 15 - Five new categories, Mixkit/Pixabay audio, sighted-player visuals (same session, same PR #5)
+
+Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only; Mixkit music is not licensed for games); Migration 015 approved.
+
+- [x] **15.1 Five new categories:** Medical, Math, Physics, Chemistry, Biology with 20 questions each (`bq-en-1067`-`bq-en-1166`, `MIGRATION_015_ROWS`). No repeated prompts or repeated facts across all 825 questions; 4 unique options with one correct answer. Migration 015 (insert-only, `on conflict (id) do nothing`) is applied by `apply-migration-015.yml` (preflight requires Migration 011 with its fingerprint; verifies 20 rows in each of the 5 categories). Live check `scripts/check-migration-015-live.mjs` confirms they award XP and coins. Migration 014 is now pinned by SHA-256 too.

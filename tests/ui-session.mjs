@@ -91,7 +91,7 @@ console.log('ok 9 back navigation returns to Home');
     for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.answer-button:not([aria-disabled])')?.click();await wait(5);d.querySelector('.next-question')?.click();await wait(5)}
     assert.equal(d.querySelector('#view-results').hidden,false,'round reaches results')};
   const cats=[...d.querySelectorAll('#category-list [data-category]')].map(b=>b.dataset.category);
-  assert.equal(cats.length,20);
+  assert.equal(cats.length,25);for(const c of ['medical','math','physics','chemistry','biology'])assert(cats.includes(c),`${c} category listed`);
   for(const c of cats){d.querySelector('#view-results [data-go="home"]')?.click();go:{d.querySelector(`#category-list [data-category="${c}"]`).click()}await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,`${c} opens`);await play()}
   for(const m of [...d.querySelectorAll('#mode-list [data-mode]')].map(b=>b.dataset.mode).filter(m=>m!=='letters')){d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector(`#mode-list [data-mode="${m}"]`).click();await wait(5);await play()}
   d.querySelector('#play-again').click();await wait(5);await play();

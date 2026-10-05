@@ -11,6 +11,7 @@ const GAME_TRACK = {
   science: 'music_game3', technology: 'music_game3', geography: 'music_game1', india: 'music_game2', history: 'music_game2',
   sports: 'music_game3', civics: 'music_game2', economics: 'music_game3', abbreviations: 'music_game3', vocabulary: 'music_game1',
   braille: 'music_game2', management: 'music_game3', business: 'music_game3', accounting: 'music_game2', commerce: 'music_game1',
+  medical: 'music_game1', math: 'music_game3', physics: 'music_game3', chemistry: 'music_game2', biology: 'music_game1',
   general: 'music_game1', rapid: 'music_game3', random: 'music_game2',
 };
 const prefs = { sfx: true, music: true, sfxVolume: 0.8, musicVolume: 0.25 };

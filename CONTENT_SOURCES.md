@@ -41,3 +41,7 @@ See `AUDIO_LICENSES.md`. No third-party recordings, generated effects, or music 
 ## Migration 011 (bq-en-0867 to bq-en-1066)
 
 200 more questions, 10 in each of the 20 categories, in the same row format with the same category references (https URLs). Every prompt was checked against all 525 earlier prompts for duplicates; `tests/smoke.mjs` enforces no duplicate prompts across all 725 questions.
+
+## Migration 015 (bq-en-1067 to bq-en-1166)
+
+100 questions in five new categories, 20 each: Medical, Math, Physics, Chemistry and Biology. Same row format; every row's `sourceNote` names its reference (MedlinePlus and WHO fact sheets; OpenStax Prealgebra, Elementary Algebra, College Physics, Chemistry 2e and Biology 2e; NIST SI units; IUPAC periodic table). Every prompt was checked against all 725 earlier questions: no repeated prompts, and questions that would repeat a fact already asked in Science or Nature were replaced. Each question has 4 unique options including exactly one correct answer, and the game shuffles option positions every round.

@@ -6,10 +6,13 @@ import { shuffled } from '../src/random.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
-assert.equal(QUESTION_BANK.length,725,'73 starter plus 652 expansion questions (252 in Migration 009, 200 in Migration 010, 200 in Migration 011)');
+assert.equal(QUESTION_BANK.length,825,'73 starter plus 752 expansion questions (252 in Migration 009, 200 in Migration 010, 200 in Migration 011, 100 in Migration 015)');
 assert.equal(MIGRATION_009_COUNT,252,'Migration 009 keeps its 252 rows');
-assert.equal(CATEGORY_LIST.length,20,'all established categories');
-for(const category of CATEGORY_LIST){
+assert.equal(CATEGORY_LIST.length,25,'20 established categories plus Medical, Math, Physics, Chemistry and Biology');
+const NEW_CATS=['medical','math','physics','chemistry','biology'];
+assert.deepEqual(CATEGORY_LIST.slice(20).map(c=>c.id),NEW_CATS,'five new categories');
+for(const c of CATEGORY_LIST.slice(20))assert.equal(c.count,20,`${c.id} has 20 questions`);
+for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(STARTER_QUESTION_COUNT,STARTER_QUESTION_COUNT+252).filter(q=>q.category===category.id);
   const expected=category.id==='braille'?24:12;
   assert.equal(added.length,expected,`${category.id} has ${expected} Migration 009 questions`);
@@ -19,16 +22,18 @@ assert.equal(QUESTION_BANK[324].id,'bq-en-0666','final Migration 009 ID');
 assert.equal(QUESTION_BANK[325].id,'bq-en-0667','first Migration 010 ID');
 assert.equal(QUESTION_BANK[524].id,'bq-en-0866','final Migration 010 ID');
 assert.equal(QUESTION_BANK[525].id,'bq-en-0867','first Migration 011 ID');
-assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1066','final expansion ID');
-assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,652,'652 expansion questions');
-for(const category of CATEGORY_LIST){
+assert.equal(QUESTION_BANK[724].id,'bq-en-1066','final Migration 011 ID');
+assert.equal(QUESTION_BANK[725].id,'bq-en-1067','first Migration 015 ID');
+assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1166','final expansion ID');
+assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,752,'752 expansion questions');
+for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(325,525).filter(q=>q.category===category.id);
   assert.equal(added.length,10,`${category.id} has 10 Migration 010 questions`);
-  const added011=QUESTION_BANK.slice(525).filter(q=>q.category===category.id);
+  const added011=QUESTION_BANK.slice(525,725).filter(q=>q.category===category.id);
   assert.equal(added011.length,10,`${category.id} has 10 Migration 011 questions`);
 }
 const normPrompt=s=>s.toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 725 questions');
+assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 825 questions');
 const ids=new Set(QUESTION_BANK.map(q=>q.id));
 assert.equal(ids.size,QUESTION_BANK.length,'unique stable question ids');
 for(const q of QUESTION_BANK.slice(STARTER_QUESTION_COUNT))assert.match(q.sourceNote,/https:\/\//,`${q.id} source note`);
@@ -87,6 +92,14 @@ assert.equal(m011Ids[0],'bq-en-0867','Migration 011 starts at bq-en-0867');
 assert.equal(m011Ids.at(-1),'bq-en-1066','Migration 011 ends at bq-en-1066');
 assert.equal((migration011.match(/ on conflict \(id\) do nothing;/g)||[]).length,200,'Migration 011 is additive and re-runnable');
 assert(!/\b(create|alter|drop|truncate|delete|update)\s/i.test(migration011.replace(/'(?:[^']|'')*'/g,"''").replace(/--[^\n]*/g,'')),'Migration 011 contains no schema or destructive statements');
+const migration015=await readFile(new URL('../supabase/migrations/202610050015_add_five_categories.sql',import.meta.url),'utf8');
+const m015Ids=[...migration015.matchAll(/values \('(bq-en-\d{4})','([a-z]+)'/g)];
+assert.equal(m015Ids.length,100,'Migration 015 inserts exactly 100 rows');
+assert.equal(m015Ids[0][1],'bq-en-1067');assert.equal(m015Ids.at(-1)[1],'bq-en-1166');
+assert(m015Ids.every(m=>NEW_CATS.includes(m[2])),'Migration 015 only adds the five new categories');
+assert.equal((migration015.match(/ on conflict \(id\) do nothing;/g)||[]).length,100,'Migration 015 is additive and re-runnable');
+assert(!/\b(create|alter|drop|truncate|delete|update|grant|revoke)\s/i.test(migration015.replace(/'(?:[^']|'')*'/g,"''").replace(/--[^\n]*/g,'')),'Migration 015 contains no schema or destructive statements');
+for(const q of QUESTION_BANK.slice(725)){assert.equal(new Set(q.answers).size,4,`${q.id} has 4 unique options`);assert(q.answers.includes(q.correctAnswer),`${q.id} includes its answer`);assert(/https:\/\//.test(q.sourceNote),`${q.id} has a source`)}
 const fn=await readFile(new URL('../supabase/functions/blind-quiz-api/index.ts',import.meta.url),'utf8');
 for(const term of ['PBKDF2','310000','name_taken','loginId','bq_consume_attempt','token_hash','record-answer'])assert(fn.includes(term),`server feature ${term}`);
 assert.equal((fn.match(/^import \{ createClient \}/gm)||[]).length,1,'one Supabase client import');
@@ -145,10 +158,10 @@ assert(fn.includes("permitAccount('login'")&&fn.includes("permitAccount('recover
 assert(dart.includes('NavDecision classifyNavigation(')&&dart.includes("if (uri.scheme != 'https') return NavDecision.block;")&&dart.includes('LaunchMode.externalApplication'),'Android wrapper: HTTPS-only allowlist, external links open in the browser');
 assert(dart.includes('AndroidWebViewController.enableDebugging(kDebugMode)')&&dart.includes('setAllowFileAccess(false)'),'Android wrapper: no WebView debugging in release, no file access');
 assert(dart.includes("Reload failed. Check your internet connection, then try again.")&&!dart.includes('clearLocalStorage'),'Android Reload reports failures and keeps web storage (session)');
-// Migrations 001-013 are applied remotely and must stay byte-identical.
+// Migrations 001-014 are applied remotely and must stay byte-identical.
 {
   const { createHash }=await import('node:crypto');
-  const pinned={'202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6','202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58','202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138','202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1','202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075','202610050013_profile_changes_and_words.sql':'a959267f4b2eb9afe580280e22cd719022ca135196c892cf1e5ee670a0caead5'};
+  const pinned={'202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6','202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58','202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138','202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1','202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075','202610050014_two_letter_words.sql':'5af7511582affd95e7804bb731a7f23ebc3aa15b2e113ad15ffd020d5bd7b417','202610050013_profile_changes_and_words.sql':'a959267f4b2eb9afe580280e22cd719022ca135196c892cf1e5ee670a0caead5'};
   for(const [f,h] of Object.entries(pinned))assert(createHash('sha256').update(await readFile(new URL('../supabase/migrations/'+f,import.meta.url))).digest('hex')===h,`migration ${f} must stay byte-identical`);
 }
 // Letters to Words dictionary: real SCOWL words, clean, and identical in the game and in the server seed (Migration 013).

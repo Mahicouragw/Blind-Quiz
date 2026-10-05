@@ -39,3 +39,6 @@ jobs:
       - name: Migration 011 questions award XP and coins
         if: ${{ !cancelled() }}
         run: node --no-warnings scripts/check-migration-011-live.mjs
+      - name: Migration 015 questions award XP and coins
+        if: ${{ !cancelled() }}
+        run: node --no-warnings scripts/check-migration-015-live.mjs
