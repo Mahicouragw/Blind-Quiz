@@ -26,6 +26,10 @@ jobs:
           node-version: 22
       - name: Run validation tests
         run: npm test
+      - name: Run behavioural UI tests (jsdom)
+        run: |
+          npm i --no-save --no-package-lock jsdom@24
+          node --no-warnings tests/ui-session.mjs
       - name: Build static site
         run: npm run build
       - name: Configure GitHub Pages

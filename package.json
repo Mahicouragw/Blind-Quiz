@@ -7,6 +7,7 @@
     "test": "node --no-warnings tests/smoke.mjs && node --no-warnings scripts/check-function-source.mjs",
     "test:a11y": "node --no-warnings tests/smoke.mjs",
     "test:function": "node --no-warnings scripts/check-function-source.mjs",
+    "test:ui": "node --no-warnings tests/ui-session.mjs",
     "test:live": "node --no-warnings tests/live-api.mjs",
     "validate:content": "node scripts/export-seed.mjs",
     "build": "node scripts/build.mjs",

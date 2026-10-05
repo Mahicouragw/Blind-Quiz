@@ -99,7 +99,8 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v4'"),'service worker cache is v4');
+assert(sw.includes("const CACHE='blind-quiz-shell-v5'"),'service worker cache is v5');
+assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
 assert(sw.includes('.catch(')&&swCatch.includes('caches.match(req)')&&swCatch.includes("caches.match('./index.html')"),'offline .catch() fallback to cache and ./index.html still exists');
@@ -120,4 +121,17 @@ assert(manifest.display==='standalone'&&manifest.start_url&&manifest.scope&&mani
 assert(html.includes('rel="manifest" href="manifest.webmanifest"')&&main.includes("navigator.serviceWorker.register('./sw.js')"),'PWA manifest link and service worker registration');
 const dart=await readFile(new URL('../android-app/lib/main.dart',import.meta.url),'utf8');
 assert(dart.includes("const String kLiveUrl = 'https://mahicouragw.github.io/Blind-Quiz/'")&&dart.includes("label: 'Reload to get the latest version'")&&dart.includes('_controller.reload()'),'Android wrapper loads the live URL and has an accessible Reload button');
+// Task 9: production hardening.
+assert(!/question-count|playable questions/.test(html)&&!main.includes('question-count'),'no internal question counts in the UI');
+assert(!/console\.(log|debug|info|warn|error)|debugger/.test(main+backend),'no console output or debugger statements in the frontend');
+assert(/<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self';[^"]*connect-src 'self' https:\/\/zchircgdkyjnowqcdwvf\.supabase\.co;[^"]*object-src 'none'; base-uri 'self'/.test(html),'strict Content-Security-Policy');
+assert(!/\sstyle="|<script(?![^>]*\ssrc=)[^>]*>|\son[a-z]+="/i.test(html),'no inline scripts, styles, or event handlers (CSP-compatible)');
+assert(/<section class="legal-links"[\s\S]*<a href="privacy-policy\.html" id="privacy-link">Privacy Policy<\/a>[\s\S]*<a href="terms-and-conditions\.html" id="terms-link">Terms and Conditions<\/a>/.test(html),'Settings links to Privacy Policy and Terms and Conditions');
+for(const page of ['privacy-policy.html','terms-and-conditions.html']){const legal=await readFile(new URL(`../${page}`,import.meta.url),'utf8');assert(legal.includes('<html lang="en">')&&legal.includes('<main id="main"')&&(legal.match(/<h1>/g)||[]).length===1&&legal.includes('href="./"')&&legal.includes('Content-Security-Policy'),`${page} is a complete, accessible page`);assert(!/supabase\.co|sb_publishable|bq_[a-z]|service_role/i.test(legal),`${page} exposes no internal identifiers`)}
+assert(backend.includes('sessionStorage')&&!backend.includes('localStorage'),'session token is kept in sessionStorage only');
+assert(backend.includes('Date.parse(s.expiresAt)<=Date.now()'),'locally expired sessions are discarded');
+assert(backend.includes('res.status===401&&session?.token'),'server-rejected sessions are cleared');
+assert(main.includes("async function restoreSession(){")&&main.includes("callApi('profile')"),'session is re-validated with the server after a reload');
+assert(main.includes("err.message==='invalid_credentials'?genericLogin:genericFailure"),'server failures are not reported as wrong credentials');
+assert(fn.includes("permitAccount('login'")&&fn.includes("permitAccount('recover'")&&fn.includes("permitAccount('question'")&&fn.includes("permitAccount('report'"),'IP-independent per-account rate limits');
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);

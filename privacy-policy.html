@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#121d2d">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="description" content="How Blind Quiz collects, uses, stores, and protects your information.">
+  <title>Privacy Policy — Blind Quiz</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="src/legal.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Blind Quiz home"><span class="brand-mark" aria-hidden="true">BQ</span><span><strong>BLIND QUIZ</strong><small>Listen. Think. Play.</small></span></a>
+  </header>
+  <main id="main" tabindex="-1" class="legal">
+    <nav class="legal-nav" aria-label="Legal pages">
+      <a href="./">← Back to Blind Quiz</a>
+      <a href="privacy-policy.html" aria-current="page">Privacy Policy</a>
+      <a href="terms-and-conditions.html">Terms and Conditions</a>
+    </nav>
+    <p class="eyebrow">LEGAL</p>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: 5 October 2026</p>
+
+    <p>This policy explains what information Blind Quiz (the website at mahicouragw.github.io/Blind-Quiz and the Blind Quiz Android app) collects, why, and the choices you have. Blind Quiz is a small, independent, accessibility-focused quiz game. We collect as little as we can.</p>
+
+    <h2 id="summary">In short</h2>
+    <ul>
+      <li>You can play without an account. Nothing about your answers leaves your device unless you sign in.</li>
+      <li>An account needs only a name, a secret question, and a secret answer. We never ask for an email address, phone number, password, location, contacts, or photos.</li>
+      <li>Your secret answer is never stored in readable form and is never shown to anyone, including you.</li>
+      <li>There are no ads, no analytics or tracking scripts, no advertising identifiers, and no cookies. We do not sell or share your information for marketing.</li>
+    </ul>
+
+    <h2 id="collect">Information we collect</h2>
+    <h3>When you create an account</h3>
+    <ul>
+      <li><strong>Name</strong> you choose. It must be unique, so the app tells you if a name is already taken. Please do not use your full legal name if you prefer not to.</li>
+      <li><strong>Login ID</strong>: an eight-character code generated for you.</li>
+      <li><strong>Secret question</strong> you pick or write.</li>
+      <li><strong>Secret answer</strong>: stored only as a salted, one-way cryptographic hash (PBKDF2). We cannot read it or send it back to you.</li>
+    </ul>
+    <h3>When you play while signed in</h3>
+    <ul>
+      <li><strong>Game progress</strong>: XP, coins, level, current and best streak, number of questions answered and answered correctly, and quizzes completed.</li>
+      <li><strong>Answer records</strong>: which question you answered, whether it was correct, the XP and coins awarded, and when. Your chosen answer text is checked and then discarded; it is not stored.</li>
+      <li><strong>Sign-in sessions</strong>: when you sign in, a random session token is created. The server keeps only a hash of it, with its expiry time (7 days) and whether you signed out. Expired and signed-out sessions are deleted the next time you sign in.</li>
+      <li><strong>Last sign-in time</strong> and the date your account was created.</li>
+      <li><strong>Question reports</strong>, if you report a problem with a question: the question, the reason, any details you type, and your account.</li>
+      <li>Earlier versions of Blind Quiz may also have stored quiz-run, daily-challenge, power-up, and achievement records linked to an account.</li>
+    </ul>
+    <h3>Abuse protection</h3>
+    <p>To stop password-guessing and spam, the server counts attempts for actions such as sign-in, account creation, and Login ID recovery. Each counter is stored under a one-way hash made from a server secret, the action, your network address, and the name or account involved. Your IP address is not stored in readable form in our database. Counters only hold a number of attempts and a time window.</p>
+    <h3>Stored on your device only</h3>
+    <ul>
+      <li><strong>Settings</strong> (large text, high contrast, reduced motion, announcements, timer) in your browser&rsquo;s local storage.</li>
+      <li><strong>Remembered name and Login ID</strong> after you sign in, so the sign-in form can be filled in for you. Your secret answer is never saved on the device. Use <em>&ldquo;Not you? Forget this device&rdquo;</em> on the sign-in screen to remove them.</li>
+      <li><strong>Session token</strong> in session storage. It lasts until you sign out or close the browser tab or the app, and is cleared automatically if the server reports it has expired.</li>
+      <li><strong>Offline copy of the app</strong>: a service worker caches the game&rsquo;s own files and question pack so it loads quickly and works offline. It does not cache your account data.</li>
+    </ul>
+
+    <h2 id="use">How we use information</h2>
+    <ul>
+      <li>To create your account, sign you in, and keep you signed in securely.</li>
+      <li>To check answers on the server and award XP, coins, and levels fairly (each question rewards you only once).</li>
+      <li>To help you recover your Login ID when you verify your name, secret question, and secret answer.</li>
+      <li>To fix incorrect or confusing questions you report.</li>
+      <li>To protect the service from abuse, guessing attacks, and spam.</li>
+    </ul>
+    <p>We do not use your information for advertising, profiling, or automated decisions about you, and we do not sell it.</p>
+
+    <h2 id="services">Services we rely on</h2>
+    <table>
+      <caption class="sr-only">Third-party service providers</caption>
+      <thead><tr><th scope="col">Provider</th><th scope="col">What it does</th><th scope="col">What it may receive</th></tr></thead>
+      <tbody>
+        <tr><td>Supabase</td><td>Hosts our database and the server code that handles accounts and answers.</td><td>The account and game data described above, plus standard request logs (such as IP address, time, and request status) kept by the provider for security and operations.</td></tr>
+        <tr><td>GitHub Pages</td><td>Hosts the website files and this policy.</td><td>Standard web server logs (such as IP address and browser type) kept by GitHub.</td></tr>
+        <tr><td>GitHub</td><td>Hosts the source code and the Android app download.</td><td>Only what you share if you open an issue or download a release.</td></tr>
+      </tbody>
+    </table>
+    <p>These providers process data under their own privacy policies and security programmes. Data may be processed outside your country.</p>
+
+    <h2 id="security">How we protect information</h2>
+    <ul>
+      <li>All connections use HTTPS. The Android app only loads the Blind Quiz website over HTTPS and opens other links in your own browser.</li>
+      <li>The database cannot be read or changed directly from the app or by the public. All access goes through our server code, which checks your session and rate limits every request.</li>
+      <li>Secret answers are hashed with a unique salt; session tokens are stored only as hashes.</li>
+      <li>Answers, XP, and coins are calculated on the server, not trusted from the device.</li>
+    </ul>
+    <p>No online service can promise perfect security. Choose a secret answer that others cannot guess, and never reuse an answer that protects something important.</p>
+
+    <h2 id="retention">How long we keep information</h2>
+    <ul>
+      <li>Account, progress, and answer records: until the account is deleted.</li>
+      <li>Session records: up to 7 days, and removed after they expire or you sign out (cleared at your next sign-in).</li>
+      <li>Abuse-protection counters: short-lived, from 15 minutes to 24 hours of relevance, and reused or replaced afterwards.</li>
+      <li>Question reports: until the report has been reviewed and the question fixed.</li>
+      <li>Provider logs: according to Supabase&rsquo;s and GitHub&rsquo;s own retention periods.</li>
+    </ul>
+
+    <h2 id="rights">Your choices and rights</h2>
+    <ul>
+      <li><strong>Play without an account</strong>: no account data is collected.</li>
+      <li><strong>Sign out</strong> at any time with <em>Log out</em> at the bottom of the page. This revokes your session on the server.</li>
+      <li><strong>Forget this device</strong> removes your remembered name and Login ID.</li>
+      <li><strong>Clear site data</strong> in your browser or app settings removes everything stored on your device.</li>
+      <li><strong>Access, correction, or deletion</strong>: depending on where you live you may have rights to access, correct, or delete your data. Ask us using the contact details below. Never send us your secret answer or Login ID in a public message; we will arrange a private way to confirm you own the account.</li>
+    </ul>
+
+    <h2 id="children">Children</h2>
+    <p>Blind Quiz is a general-audience educational game. It does not ask for age, contact details, or real names, and has no chat or public profiles. If you are a parent or guardian and believe a child has created an account you want removed, contact us.</p>
+
+    <h2 id="changes">Changes to this policy</h2>
+    <p>If our practices change we will update this page and its &ldquo;Last updated&rdquo; date. Significant changes will also be noted in the app.</p>
+
+    <h2 id="contact">Contact</h2>
+    <p>Blind Quiz is maintained by the project owner on GitHub. Contact us through the project&rsquo;s issue tracker at <a href="https://github.com/Mahicouragw/Blind-Quiz/issues" rel="noopener noreferrer">github.com/Mahicouragw/Blind-Quiz/issues</a>. Do not post your Login ID or secret answer there.</p>
+  </main>
+  <footer><span>BLIND QUIZ</span><span class="footer-legal"><a href="privacy-policy.html">Privacy Policy</a><a href="terms-and-conditions.html">Terms and Conditions</a></span></footer>
+</body>
+</html>
