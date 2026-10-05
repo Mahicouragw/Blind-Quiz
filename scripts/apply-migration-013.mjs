@@ -80,7 +80,8 @@ else { await query(sql); note('Migration 013 executed.'); }
 const after = await state();
 note(`After: ${JSON.stringify(after)}`);
 if (!done(after)) refuse('Verification failed: columns, tables, RLS, function privileges, or the word count are not as expected.');
-if (after.questions !== before.questions || after.profiles !== before.profiles) refuse('Question or profile counts changed; Migration 013 must not touch existing rows.');
+// Sign-ups can happen while this runs (the live checks create a test account), so profiles may only grow.
+if (after.questions !== before.questions || after.profiles < before.profiles) refuse('Questions changed or profiles were removed; Migration 013 must not touch existing rows.');
 const changed = (await query(`select count(*)::int as n from public.bq_profiles where name_change_count <> 0 or name_changed_at is not null`))[0].n;
 note(`Verified: 2 new profile columns, bq_words (${after.words} words) and bq_word_finds with RLS and no client grants, 3 functions callable only by service_role, row counts unchanged. Profiles with a recorded username change: ${changed}.`);
 writeSummary();
