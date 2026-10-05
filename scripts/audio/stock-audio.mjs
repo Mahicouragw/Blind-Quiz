@@ -40,10 +40,16 @@ async function ogaPage(url) {
 const OGA_OK = l => /^CC0$/i.test(l);
 
 if (process.argv[2] === '--list') {
+  // GitHub shows only 10 annotations per step: one per CC0 hit, everything else summarised in one line.
+  const rejected = [];
   for (const url of config.ogaCandidates || []) {
-    try { const p = await ogaPage(url); note('OGA candidate', `${url} | ${p.title} | by ${p.author} | ${p.date} | licences: ${p.licences.join(', ') || 'NONE FOUND'} | files: ${p.files.map(f => decodeURIComponent(f.split('/').pop())).join(' ; ').slice(0, 600)}`); }
-    catch (e) { note('OGA candidate', `${url} | ERROR ${e.message}`); }
+    try {
+      const p = await ogaPage(url);
+      if (p.licences.some(OGA_OK)) note('OGA candidate', `${url} | ${p.title} | by ${p.author} | ${p.date} | licences: ${p.licences.join(', ')} | files: ${p.files.map(f => decodeURIComponent(f.split('/').pop())).join(' ; ').slice(0, 600)}`);
+      else rejected.push(`${url.split('/').pop()} (${p.licences.join('/') || 'none'})`);
+    } catch (e) { rejected.push(`${url.split('/').pop()} (ERROR ${e.message})`); }
   }
+  if (rejected.length) note('OGA not CC0', rejected.join('; ').slice(0, 3000));
   process.exit(0);
 }
 
