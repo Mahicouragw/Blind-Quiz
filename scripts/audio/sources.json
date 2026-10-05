@@ -1,0 +1,16 @@
+{
+  "search": {
+    "correct": { "queries": ["ding bell", "service bell", "chime", "correct answer", "bicycle bell", "glass ding"], "min": 0.2, "max": 4 },
+    "wrong": { "queries": ["buzzer", "wrong answer", "game show buzzer", "error buzz", "horn honk"], "min": 0.2, "max": 3 },
+    "tick": { "queries": ["clock tick", "ticking clock", "wood block", "metronome"], "min": 0.05, "max": 6 },
+    "go": { "queries": ["whistle", "referee whistle", "sports whistle"], "min": 0.2, "max": 3 },
+    "timeup": { "queries": ["alarm clock", "gong", "bell ring", "boxing bell"], "min": 0.5, "max": 8 },
+    "applause": { "queries": ["applause", "clapping"], "min": 3, "max": 30 },
+    "cheer": { "queries": ["cheering crowd", "crowd cheer", "cheering"], "min": 2, "max": 30 },
+    "click": { "queries": ["button click", "click", "switch click"], "min": 0.02, "max": 1.5 },
+    "music_piano": { "queries": ["Scott Joplin", "ragtime piano", "Joplin rag"], "min": 60, "max": 420, "show": 14 },
+    "music_classical": { "queries": ["Musopen", "Gymnopedie", "Mozart sonata piano", "Bach prelude", "Vivaldi"], "min": 60, "max": 420, "show": 22 },
+    "music_folk": { "queries": ["guitar instrumental", "folk instrumental", "flute music", "sitar"], "min": 45, "max": 420, "show": 14 }
+  },
+  "pinned": {}
+}

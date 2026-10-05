@@ -1,0 +1,49 @@
+name: Recorded audio assets (Wikimedia Commons, CC0 / Public domain)
+
+# Lists licence-checked candidates, then downloads ONLY the pinned recordings in
+# scripts/audio/sources.json, re-verifies each licence through the Commons API, encodes them
+# with ffmpeg into assets/audio/, and commits the result to this branch.
+on:
+  push:
+    branches: ['arena/**']
+    paths:
+      - 'scripts/audio/**'
+      - '.github/workflows/audio-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: audio-assets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install ffmpeg
+        run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: List CC0 / Public domain candidates
+        run: node --no-warnings scripts/audio/commons-audio.mjs --list
+      - name: Download, verify, and encode pinned recordings
+        run: |
+          if node -e "process.exit(Object.keys(require('./scripts/audio/sources.json').pinned).length?0:1)"; then
+            node --no-warnings scripts/audio/commons-audio.mjs --fetch
+          else
+            echo "No pinned recordings yet."
+          fi
+      - name: Commit encoded audio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/audio || true
+          if git diff --cached --quiet; then echo "No audio changes."; exit 0; fi
+          git commit -m "Audio: encode licence-verified CC0/Public domain recordings from Wikimedia Commons"
+          git push origin HEAD:${{ github.ref_name }}
