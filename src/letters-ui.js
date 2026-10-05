@@ -1,7 +1,7 @@
 // Letters to Words: accessible game screen. Every letter is a real button; no typing, no drag and drop.
 // Words are recognised automatically as the letters are chosen; the server verifies each found word and
 // pays XP and coins the first time a player finds it.
-import { makePuzzle, canExtend, isPrefix, shuffleLetters, levelRules, wordXp, roundBonus, applyLevelXp, MAX_LEVEL } from './letters.js';
+import { makePuzzle, canExtend, isPrefix, shuffleLetters, levelRules, wordXp, roundBonus, applyLevelXp, MAX_LEVEL, LONG_LEN } from './letters.js';
 
 const STORE = 'bq.letters.v1';
 // Game progress on this device: level, level XP towards the next level, round number within the level.
@@ -43,7 +43,7 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     const slots = $('#letters-slots');
     if (slots) { slots.innerHTML = ''; const n = Math.max(game.picked.length, 2); for (let k = 0; k < n; k++) { const sp = document.createElement('span'); sp.className = 'slot' + (w[k] ? ' filled' : ''); sp.textContent = w[k] ? w[k].toUpperCase() : ''; slots.append(sp); } }
     const { goal, solutions } = game.puzzle;
-    $('#letters-progress').textContent = `Words found: ${game.found.size} of ${goal} needed. ${solutions.length} words are possible. Score ${game.score}.`;
+    $('#letters-progress').textContent = `Words found: ${game.found.size} of ${goal} needed.${game.puzzle.longGoal ? ` Long words: ${longFound()} of ${game.puzzle.longGoal}.` : ''} ${solutions.length} words are possible. Score ${game.score}.`;
     const list = $('#letters-found');
     list.innerHTML = '';
     for (const f of [...game.found].reverse()) { const li = document.createElement('li'); li.textContent = f.toUpperCase(); list.append(li); }
@@ -53,6 +53,7 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     renderXp();
     $('#letters-remove').setAttribute('aria-disabled', String(!w));
     $('#letters-clear').setAttribute('aria-disabled', String(!w));
+    $('#letters-hint').setAttribute('aria-disabled', String(game.puzzle.hints <= 0));
   }
   function xpLine() {
     const { level, levelXp } = game.stored;
@@ -74,6 +75,13 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     el.tabIndex = -1;
     setTimeout(() => { if (!$('#view-letters').hidden) el.focus(); }, 60);
   }
+  const longFound = () => [...game.found].filter(w => w.length >= LONG_LEN).length;
+  function goalText() {
+    const p = game.puzzle;
+    const long = p.longGoal ? `, including ${p.longGoal} long ${p.longGoal === 1 ? 'word' : 'words'} of ${LONG_LEN} or more letters` : '';
+    const hints = p.hints === Infinity ? '' : p.hints === 0 ? ' No hints at this level.' : ` ${p.hints} ${p.hints === 1 ? 'hint' : 'hints'} this round.`;
+    return `Find ${p.goal} words${long}.${hints}`;
+  }
   function lettersSentence() { return game.puzzle.letters.map(c => c.toUpperCase()).join(', '); }
 
   function setupPuzzle(level) {
@@ -83,9 +91,9 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     save(game.stored);
     game.picked = []; game.found = new Set(); game.complete = false; game.roundXp = 0; game.roundCoins = 0; game.roundProfileXp = 0;
     const rules = levelRules(level);
-    $('#letters-level').textContent = `Level ${level}, ${rules.name}. Round ${game.stored.round}. ${rules.letters} letters. Find ${game.puzzle.goal} words to complete the round.`;
+    $('#letters-level').textContent = `Level ${level}, ${rules.name}. Round ${game.stored.round}. ${rules.letters} letters. ${goalText()}`;
     renderTiles(); renderState();
-    return `Round ${game.stored.round}. Your letters are ${lettersSentence()}. Find ${game.puzzle.goal} words.`;
+    return `Round ${game.stored.round}. Your letters are ${lettersSentence()}. ${goalText()}`;
   }
   function start(level = game.stored.level) {
     const intro = setupPuzzle(level);
@@ -130,45 +138,41 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     game.streak++;
     game.score += w.length;
     game.roundXp += wordXp(w);
-    const roundDone = !game.complete && game.found.size >= game.puzzle.goal;
+    const roundDone = !game.complete && game.found.size >= game.puzzle.goal && longFound() >= game.puzzle.longGoal;
     if (roundDone) game.complete = true; // later words in this puzzle cannot complete the round twice
     if (!roundDone) playSfx('correct');
     const keep = afterWord(w);
     renderState();
     const letters = game.puzzle.letters.join('');
     const session = getSession();
-    const prevProfileLevel = session?.profile?.level;
     game.busy = game.busy.then(async () => {
-      let reward = '', profileUp = 0;
+      let reward = '';
       if (session) {
         try {
           const r = await withTimeout(callApi('record-word', { letters, word: w }), 6000);
           if (r.profile) { setSession({ ...getSession(), profile: r.profile }); onProfile(r.profile); }
           if (r.xp) { game.roundProfileXp += r.xp; game.roundCoins += r.coins || 0; }
-          if (r.profile && prevProfileLevel && r.profile.level > prevProfileLevel) profileUp = r.profile.level;
           reward = r.alreadyFound ? ' You found this word in an earlier game, so no new profile XP.' : r.xp ? ` You earned ${r.xp} XP and ${r.coins} ${r.coins === 1 ? 'coin' : 'coins'}. Streak: ${r.profile?.currentStreak ?? game.streak}.` : '';
-          if (!roundDone && r.xp) playSequence(profileUp ? ['coin', 'levelup'] : ['coin']);
+          if (!roundDone && r.xp) playSfx('coin');
         } catch { reward = getSession() ? ' This word could not be saved to your profile right now.' : ' Your session has ended. Sign in again to keep earning XP.'; }
       } else reward = ` Streak: ${game.streak}.`;
-      const profileLine = profileUp ? ` Profile level up! You reached profile level ${profileUp}.` : '';
-      if (roundDone) { roundComplete(`Word found: ${w.toUpperCase()}.${reward}${profileLine}`, profileUp); return; }
-      status(`Word found: ${w.toUpperCase()}.${reward}${profileLine} ${game.found.size} of ${game.puzzle.goal} found.${keep}`, { urgent: true });
+      if (roundDone) { roundComplete(`Word found: ${w.toUpperCase()}.${reward}`); return; }
+      status(`Word found: ${w.toUpperCase()}.${reward} ${game.found.size} of ${game.puzzle.goal} found.${game.puzzle.longGoal && longFound() < game.puzzle.longGoal && game.found.size >= game.puzzle.goal ? ` You still need ${game.puzzle.longGoal - longFound()} more long ${game.puzzle.longGoal - longFound() === 1 ? 'word' : 'words'} of ${LONG_LEN} or more letters.` : ''}${keep}`, { urgent: true });
     });
   }
 
   // Round complete: add word XP plus the round bonus to the level XP. When the level XP reaches the
   // level's target the player levels up automatically and the next, harder round starts straight away.
-  function roundComplete(wordLine, profileUp) {
+  function roundComplete(wordLine) {
     const level = game.puzzle.level, bonus = roundBonus(level), gained = game.roundXp + bonus;
     const res = applyLevelXp(level, game.stored.levelXp, gained);
     const coins = game.roundCoins ? ` ${game.roundProfileXp} profile XP and ${game.roundCoins} ${game.roundCoins === 1 ? 'coin' : 'coins'} earned this round.` : '';
     let text = `${wordLine} Round complete! ${game.found.size} words found. ${gained} level XP earned, including a ${bonus} XP round bonus.${coins}`;
-    playSequence(res.levelledUp || profileUp ? ['applause', 'levelup'] : ['applause']);
+    playSequence(res.levelledUp ? ['applause', 'levelup'] : ['applause']);
     game.stored.levelXp = res.levelXp;
     if (res.levelledUp) {
-      const rules = levelRules(res.level);
       game.stored.round = 1;
-      text += ` Level up! You are now Level ${res.level}, ${rules.name}. Now: ${rules.describe}.`;
+      text += ` Level up! You are now Level ${res.level}.`;
     } else {
       game.stored.round += 1;
       text += ` ${xpLine()}`;
@@ -183,8 +187,12 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     const left = game.puzzle.common.filter(w => !game.found.has(w));
     const pool = left.length ? left : game.puzzle.solutions.filter(w => !game.found.has(w));
     if (!pool.length) { status('You have found every word in these letters!'); return; }
+    if (game.puzzle.hints <= 0) { status('No hints left this round.'); return; }
+    game.puzzle.hints--;
     const h = pool[Math.floor(Math.random() * pool.length)];
-    status(`Hint: a ${h.length}-letter word that starts with ${h[0].toUpperCase()}.`);
+    const remaining = game.puzzle.hints === Infinity ? '' : ` ${game.puzzle.hints} ${game.puzzle.hints === 1 ? 'hint' : 'hints'} left.`;
+    renderState();
+    status(`Hint: a ${h.length}-letter word that starts with ${h[0].toUpperCase()}.${remaining}`);
   }
 
   function wire() {

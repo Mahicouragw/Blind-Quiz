@@ -207,14 +207,20 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
 // Automatic level-up: XP thresholds, harder levels, server-equal word XP, recorded level-up and coin sounds.
 {
   const { LEVELS, wordXp, roundBonus, applyLevelXp, MAX_LEVEL }=await import('../src/letters.js');
-  for(let i=1;i<LEVELS.length;i++){const a=LEVELS[i-1],b=LEVELS[i];assert(b.goal>a.goal&&b.letters>=a.letters&&(b.letters>a.letters||b.seedTiers.length>a.seedTiers.length),`level ${i+1} is harder than level ${i}`);assert(Number.isFinite(a.xp)&&a.xp>0,'every level below the top has an XP target');assert(a.name&&a.describe,'levels have a name and description')}
+  assert.equal(LEVELS.length,20,'20 levels');
+  const H=l=>l.hints??Infinity;
+  for(let i=1;i<LEVELS.length;i++){const a=LEVELS[i-1],b=LEVELS[i];
+    assert(b.goal>=a.goal&&b.letters>=a.letters&&(b.seedTiers.length>=a.seedTiers.length||b.letters>a.letters)&&(b.long||0)>=(a.long||0)&&H(b)<=H(a),`level ${i+1} is never easier than level ${i}`);
+    assert(b.goal>a.goal||b.letters>a.letters||b.seedTiers.length>a.seedTiers.length||(b.long||0)>(a.long||0)||H(b)<H(a),`level ${i+1} is harder than level ${i}`);
+    assert(Number.isFinite(a.xp)&&a.xp>0&&b.xp>a.xp,'XP targets rise');assert(a.name&&a.describe,'levels have a name and description')}
   assert.equal(LEVELS[0].letters,4);assert.equal(MAX_LEVEL,LEVELS.length);
   assert.deepEqual(['of','too','word','lights','letters'].map(wordXp),[1,2,3,5,6],'word XP matches bq_record_word (2 letters 1 XP, else 2-6 by length)');
   assert.deepEqual(applyLevelXp(1,28,roundBonus(1)),{level:2,levelXp:0,levelledUp:true},'level-up is automatic when the target is reached');
   assert.deepEqual(applyLevelXp(1,0,9),{level:1,levelXp:9,levelledUp:false});
   assert.equal(applyLevelXp(MAX_LEVEL,10,5).level,MAX_LEVEL,'no level beyond the top');
   const ui=await readFile(new URL('../src/letters-ui.js',import.meta.url),'utf8');
-  assert(/playSequence\(res\.levelledUp \|\| profileUp \? \['applause', 'levelup'\] : \['applause'\]\)/.test(ui),'round sound, then the level-up sound');
+  assert(/playSequence\(res\.levelledUp \? \['applause', 'levelup'\] : \['applause'\]\)/.test(ui),'round sound, then the level-up sound');
+  assert(!/profile level|Profile level|Letters level/i.test(ui)&&ui.includes('` Level up! You are now Level ${res.level}.`'),'level-up says only "Level up! You are now Level N."');
   assert(ui.includes('Level up! You are now Level')&&ui.includes('focusStatus(text)')&&!ui.includes('letters-next'),'level-up announced and focused; no manual level button');
   assert(stockSrc.sfx.levelup&&stockSrc.sfx.coin,'level-up and coin sounds are pinned recordings');
   assert(/'levelup', 'coin'/.test(audioSrc)&&/export async function playSequence/.test(audioSrc),'audio knows the new sounds and plays effects in sequence');
@@ -227,6 +233,7 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   for(let level=1;level<=LEVELS.length+2;level++){
     const rules=LEVELS[Math.min(level,LEVELS.length)-1];assert(rules.letters>=prev,'levels never get shorter');prev=rules.letters;
     for(let i=0;i<60;i++){const p=makePuzzle(level);const L=p.letters.join('');
+      assert(p.longGoal<=p.common.filter(w=>w.length>=5).length&&p.hints===(rules.hints??Infinity),`level ${level} long-word goal is achievable`);
       assert(p.letters.length===rules.letters&&p.solutions.length>=1&&p.common.length>=p.goal&&p.goal>=Math.min(rules.goal,p.common.length),`level ${level} puzzle ${L} is solvable with goal ${p.goal}`);
       assert(p.solutions.every(w=>isWord(w)&&fits(w,L)&&w.length>=2),`level ${level}: answers use only the supplied letters`);}
   }

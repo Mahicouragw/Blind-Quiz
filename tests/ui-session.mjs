@@ -300,7 +300,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   for(const w of targets2)await spellWord(w);
   for(let i=0;i<60&&!/Level up!/.test($('#letters-status').textContent);i++)await wait(5);
   if(targets2.length>=goal){
-    assert.match($('#letters-status').textContent,/Round complete! \d+ words found\. \d+ level XP earned, including a 4 XP round bonus\. Level up! You are now Level 2, Easy plus\. Now: 5 letters, more possible words, find 3 words each round\. Next: Round 1\. Your letters are [A-Z](, [A-Z]){4}\. Find \d words\./);
+    assert.match($('#letters-status').textContent,/Round complete! \d+ words found\. \d+ level XP earned, including a 4 XP round bonus\. Level up! You are now Level 2\. Next: Round 1\. Your letters are [A-Z](, [A-Z]){4}\. Find \d words\./);
     for(let i=0;i<50&&d.activeElement!==$('#letters-status');i++)await wait(5);
     assert.equal(d.activeElement,$('#letters-status'),'focus moves to the level-up announcement');
     assert.equal(tiles().length,5,'level 2 is harder: 5 letters');assert.match($('#letters-level').textContent,/^Level 2, Easy plus\. Round 1\. 5 letters\./);assert.match($('#letters-xp').textContent,/^Level XP: 0 of 50\./);

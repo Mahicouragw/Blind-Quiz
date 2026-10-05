@@ -138,3 +138,16 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - home shows the current category count (25) and "Tap, click, keys A–D or screen reader"
   - all animations are disabled by Reduce motion and `prefers-reduced-motion`
 - [x] **15.4 OpenGameArt music:** all 5 music slots now use CC0 tracks by human composers from OpenGameArt.org, pinned by page and file in `scripts/audio/sources.json`: menu "The Field Of Dreams" (pauliuw), game1 "Town Theme RPG" (cynicmusic), game2 "Crystal Cave" (cynicmusic), game3 "Feel Good Island" (HaelDB), results "Children's March Theme" (CleytonKauffman). `stock-audio.mjs` reads each live page on every build and fails unless CC0 is listed. A hand-uploaded Pixabay track for a slot still takes priority.
+
+## Task 16 - Simple level-ups, 20 levels, simpler sign-in, game identity, APK with QR (same session, PR #5)
+
+- [x] **16.1 Level-ups:** every game now says only "Level up! You are now Level N." Letters to Words announces its own level only; profile level changes are no longer announced inside it (they still show on the Profile page). The quiz says "Level up! You are now Level N." for the player level.
+- [x] **16.2 20 Letters to Words levels** (was 7). Levels 1-7 are unchanged except that Master now has an XP target. Levels 8-20 (Word Hunter, Sharp Ear, Wordsmith, Puzzler, Lexicon, Champion, Virtuoso, Sage, Legend, Mythic, Titan, Grandmaster, Word Wizard) get harder in these ways:
+  - word goals rise from 9 to 16
+  - rarer letter sets
+  - 1-3 required long words (5+ letters)
+  - fewer hints per round (5 down to none)
+  - no time limit, so screen-reader play stays comfortable
+
+  Puzzles are only chosen when the long-word goal is achievable.
+- [x] **16.3 Sign-in/sign-up text:** removed "No email, password, phone, or OTP…" and the long secret-answer warning. The intro now reads "Log in with your name, Login ID and secret answer." (sign-up: "Create an account with your name, a secret question and a secret answer.").
