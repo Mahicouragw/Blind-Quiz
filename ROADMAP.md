@@ -102,3 +102,10 @@ Owner approvals given during this task: apply an additive privilege-only Migrati
 - [x] **Migration 013** (owner-approved, additive), applied by `apply-migration-013.yml` with static guards and verification. Migrations 001–012 are pinned by SHA-256 in `tests/smoke.mjs`.
 - [x] **blind-quiz-api** (owner-approved): new `update-profile` and `record-word` actions. The profile also returns the User ID, your own secret question and the cooldown. Live API checks: 47/47 (34 previous + 13 new).
 - [x] **QA:** jsdom scenarios 13–15 (TalkBack focus, profile Change, Letters to Words). The smoke test generates 60 puzzles per level and checks they are all solvable.
+
+## Task 12 - Bug hunt: A/B/C/D options and repeated "Question 1 of 10" (same session, same PR #5)
+
+- [x] **TalkBack repeated "Question 1 of 10" on every option:** a regression from Task 11, where each answer button was `aria-describedby` the progress line. Removed. The progress is now spoken once, in the question heading ("Question 1 of 10. …"), and the small progress label is hidden from screen readers.
+- [x] **Options are labelled A, B, C, D:** visible letter badges, and TalkBack reads "Option B: Paris". Results name the letter ("You chose A: … The correct answer is B: …"). "Hear question and options again" reads every option. Keyboard players can press A–D.
+- [x] **Mode buttons** are named "Vocabulary mode. …" so they are no longer confused with the category of the same name.
+- [x] **Content check:** all 725 questions have exactly 4 unique options that include the correct answer; there are no duplicates and no "all of the above". A jsdom accessibility sweep over every screen found no duplicate IDs, broken ARIA references, unnamed buttons, unlabelled fields, or focusable elements inside aria-hidden. Test 16 added. Service worker cache v9.
