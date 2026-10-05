@@ -1,16 +1,103 @@
 {
   "search": {
-    "correct": { "queries": ["ding bell", "service bell", "chime", "correct answer", "bicycle bell", "glass ding"], "min": 0.2, "max": 4 },
-    "wrong": { "queries": ["buzzer", "wrong answer", "game show buzzer", "error buzz", "horn honk"], "min": 0.2, "max": 3 },
-    "tick": { "queries": ["clock tick", "ticking clock", "wood block", "metronome"], "min": 0.05, "max": 6 },
-    "go": { "queries": ["whistle", "referee whistle", "sports whistle"], "min": 0.2, "max": 3 },
-    "timeup": { "queries": ["alarm clock", "gong", "bell ring", "boxing bell"], "min": 0.5, "max": 8 },
-    "applause": { "queries": ["applause", "clapping"], "min": 3, "max": 30 },
-    "cheer": { "queries": ["cheering crowd", "crowd cheer", "cheering"], "min": 2, "max": 30 },
-    "click": { "queries": ["button click", "click", "switch click"], "min": 0.02, "max": 1.5 },
-    "music_piano": { "queries": ["Scott Joplin", "ragtime piano", "Joplin rag"], "min": 60, "max": 420, "show": 14 },
-    "music_classical": { "queries": ["Musopen", "Gymnopedie", "Mozart sonata piano", "Bach prelude", "Vivaldi"], "min": 60, "max": 420, "show": 22 },
-    "music_folk": { "queries": ["guitar instrumental", "folk instrumental", "flute music", "sitar"], "min": 45, "max": 420, "show": 14 }
+    "correct": {
+      "queries": [
+        "handbell",
+        "glass clink",
+        "singing bowl",
+        "tingsha",
+        "triangle percussion",
+        "xylophone note",
+        "kalimba",
+        "bell hit",
+        "small bell",
+        "ding"
+      ],
+      "min": 0.2,
+      "max": 5,
+      "show": 30
+    },
+    "go": {
+      "queries": [
+        "whistle blow",
+        "football whistle",
+        "sports whistle",
+        "referee",
+        "pea whistle",
+        "coach whistle",
+        "whistle sound"
+      ],
+      "min": 0.2,
+      "max": 4,
+      "show": 30
+    }
   },
-  "pinned": {}
+  "pinned": {
+    "wrong": {
+      "file": "Buzzer.ogg",
+      "kind": "sfx",
+      "use": "Wrong answer",
+      "max": 1.2
+    },
+    "tick": {
+      "file": "Watch tick.ogg",
+      "kind": "sfx",
+      "use": "Countdown 3-2-1",
+      "max": 0.4
+    },
+    "timeup": {
+      "file": "Old school bell 4.ogg",
+      "kind": "sfx",
+      "use": "Time is up",
+      "max": 2.5
+    },
+    "applause": {
+      "file": "Applause ii.ogg",
+      "kind": "sfx",
+      "use": "Round complete",
+      "max": 6
+    },
+    "cheer": {
+      "file": "Clapping hurray.ogg",
+      "kind": "sfx",
+      "use": "Perfect round",
+      "max": 7
+    },
+    "click": {
+      "file": "Computer mouse single click.ogg",
+      "kind": "sfx",
+      "use": "Get ready / start",
+      "max": 0.5
+    },
+    "music_menu": {
+      "file": "Bach, Goldberg Variations, Aria (Musopen version).ogg",
+      "kind": "music",
+      "use": "Home, sign in, settings, profile",
+      "max": 80
+    },
+    "music_game1": {
+      "file": "Maple Leaf Rag - played by Scott Joplin 1916 sample.ogg",
+      "kind": "music",
+      "use": "Game music: nature, animals, vocabulary, commerce, general",
+      "max": 80
+    },
+    "music_game2": {
+      "file": "Musopen - Morning.ogg",
+      "kind": "music",
+      "use": "Game music: music, instruments, India, history, civics, braille, accounting, random",
+      "max": 80
+    },
+    "music_game3": {
+      "file": "Musopen - In the Hall Of The Mountain King.ogg",
+      "kind": "music",
+      "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire",
+      "max": 80
+    },
+    "music_results": {
+      "file": "Mozart - Le nozze di Figaro, K492 - Overture (Musopen Symphony).flac",
+      "kind": "music",
+      "use": "Results screen",
+      "max": 60
+    }
+  }
 }

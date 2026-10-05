@@ -44,7 +44,7 @@ if (mode === '--list') {
       const data = await api({ action: 'query', generator: 'search', gsrnamespace: '6', gsrlimit: '40', gsrsearch: `${q} filetype:audio`, prop: 'imageinfo', iiprop: 'size|mime|extmetadata', iiextmetadatafilter: 'LicenseShortName|Artist' });
       for (const p of data.query?.pages || []) {
         const ii = p.imageinfo?.[0];
-        if (!ii || seen.has(p.title) || !isFree(ii)) continue;
+        if (!ii || seen.has(p.title) || !isFree(ii) || /^File:(LL-|Ig-|En-|Nl-)|pronunciation/i.test(p.title)) continue;
         const d = ii.duration || 0;
         if (d < spec.min || d > spec.max) continue;
         seen.add(p.title);
