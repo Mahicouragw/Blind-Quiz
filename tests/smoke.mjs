@@ -75,6 +75,16 @@ assert(sw.includes("const CACHE='blind-quiz-shell-v4'"),'service worker cache is
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
 assert(sw.includes('.catch(')&&swCatch.includes('caches.match(req)')&&swCatch.includes("caches.match('./index.html')"),'offline .catch() fallback to cache and ./index.html still exists');
+// One-tap sign in: Name and Login ID remembered on the device; the secret answer never is.
+assert(html.includes('id="remembered-device"')&&html.includes('id="forget-device"'),'remembered-device notice and forget control');
+assert(main.includes("const REMEMBER_KEY='blindquiz.remembered.v1'"),'remembered sign-in key');
+const rememberSave=main.match(/function rememberDevice\([^)]*\)\{[^\n]*?\}\}/)?.[0]||'';
+assert(rememberSave.includes('JSON.stringify({name,loginId})')&&!/answer/i.test(rememberSave),'only name and Login ID are remembered');
+assert(!/localStorage\.setItem\([^;]*answer/i.test(main)&&!/sessionStorage\.setItem\([^;]*answer/i.test(main),'secret answer is never written to storage');
+const loginFn=main.slice(main.indexOf('async function login('),main.indexOf('async function recoverLoginId('));
+assert(loginFn.indexOf('rememberDevice(')>loginFn.indexOf("callApi('login'"),'device is remembered only after a successful login');
+assert(main.includes('are already filled in. Type your secret answer to sign in.'),'prefilled state is announced');
+assert(main.includes("getRemembered()?'#login-answer':'#login-name'"),'focus goes straight to the secret answer when prefilled');
 const manifest=JSON.parse(await readFile(new URL('../manifest.webmanifest',import.meta.url),'utf8'));
 assert.equal(manifest.name.startsWith('Blind Quiz'),true);
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);

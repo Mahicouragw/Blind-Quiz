@@ -2,3 +2,4 @@
 .category-button{min-height:88px;display:flex;align-items:center}
 footer .footer-actions{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 footer .footer-actions button{margin-left:0}
+.remembered-device{margin-top:6px;padding:12px 14px;border:1px solid #89d9e855;border-radius:12px;background:#1b3441}.remembered-device p{margin:0 0 4px;color:var(--ink)}
