@@ -11,7 +11,7 @@ Ground rules that still apply:
 
 ## Tasks
 
-- [ ] **Task 0** - Create this ROADMAP.md and keep it up to date.
+- [x] **Task 0** - Create this ROADMAP.md and keep it up to date.
 - [ ] **Task 1** - Deploy the website on push (`main` and `arena/**`) instead of on merge (`.github/workflows/deploy-pages.yml`), and confirm the Pages workflow ran and the live site updated.
 - [ ] **Task 2** - Restore the lost update work:
   - [ ] a) `sw.js` network-first worker (`blind-quiz-shell-v4`, same SHELL list and install/activate handlers, cache fallback only inside `.catch()`, navigations fall back to `./index.html`).
