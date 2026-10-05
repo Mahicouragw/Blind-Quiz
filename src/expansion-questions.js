@@ -501,6 +501,66 @@ export const MIGRATION_010_ROWS = [
 ['commerce','International trade','hard','What is a letter of credit?','A bank’s promise to pay a seller once agreed conditions are met','A letter thanking a customer','A credit card statement','A request for a discount','Letters of credit reduce payment risk in international trade.'],
 ];
 
+// Migration 011 expansion: 10 more reviewed questions in each of the 20 categories (IDs bq-en-0867 to bq-en-1066).
+// Same row format as above.
+export const MIGRATION_011_ROWS = [
+// Animals
+['animals','Mammals','easy','Which animal is often called the ship of the desert?','Camel','Horse','Donkey','Yak','Camels can travel long distances across deserts with little water.'],
+['animals','Mammals','easy','What is a baby kangaroo called?','Joey','Cub','Kit','Calf','A young kangaroo, which develops in its mother’s pouch, is called a joey.'],
+['animals','Reptiles','medium','Which reptile is famous for changing its skin color?','Chameleon','Iguana','Tortoise','Python','Chameleons change color for signaling and temperature control as well as camouflage.'],
+['animals','Behavior','easy','What are animals that are active mainly at night called?','Nocturnal','Diurnal','Migratory','Aquatic','Nocturnal animals such as owls and bats are active at night; diurnal animals are active by day.'],
+['animals','Mammals','medium','Which is the largest species of wild cat?','Tiger','Lion','Jaguar','Leopard','The tiger is the largest living cat species.'],
+['animals','Invertebrates','hard','How many hearts does an octopus have?','Three','One','Two','Four','An octopus has two hearts that pump blood through the gills and one that pumps it to the body.'],
+['animals','Mammals','easy','What is a group of wolves commonly called?','A pack','A pride','A school','A flock','Wolves live and hunt in family groups called packs.'],
+['animals','Invertebrates','medium','Which sea creature often has five arms and can regrow a lost arm?','Sea star','Jellyfish','Octopus','Crab','Many sea stars, also called starfish, have five arms and can regenerate them.'],
+['animals','Diet','easy','What makes up most of a giant panda’s diet?','Bamboo','Fish','Insects','Grass seeds','Giant pandas spend much of the day eating bamboo shoots, stems, and leaves.'],
+['animals','Reptiles','medium','Which is the largest living reptile?','Saltwater crocodile','Komodo dragon','Green anaconda','Leatherback turtle','Large male saltwater crocodiles can exceed six metres in length.'],
+// Birds
+['birds','Culture','easy','Which bird is widely used as a symbol of peace?','Dove','Crow','Vulture','Hawk','A white dove, often carrying an olive branch, is a common symbol of peace.'],
+['birds','Eggs','medium','Which living bird lays the largest eggs?','Ostrich','Emu','Albatross','Swan','An ostrich egg can weigh more than a kilogram.'],
+['birds','Groups','medium','What is a group of crows traditionally called?','A murder','A pride','A gaggle','A pod','A murder of crows is a traditional collective noun; a gaggle refers to geese.'],
+['birds','Species','medium','Which brightly colored bird dives into water to catch fish with its sharp beak?','Kingfisher','Heron','Pigeon','Sparrow','Kingfishers watch from a perch and plunge into water to catch small fish.'],
+['birds','Feathers','hard','What are the long flight feathers at the outer part of a bird’s wing called?','Primary feathers','Down feathers','Contour feathers','Tail coverts','Primary feathers provide much of the thrust in flapping flight.'],
+['birds','Species','easy','Which bird is the national bird of the United States?','Bald eagle','Wild turkey','Golden eagle','American robin','The bald eagle has been the national emblem of the United States since 1782.'],
+['birds','Feathers','medium','What are the soft, fluffy feathers that trap warmth close to a bird’s skin called?','Down feathers','Flight feathers','Tail feathers','Primary feathers','Down feathers have loose barbs that trap air and insulate the body.'],
+['birds','Species','medium','Which seabird with a colorful beak is nicknamed the sea parrot?','Puffin','Penguin','Seagull','Tern','Atlantic puffins have bright orange, striped beaks in the breeding season.'],
+['birds','Behavior','medium','Which bird is known for laying its eggs in other birds’ nests?','Cuckoo','Sparrow','Pigeon','Myna','Many cuckoos are brood parasites; host birds raise their chicks.'],
+['birds','Anatomy','easy','What is another word for a bird’s beak?','Bill','Talon','Crest','Wing','Beak and bill mean the same thing; talons are claws.'],
+// Nature
+['nature','Forests','easy','What is the largest tropical rainforest in the world?','Amazon rainforest','Congo rainforest','Daintree rainforest','Sundarbans','The Amazon rainforest covers much of northern South America.'],
+['nature','Ice','medium','What is a glacier?','A large mass of ice that moves slowly over land','A floating sheet of sea ice','A frozen waterfall','A snow-covered mountain peak','Glaciers form where snow builds up and compacts into ice over many years.'],
+['nature','Earth','medium','What is the breaking down of rocks by wind, water, ice, or living things called?','Weathering','Evaporation','Photosynthesis','Condensation','Weathering breaks rock into smaller pieces; erosion carries them away.'],
+['nature','Weather','medium','Which tall cloud type often brings thunderstorms?','Cumulonimbus','Cirrus','Stratus','Altostratus','Cumulonimbus clouds can tower many kilometres high and produce lightning, heavy rain, and hail.'],
+['nature','Atmosphere','hard','In which layer of the atmosphere is most of the ozone layer found?','Stratosphere','Troposphere','Mesosphere','Thermosphere','The ozone layer lies mainly in the lower stratosphere and absorbs much ultraviolet radiation.'],
+['nature','Light','medium','How is a rainbow formed?','Sunlight is refracted and reflected inside raindrops','Dust reflects moonlight','Clouds give off colored light','Lightning colors the sky','Raindrops split sunlight into its colors, which we see as an arc.'],
+['nature','Energy','easy','Which renewable energy source uses moving air?','Wind power','Coal','Natural gas','Diesel','Wind turbines turn the energy of moving air into electricity.'],
+['nature','Ecology','hard','What is a species called that lives naturally in only one particular region?','Endemic','Invasive','Extinct','Migratory','Endemic species, such as the lion-tailed macaque of the Western Ghats, occur naturally only in a specific area.'],
+['nature','Landforms','medium','What is a river delta?','A landform built from sediment where a river meets a sea or lake','A waterfall at a river’s source','A deep canyon cut by a river','A lake formed by a glacier','As a river slows at its mouth, it drops sediment that builds up a delta.'],
+['nature','Pollinators','easy','What do honeybees collect from flowers to make honey?','Nectar','Sap','Seeds','Leaves','Bees turn sugary flower nectar into honey; they also collect pollen as food.'],
+// Instruments
+['instruments','Keyboard','medium','How many keys does a standard modern piano have?','88','76','61','100','A standard modern piano has 52 white keys and 36 black keys, 88 in total.'],
+['instruments','Strings','medium','Which bowed string instrument is slightly larger and lower than the violin?','Viola','Double bass','Guitar','Harp','The viola sits between the violin and the cello in size and pitch.'],
+['instruments','Indian instruments','medium','Which Indian bowed instrument is famous for sounding close to the human voice?','Sarangi','Sitar','Santoor','Veena','The sarangi is a bowed instrument of Hindustani music known for its vocal quality.'],
+['instruments','Indian instruments','medium','Which Carnatic percussion instrument is a clay pot?','Ghatam','Mridangam','Tabla','Kanjira','The ghatam is a clay pot played with the fingers, palms, and wrists.'],
+['instruments','Keyboard','medium','Which instrument is played by pressing keys or buttons while squeezing bellows?','Accordion','Piano','Harp','Xylophone','An accordion’s bellows push air past free reeds selected by its keys or buttons.'],
+['instruments','Brass','medium','Which brass instrument has coiled tubing and is often played with one hand inside the bell?','French horn','Tuba','Trumpet','Trombone','Horn players place a hand in the bell to adjust tone and pitch.'],
+['instruments','Percussion','medium','Which percussion instrument has tuned metal bars and a bright, bell-like sound?','Glockenspiel','Xylophone','Snare drum','Bass drum','The glockenspiel uses metal bars, while the xylophone uses wooden bars.'],
+['instruments','Indian instruments','easy','Which large drum is central to Punjabi bhangra celebrations?','Dhol','Tabla','Mridangam','Ghatam','The dhol is a double-headed drum played with two sticks.'],
+['instruments','Strings','easy','Which small four-stringed instrument is associated with Hawaii?','Ukulele','Banjo','Mandolin','Sitar','The ukulele developed in Hawaii in the nineteenth century.'],
+['instruments','Indian instruments','medium','Which plucked instrument provides the continuous drone in Indian classical music?','Tanpura','Sarod','Tabla','Shehnai','The tanpura’s open strings create a steady drone that supports the melody.'],
+// Science
+['science','Chemistry','easy','What is the chemical symbol for sodium?','Na','So','Sd','Sn','Sodium’s symbol Na comes from its Latin name natrium; Sn is tin.'],
+['science','Space','easy','Which planet is known as the Red Planet?','Mars','Jupiter','Venus','Mercury','Iron oxide dust on its surface gives Mars a reddish color.'],
+['science','Chemistry','easy','What is the hardest natural substance?','Diamond','Gold','Iron','Quartz','Diamond, a form of carbon, is the hardest naturally occurring material.'],
+['science','Biology','medium','Which vitamin does human skin make when exposed to sunlight?','Vitamin D','Vitamin C','Vitamin A','Vitamin B12','Ultraviolet B light helps the skin produce vitamin D.'],
+['science','Physics','easy','At what temperature does pure water freeze, in degrees Celsius?','0 degrees','32 degrees','Minus 10 degrees','4 degrees','At standard pressure, pure water freezes at 0 degrees Celsius, which is 32 degrees Fahrenheit.'],
+['science','Biology','easy','Which gas do plants release during photosynthesis?','Oxygen','Carbon dioxide','Nitrogen','Methane','Photosynthesis takes in carbon dioxide and releases oxygen.'],
+['science','Physics','medium','What does Newton’s first law of motion describe?','An object keeps its state of rest or motion unless a net force acts on it','Every action has an equal and opposite reaction','Force equals mass times acceleration','Objects fall at a speed set by their mass','Newton’s first law is also called the law of inertia.'],
+['science','Biology','medium','What is the largest organ of the human body?','Skin','Liver','Brain','Lungs','The skin is the body’s largest organ by surface area and weight.'],
+['science','Chemistry','easy','What is the central part of an atom called?','Nucleus','Electron','Shell','Orbit','The nucleus contains protons and neutrons; electrons surround it.'],
+['science','Space','easy','What is Earth’s natural satellite called?','The Moon','Phobos','Titan','Europa','Phobos is a moon of Mars; Titan orbits Saturn; Europa orbits Jupiter.'],
+];
+
 export const CATEGORY_SOURCES = {
   animals: 'Smithsonian National Zoo animal fact sheets — https://nationalzoo.si.edu/animals',
   birds: 'Cornell Lab of Ornithology, All About Birds — https://www.allaboutbirds.org/guide/',
