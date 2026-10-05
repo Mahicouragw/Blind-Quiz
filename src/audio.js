@@ -130,9 +130,11 @@ export async function playMusic(slot) {
   if (!slot) return;
   if (musicGroup === slot && music && !music.paused) return;
   const list = [slot, ...[...have].filter(k => new RegExp(`^${slot}\\d+$`).test(k)).sort((a, b) => parseInt(a.slice(slot.length), 10) - parseInt(b.slice(slot.length), 10))];
-  const turn = playlistTurn[slot] || 0;
-  playlistTurn[slot] = turn + 1;
-  startTrack(slot, list, turn % list.length);
+  // A new visit moves to the next track; a retry of the same playlist (blocked autoplay) replays the current one.
+  let index;
+  if (musicGroup === slot && music) index = Math.max(0, list.indexOf(musicSlot));
+  else { const turn = playlistTurn[slot] || 0; playlistTurn[slot] = turn + 1; index = turn % list.length; }
+  startTrack(slot, list, index);
 }
 
 function startTrack(group, list, index) {
@@ -146,7 +148,7 @@ function startTrack(group, list, index) {
     music.onended = () => { if (musicGroup === group && prefs.music) { playlistTurn[group] = index + 2; startTrack(group, list, (index + 1) % list.length); } };
     music.volume = 0;
     music.currentTime = 0;
-    try { Promise.resolve(music.play()).then(() => fadeTo(prefs.musicVolume, 1200)).catch(() => { musicSlot = null; musicGroup = null; }); } catch { musicSlot = null; musicGroup = null; }
+    try { Promise.resolve(music.play()).then(() => fadeTo(prefs.musicVolume, 1200)).catch(() => {}); } catch { /* blocked: retried on the next gesture */ }
   };
   if (music && !music.paused) fadeTo(0, 500, startNext); else startNext();
 }
