@@ -144,6 +144,28 @@
       "licence": "CC0",
       "duration": 1.6,
       "bytes": 16887
+    },
+    "levelup": {
+      "file": "assets/audio/levelup.mp3",
+      "kind": "sfx",
+      "use": "Level up (bugle call, U.S. Marine Band)",
+      "title": "Band Call.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Band_Call.ogg",
+      "creator": "Sgt. Codie Lynn Williams, U.S. Marine Corps",
+      "licence": "Public domain",
+      "duration": 4.7,
+      "bytes": 47327
+    },
+    "coin": {
+      "file": "assets/audio/coin.mp3",
+      "kind": "sfx",
+      "use": "XP and coins earned",
+      "title": "Coins dropped in metallic moneybox 0.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Coins_dropped_in_metallic_moneybox_0.ogg",
+      "creator": "ezwa",
+      "licence": "Public domain",
+      "duration": 1.4,
+      "bytes": 14674
     }
   }
 }
