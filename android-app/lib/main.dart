@@ -26,11 +26,11 @@ NavDecision classifyNavigation(String url) {
   if (uri == null) return NavDecision.block;
   if (uri.scheme == 'about' && url == 'about:blank') return NavDecision.inApp;
   if (uri.scheme != 'https') return NavDecision.block;
+  if (uri.host.isEmpty || uri.userInfo.isNotEmpty) return NavDecision.block;
   if (uri.host == kAppHost &&
       (uri.path == kAppPathPrefix || uri.path.startsWith('$kAppPathPrefix/'))) {
     return NavDecision.inApp;
   }
-  if (uri.host.isEmpty || uri.userInfo.isNotEmpty) return NavDecision.block;
   return NavDecision.external;
 }
 
