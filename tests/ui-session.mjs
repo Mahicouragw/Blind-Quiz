@@ -86,7 +86,7 @@ console.log('ok 9 back navigation returns to Home');
   t=await boot({fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms));
   const play=async()=>{d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);assert(d.querySelector('.answer-button'),'question appears after the countdown');
-    for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.answer-button:not([disabled])')?.click();await wait(5);d.querySelector('.next-question')?.click();await wait(5)}
+    for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.answer-button:not([aria-disabled])')?.click();await wait(5);d.querySelector('.next-question')?.click();await wait(5)}
     assert.equal(d.querySelector('#view-results').hidden,false,'round reaches results')};
   const cats=[...d.querySelectorAll('#category-list [data-category]')].map(b=>b.dataset.category);
   assert.equal(cats.length,20);
@@ -114,7 +114,7 @@ assert.equal(t.d.querySelector('#top-meta').textContent,'Signed in as goldfish')
 assert.equal(t.d.querySelector('#account-open').textContent,'Your profile: goldfish');
 t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
 assert.equal(t.d.querySelector('#view-profile').hidden,false);assert.equal(t.d.querySelector('#profile-auth').hidden,true);
-assert.match(t.d.querySelector('#profile-stats').textContent,/goldfish.*Level.*XP.*Coins.*3 \(75%\)/s);
+assert.match(t.d.querySelector('#profile-stats').textContent,/Player, goldfish.*Level, .*XP, .*Coins, .*3, 75 percent/s);
 console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile with stats');
 // 12. Recorded sounds: correct/wrong answers, countdown, GO, results, and music per screen.
 {
@@ -138,7 +138,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('.next-question').click();await wait(10);
   const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.textContent!==q2.correctAnswer).click();await wait(20);
   assert(played.includes('wrong.mp3'),'wrong answer plays the buzzer');
-  for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.next-question')?.click();await wait(5);d.querySelector('.answer-button:not([disabled])')?.click();await wait(5)}
+  for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.next-question')?.click();await wait(5);d.querySelector('.answer-button:not([aria-disabled])')?.click();await wait(5)}
   assert(played.includes('applause.mp3')||played.includes('cheer.mp3'),'results applause');assert(played.includes('music_results.mp3'),'results music');
   // Settings: turning sound effects off silences them.
   d.querySelector('#settings-open').click();await wait(10);d.querySelector('#sfx-on').checked=false;d.querySelector('#save-settings').click();await wait(10);
@@ -146,6 +146,41 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(!played.slice(before).some(x=>/^(click|tick|go)\.mp3$/.test(x)),'sound effects can be switched off');
   globalThis.setTimeout=fast;
   console.log('ok 12 recorded sounds for countdown, GO, correct, wrong, results, and per-screen music; switchable in Settings');
+}
+// 13. TalkBack: after answering, focus lands on the result (verdict, correct answer, XP, coins, streak), never on sign-in UI.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const { QUESTION_BANK }=await import(ROOT+'src/content.js');
+  const p0={...profile,name:'goldfish',currentStreak:4,bestStreak:4,questionsAnswered:4,questionsCorrect:4};
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:p0,loginId:'ABCD2345'},fetchImpl:(u,init)=>{const b=init?.body?JSON.parse(init.body):{};
+    if(b.action==='record-answer'){const q=QUESTION_BANK.find(x=>x.id===b.questionId);const ok=b.choice===q.correctAnswer;return json(200,{ok:true,correct:ok,answer:q.correctAnswer,explanation:q.explanation,xp:ok?10:0,coins:ok?2:0,profile:{...p0,currentStreak:ok?5:0}})}
+    return json(200,{ok:true,profile:p0})}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms));
+  assert(!d.querySelector('#top-meta').hasAttribute('aria-live'),'header is not a live region');
+  d.querySelector('#category-list [data-category="business"]').click();await wait(10);
+  for(const v of d.querySelectorAll('.view'))if(v.id!=='view-game')assert(v.hidden&&v.inert&&v.getAttribute('aria-hidden')==='true',`${v.id} hidden from the accessibility tree`);
+  assert(d.querySelector('#view-auth').inert,'sign-in view is inert during a game');
+  d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
+  const right=[...d.querySelectorAll('.answer-button')].find(b=>b.textContent===q.correctAnswer);right.focus();right.click();
+  for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
+  const fb=d.querySelector('#answer-feedback');
+  assert.equal(d.activeElement,fb,'focus moves to the result, got '+(d.activeElement?.id||d.activeElement?.tagName));
+  assert.match(fb.textContent,/^Correct! The answer is .+ You earned 10 XP and 2 coins\. Streak: 5 in a row\./);
+  assert(fb.compareDocumentPosition(d.querySelector('.next-question'))&4,'Next question follows the result');
+  assert(!d.activeElement.closest('#view-auth, form, input'),'focus is not on sign-in UI');
+  assert(!d.querySelectorAll('.answer-button[disabled]').length,'answer buttons stay focusable (aria-disabled)');
+  assert.equal(right.getAttribute('aria-label'),`${q.correctAnswer}, correct answer`);
+  for(const id of ['#announcer','#assertive-announcer'])assert(!/sign in|signed in/i.test(d.querySelector(id).textContent),'no sign-in announcement');
+  d.querySelector('.next-question').click();await wait(10);
+  const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
+  assert.equal(d.activeElement,d.querySelector('#game-title'),'next question receives focus');
+  [...d.querySelectorAll('.answer-button')].find(b=>b.textContent!==q2.correctAnswer).click();
+  for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
+  assert.equal(d.activeElement,d.querySelector('#answer-feedback'));
+  assert.match(d.activeElement.textContent,new RegExp(`^Incorrect\\. The correct answer is ${q2.correctAnswer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\..*Streak reset\\.`));
+  globalThis.setTimeout=fast;
+  console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
 }
 // Legal pages
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
