@@ -4,7 +4,7 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 
 ## Current content and gameplay
 
-- **325 validated multiple-choice questions in 20 categories**: the original 73 questions plus Migration 009’s 252-question expansion (12 in every category plus 12 additional Telugu/Bharati Braille questions).
+- **525 validated multiple-choice questions in 20 categories**: the original 73 questions, Migration 009’s 252-question expansion (12 in every category plus 12 additional Telugu/Bharati Braille questions), and Migration 010’s 200 questions (10 in every category, IDs `bq-en-0667`–`bq-en-0866`).
 - The historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`. A live database check on 3 October 2026 found 114 rows with a highest existing ID of `bq-en-0414`, so the expansion safely uses `bq-en-0415`–`bq-en-0666` without filling or overwriting ID gaps.
 - Functional category, classic, rapid, random, vocabulary, abbreviations, and Braille rounds.
 - Four answer buttons are independently shuffled with Fisher–Yates while correctness remains tied to answer text. Buttons expose only the answer itself, not radio/checkbox or “Option A” semantics.

@@ -33,3 +33,7 @@ Category-level sources support broad review but do not prove each sentence indep
 ## Audio
 
 See `AUDIO_LICENSES.md`. No third-party recordings, generated effects, or music are bundled.
+
+## Migration 010 (bq-en-0667 to bq-en-0866)
+
+200 additional questions, 10 in each of the 20 categories, authored in the same row format and checked against the same category references listed above (each row's `sourceNote` is the category reference with an https URL). Every prompt was checked against the existing 325 prompts (normalized, case- and punctuation-insensitive) for duplicates; `tests/smoke.mjs` enforces no duplicate prompts across all 525 questions.
