@@ -1,4 +1,4 @@
-import { EXPANSION_ROWS, MIGRATION_010_ROWS, CATEGORY_SOURCES } from './expansion-questions.js';
+import { EXPANSION_ROWS, MIGRATION_010_ROWS, MIGRATION_011_ROWS, CATEGORY_SOURCES } from './expansion-questions.js';
 
 // The original 73-question pack remains in its historical order so its stable IDs do not change.
 const starterRows = [
@@ -80,7 +80,9 @@ export const STARTER_QUESTION_COUNT = starterRows.length;
 // Migration 009 rows (bq-en-0415..0666) are followed by Migration 010 rows (bq-en-0667..0866); IDs stay sequential and stable.
 export const MIGRATION_009_COUNT = EXPANSION_ROWS.length;
 export const MIGRATION_010_COUNT = MIGRATION_010_ROWS.length;
-const rows = [...starterRows, ...EXPANSION_ROWS, ...MIGRATION_010_ROWS];
+// Migration 011 rows follow as bq-en-0867..1066.
+export const MIGRATION_011_COUNT = MIGRATION_011_ROWS.length;
+const rows = [...starterRows, ...EXPANSION_ROWS, ...MIGRATION_010_ROWS, ...MIGRATION_011_ROWS];
 const CATEGORIES = [
   ['animals','Animals','Wildlife and animal life'],['birds','Birds','Flight, habitats, and species'],['nature','Nature','Living systems and our planet'],['instruments','Musical instruments','Sounds, families, and traditions'],['science','Science','Physics, chemistry, biology, and space'],['geography','Geography','Places, landforms, and rivers'],['india','India','People, places, and civic life'],['history','History','Events, people, and the past'],['technology','Technology','Computers and the connected world'],['sports','Sports','Rules, play, and equipment'],['civics','Civics','Institutions and public life'],['economics','Economics','Choices, markets, and money'],['music','Music','Rhythm, sound, and ideas'],['abbreviations','Abbreviations','Decode the short form'],['vocabulary','Vocabulary','Meaning, usage, and spelling'],['braille','Braille','Read six-dot patterns'],['management','Management','Planning, teams, quality, and leadership'],['business','Business','Customers, operations, strategy, and enterprise'],['accounting','Accounting','Records, statements, and financial concepts'],['commerce','Commerce','Trade, payments, logistics, and retail']
 ].map(([id,name,description])=>({id,name,description,count:rows.filter(r=>r[0]===id).length}));

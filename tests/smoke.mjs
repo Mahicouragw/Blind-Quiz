@@ -5,7 +5,7 @@ import { shuffled } from '../src/random.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
-assert.equal(QUESTION_BANK.length,525,'73 starter plus 452 expansion questions (252 in Migration 009, 200 in Migration 010)');
+assert.equal(QUESTION_BANK.length,725,'73 starter plus 652 expansion questions (252 in Migration 009, 200 in Migration 010, 200 in Migration 011)');
 assert.equal(MIGRATION_009_COUNT,252,'Migration 009 keeps its 252 rows');
 assert.equal(CATEGORY_LIST.length,20,'all established categories');
 for(const category of CATEGORY_LIST){
@@ -16,14 +16,18 @@ for(const category of CATEGORY_LIST){
 assert.equal(QUESTION_BANK[73].id,'bq-en-0415','first safe expansion ID after the verified remote maximum');
 assert.equal(QUESTION_BANK[324].id,'bq-en-0666','final Migration 009 ID');
 assert.equal(QUESTION_BANK[325].id,'bq-en-0667','first Migration 010 ID');
-assert.equal(QUESTION_BANK.at(-1).id,'bq-en-0866','final expansion ID');
-assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,452,'452 expansion questions');
+assert.equal(QUESTION_BANK[524].id,'bq-en-0866','final Migration 010 ID');
+assert.equal(QUESTION_BANK[525].id,'bq-en-0867','first Migration 011 ID');
+assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1066','final expansion ID');
+assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,652,'652 expansion questions');
 for(const category of CATEGORY_LIST){
-  const added=QUESTION_BANK.slice(325).filter(q=>q.category===category.id);
+  const added=QUESTION_BANK.slice(325,525).filter(q=>q.category===category.id);
   assert.equal(added.length,10,`${category.id} has 10 Migration 010 questions`);
+  const added011=QUESTION_BANK.slice(525).filter(q=>q.category===category.id);
+  assert.equal(added011.length,10,`${category.id} has 10 Migration 011 questions`);
 }
 const normPrompt=s=>s.toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 525 questions');
+assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 725 questions');
 const ids=new Set(QUESTION_BANK.map(q=>q.id));
 assert.equal(ids.size,QUESTION_BANK.length,'unique stable question ids');
 for(const q of QUESTION_BANK.slice(STARTER_QUESTION_COUNT))assert.match(q.sourceNote,/https:\/\//,`${q.id} source note`);
@@ -68,6 +72,13 @@ assert.equal(m010Ids[0],'bq-en-0667','Migration 010 starts at bq-en-0667');
 assert.equal(m010Ids.at(-1),'bq-en-0866','Migration 010 ends at bq-en-0866');
 assert.equal((migration010.match(/ on conflict \(id\) do nothing;/g)||[]).length,200,'Migration 010 is additive and re-runnable');
 assert(!/\b(create|alter|drop|truncate|delete|update)\s/i.test(migration010.replace(/'(?:[^']|'')*'/g,"''").replace(/--[^\n]*/g,'')),'Migration 010 contains no schema or destructive statements');
+const migration011=await readFile(new URL('../supabase/migrations/202610050011_add_200_more_questions.sql',import.meta.url),'utf8');
+const m011Ids=[...migration011.matchAll(/values \('(bq-en-\d{4})'/g)].map(m=>m[1]);
+assert.equal(m011Ids.length,200,'Migration 011 inserts exactly 200 rows');
+assert.equal(m011Ids[0],'bq-en-0867','Migration 011 starts at bq-en-0867');
+assert.equal(m011Ids.at(-1),'bq-en-1066','Migration 011 ends at bq-en-1066');
+assert.equal((migration011.match(/ on conflict \(id\) do nothing;/g)||[]).length,200,'Migration 011 is additive and re-runnable');
+assert(!/\b(create|alter|drop|truncate|delete|update)\s/i.test(migration011.replace(/'(?:[^']|'')*'/g,"''").replace(/--[^\n]*/g,'')),'Migration 011 contains no schema or destructive statements');
 const fn=await readFile(new URL('../supabase/functions/blind-quiz-api/index.ts',import.meta.url),'utf8');
 for(const term of ['PBKDF2','310000','name_taken','loginId','bq_consume_attempt','token_hash','record-answer'])assert(fn.includes(term),`server feature ${term}`);
 assert.equal((fn.match(/^import \{ createClient \}/gm)||[]).length,1,'one Supabase client import');
