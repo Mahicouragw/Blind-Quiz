@@ -10,7 +10,7 @@ let n=0;
 async function boot({session,fetchImpl}){
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
   const w=dom.window;
-  for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
+  for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
   const calls=[];globalThis.fetch=async(url,init)=>{calls.push(JSON.parse(init.body).action);return fetchImpl(url,init)};
@@ -69,6 +69,17 @@ console.log('ok 7 login: token only in sessionStorage, secret answer never store
 t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,100));
 assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
 console.log('ok 8 logout clears session');
+// 9. Back button returns from a sub-view to Home (Android WebView back / browser back)
+t=await boot({fetchImpl:()=>{throw new Error('none')}});
+const L0=t.w.history.length;
+t.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,50));
+assert.equal(t.w.history.length,L0+1,'opening Settings adds one history entry');
+t.w.history.back();await new Promise(r=>setTimeout(r,120));
+assert.equal(t.d.querySelector('#view-home').hidden,false);assert.equal(t.d.querySelector('#view-settings').hidden,true);
+t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,50));
+t.d.querySelector('#view-auth [data-go="home"]').click();await new Promise(r=>setTimeout(r,150));
+assert.equal(t.d.querySelector('#view-home').hidden,false);assert.equal(t.w.history.state,null,'returning Home via the page button pops the sub-view entry');
+console.log('ok 9 back navigation returns to Home');
 // Legal pages
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

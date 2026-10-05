@@ -6,7 +6,10 @@ const state={view:'home',category:'general',mode:'classic',difficulty:'easy',que
 const modes=[['classic','Classic Quiz','Four real answers, one clear choice.'],['rapid','Rapid Fire','Eight questions with a 15-second clock.'],['random','Random Mix','Questions drawn from the full playable pack.'],['vocabulary','Vocabulary','Meanings, context, and spelling.'],['abbreviations','Abbreviations','Decode common short forms.'],['braille','Braille','Explore letters through six-dot patterns.']];
 const announce=(text,urgent=false)=>{if(!state.settings.speech)return;const el=$(urgent?'#assertive-announcer':'#announcer');el.textContent='';setTimeout(()=>el.textContent=text,30)};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function go(view,{focus}={}){$$('.view').forEach(v=>{v.hidden=true});$(`#view-${view}`).hidden=false;state.view=view;window.scrollTo(0,0);if(focus){const el=$(focus);setTimeout(()=>el?.focus(),60)}else setTimeout(()=>{const h=$(`#view-${view} h1`);h?.setAttribute('tabindex','-1');h?.focus()},30)}
+// Sub-views get one history entry, so the browser or Android back button returns to Home instead of leaving the app.
+let skipPop=false;
+function syncHistory(view){try{const inSub=!!history.state?.bqView;if(view==='home'){if(inSub){skipPop=true;history.back()}}else if(inSub)history.replaceState({bqView:view},'');else history.pushState({bqView:view},'')}catch{}}
+function go(view,{focus,fromHistory}={}){if(!fromHistory&&view!==state.view)syncHistory(view);$$('.view').forEach(v=>{v.hidden=true});$(`#view-${view}`).hidden=false;state.view=view;window.scrollTo(0,0);if(focus){const el=$(focus);setTimeout(()=>el?.focus(),60)}else setTimeout(()=>{const h=$(`#view-${view} h1`);h?.setAttribute('tabindex','-1');h?.focus()},30)}
 function top(){const s=getSession();$('#top-meta').textContent=s?.profile?.name?`${s.profile.name} · Login ID account`:'';$('#logout-button').hidden=!s}
 function renderCategories(){const host=$('#category-list');host.innerHTML='';for(const c of CATEGORY_LIST){const b=document.createElement('button');b.type='button';b.className='category-button';b.dataset.category=c.id;b.innerHTML=`<strong>${esc(c.name)}</strong>`;host.append(b)}}
 function renderModes(){const host=$('#mode-list');host.innerHTML='';for(const [id,name,desc] of modes){const b=document.createElement('button');b.type='button';b.className='mode-button';b.dataset.mode=id;b.innerHTML=`<strong>${esc(name)}</strong><small>${esc(desc)}</small>`;host.append(b)}}
@@ -48,5 +51,6 @@ function wire(){
 }
 // After a reload the stored session is re-validated by the server; an expired or revoked session is cleared and the player signs in again.
 async function restoreSession(){const s=getSession();if(!s)return;try{const d=await callApi('profile');state.profile=d.profile;setSession({...getSession(),profile:d.profile});top()}catch(err){if(!getSession()){state.profile=null;top();announce('Your session has ended. Please sign in again.')}}}
-function init(){renderCategories();renderModes();loadSettings();wire();top();restoreSession();try{if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})}catch{}announce('Blind Quiz ready. Choose a category or start a round.')}
+function onHistory(e){if(skipPop){skipPop=false;return}const v=e.state?.bqView||'home';if(v===state.view)return;if(state.view==='game')clearTimer();go(v,{fromHistory:true,focus:v==='home'?'#play-featured':undefined})}
+function init(){try{if(history.state?.bqView)history.replaceState(null,'')}catch{}window.addEventListener('popstate',onHistory);renderCategories();renderModes();loadSettings();wire();top();restoreSession();try{if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})}catch{}announce('Blind Quiz ready. Choose a category or start a round.')}
 init();
