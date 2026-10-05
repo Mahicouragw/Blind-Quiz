@@ -276,6 +276,66 @@ export const EXPANSION_ROWS = [
 ['braille','Telugu vowels','medium','In Standard Bharati Braille, which dots represent the Telugu vowel ఔ, pronounced au?','Dots 2, 4, and 6','Dots 1, 3, and 6','Dots 1, 2, and 6','Dots 2, 3, and 6','The Telugu independent vowel ఔ uses Braille dots 2, 4, and 6.'],
 ];
 
+// Migration 010 expansion: 10 reviewed questions in each of the 20 categories (IDs bq-en-0667 to bq-en-0866).
+// Same row format as above: category, subcategory, difficulty, prompt, correct answer first, three distractors, explanation.
+export const MIGRATION_010_ROWS = [
+// Animals
+['animals','Mammals','easy','Which is the tallest living land animal?','Giraffe','African elephant','Moose','Camel','Giraffes are the tallest living land animals; adults can stand more than five metres tall.'],
+['animals','Fish','medium','How do most fish take in oxygen underwater?','By passing water over their gills','By breathing through their scales','By gulping air into lungs at every breath','By absorbing it through their fins','Gills extract oxygen dissolved in the water that flows over them.'],
+['animals','Reptiles','medium','What does it mean that reptiles are ectothermic?','Their body temperature depends largely on outside heat','They always lay eggs in water','They are covered in fur','They feed their young on milk','Ectothermic animals rely mainly on their surroundings, such as basking in the sun, to warm their bodies.'],
+['animals','Insects','easy','What does a caterpillar become after metamorphosis?','A butterfly or moth','A beetle','A spider','A dragonfly','Caterpillars are the larvae of butterflies and moths and transform inside a chrysalis or cocoon.'],
+['animals','Mammals','easy','Which animal is the fastest land animal over a short sprint?','Cheetah','Lion','Greyhound','Horse','The cheetah can reach speeds of roughly 100 kilometres per hour in short bursts.'],
+['animals','Invertebrates','easy','How many legs does a spider have?','Eight','Six','Ten','Twelve','Spiders are arachnids, which have four pairs of legs.'],
+['animals','Behavior','medium','What is hibernation?','A long period of greatly reduced activity and metabolism in winter','A seasonal journey to warmer places','Shedding an old skin','Building a nest for eggs','Hibernating animals lower their body temperature and heart rate to save energy through winter.'],
+['animals','Diet','easy','What is an animal that eats only plants called?','Herbivore','Carnivore','Omnivore','Scavenger','Herbivores, such as cows and deer, feed on plants.'],
+['animals','Mammals','easy','Which is the largest animal known to have ever lived?','Blue whale','African elephant','Whale shark','Giant squid','The blue whale is the largest animal known to have existed, larger than any dinosaur.'],
+['animals','India','medium','Which animal is the national aquatic animal of India?','Ganges river dolphin','Gharial','Dugong','Olive ridley turtle','India declared the Ganges river dolphin its national aquatic animal in 2009.'],
+// Birds
+['birds','Life cycle','easy','What is a young bird commonly called?','Chick','Cub','Kid','Foal','A young bird is called a chick; cubs, kids, and foals are young mammals.'],
+['birds','Behavior','medium','Why do woodpeckers drum on trees?','To find food, dig nest holes, and communicate','To sharpen their beaks for fighting','To warm their bodies','To shed old feathers','Woodpeckers drum to signal territory and peck to reach insects and excavate nest cavities.'],
+['birds','Species','easy','Which wading bird gets its pink color from pigments in its food?','Flamingo','Pelican','Heron','Stork','Flamingos absorb carotenoid pigments from algae and small crustaceans they eat.'],
+['birds','Flight','medium','Which bird has the largest wingspan of any living bird?','Wandering albatross','Andean condor','Bald eagle','Ostrich','The wandering albatross has a wingspan that can exceed three metres.'],
+['birds','Species','medium','Which bird of prey is famous as the fastest animal in a hunting dive?','Peregrine falcon','Golden eagle','Barn owl','Black kite','A diving peregrine falcon can exceed 300 kilometres per hour.'],
+['birds','Anatomy','medium','What does the gizzard do in many birds?','Grinds food','Stores eggs','Produces song','Senses magnetic fields','The muscular gizzard, often helped by swallowed grit, grinds food because birds have no teeth.'],
+['birds','Anatomy','hard','What is the sound-producing organ of birds called?','Syrinx','Larynx','Crop','Cloaca','Birds sing using the syrinx, located where the trachea branches toward the lungs.'],
+['birds','Life cycle','easy','What is it called when a bird sits on its eggs to keep them warm?','Incubation','Migration','Moulting','Preening','Incubation keeps eggs at the warmth embryos need to develop.'],
+['birds','Feathers','medium','What is moulting in birds?','Shedding old feathers and growing new ones','Laying a clutch of eggs','Flying south for winter','Weaving a nest','Birds moult to replace worn feathers, usually once or twice a year.'],
+['birds','India','medium','Which crane found in India is the tallest flying bird in the world?','Sarus crane','Siberian crane','Grey heron','Painted stork','The sarus crane can stand about 1.8 metres tall, the tallest of any flying bird.'],
+// Nature
+['nature','Weather','easy','What are balls of ice that fall from thunderstorm clouds called?','Hail','Sleet','Dew','Fog','Hailstones form when updrafts carry raindrops high into freezing parts of a storm cloud.'],
+['nature','Earth','easy','What is a volcano?','An opening in Earth’s crust where molten rock can erupt','A deep valley carved by a glacier','A sandbar at a river mouth','A ring of coral in the ocean','Volcanoes release magma, gases, and ash from inside Earth.'],
+['nature','Plants','easy','Which part of a flower often attracts pollinators with bright colors?','Petals','Roots','Stem','Seeds','Colorful petals, and often scent, help attract insects and birds that carry pollen.'],
+['nature','Plants','medium','What is pollination?','Transfer of pollen to the female part of a flower','Absorption of water by roots','Shedding of leaves in autumn','Release of oxygen from leaves','Pollination moves pollen to the stigma so that seeds can form.'],
+['nature','Plants','medium','What is transpiration in plants?','Loss of water vapor, mainly through tiny pores in leaves','Growth of new roots','Spreading of seeds by wind','Making chlorophyll in sunlight','Water evaporates from leaf stomata, pulling more water up from the roots.'],
+['nature','Earth','medium','What most commonly causes earthquakes?','Sudden movement along faults in Earth’s crust','Ocean tides','Strong winds','Phases of the Moon','Most earthquakes happen when stress built up along faults is suddenly released.'],
+['nature','Weather','medium','What does humidity describe?','The amount of water vapor in the air','The speed of the wind','The temperature of the soil','The brightness of sunlight','Humidity measures how much water vapor the air holds.'],
+['nature','Earth','medium','Which gas makes up most of Earth’s atmosphere?','Nitrogen','Oxygen','Carbon dioxide','Argon','Nitrogen makes up about 78 percent of dry air; oxygen is about 21 percent.'],
+['nature','Conservation','easy','What is deforestation?','Large-scale clearing of forests','Planting new trees','Seasonal leaf fall','Measuring tree height','Deforestation removes forests, often for farming, logging, or building.'],
+['nature','Ecology','hard','What is a keystone species?','A species with an unusually large effect on its ecosystem','The most numerous species in an area','A species found only on islands','A species that has recently gone extinct','Removing a keystone species, such as sea otters in kelp forests, can change an entire ecosystem.'],
+// Instruments
+['instruments','Woodwind','medium','Which double-reed instrument usually plays the tuning note for an orchestra?','Oboe','Clarinet','Flute','Saxophone','Orchestras commonly tune to an A played by the oboe.'],
+['instruments','Brass','medium','Which is usually the lowest-pitched brass instrument in an orchestra?','Tuba','Trumpet','French horn','Cornet','The tuba is the largest and lowest-pitched brass instrument in the standard orchestra.'],
+['instruments','Strings','easy','How many strings does a standard acoustic guitar have?','Six','Four','Five','Eight','A standard guitar has six strings.'],
+['instruments','Strings','medium','Which is the largest and lowest bowed string instrument in an orchestra?','Double bass','Cello','Viola','Violin','The double bass is the largest member of the orchestral string section.'],
+['instruments','Indian instruments','medium','Which double-headed barrel drum is central to Carnatic music?','Mridangam','Tabla','Dhol','Ghatam','The mridangam is the main percussion instrument of South Indian Carnatic music.'],
+['instruments','Indian instruments','medium','Which plucked string instrument is associated with Carnatic music and the goddess Saraswati?','Veena','Sitar','Sarod','Santoor','The Saraswati veena is a classical plucked instrument of South India.'],
+['instruments','Indian instruments','medium','Which hammered string instrument from Kashmir is played with light wooden mallets?','Santoor','Sarangi','Sitar','Harmonium','The santoor is a trapezoid hammered dulcimer associated with Kashmir.'],
+['instruments','Keyboard','medium','How does a harmonium produce sound?','Air from bellows vibrates metal reeds','Hammers strike tight strings','Players pluck strings with a pick','Sticks strike a stretched skin','A harmonium is a free-reed instrument; bellows push air past metal reeds.'],
+['instruments','Woodwind','medium','Which instrument is made of brass but is classed as a woodwind because it uses a reed?','Saxophone','Trumpet','Trombone','Tuba','The saxophone has a metal body but produces sound with a single reed.'],
+['instruments','Percussion','easy','What kind of instrument is a triangle?','A metal percussion instrument struck with a beater','A three-stringed bowed instrument','A small brass horn','A keyboard with three keys','The triangle is a bent steel bar struck with a metal beater.'],
+// Science
+['science','Chemistry','easy','What is the chemical symbol for gold?','Au','Ag','Go','Gd','Gold’s symbol Au comes from the Latin word aurum.'],
+['science','Physics','medium','About how fast does light travel in a vacuum?','About 300,000 kilometres per second','About 300 kilometres per second','About 3,000 kilometres per second','About 30 million kilometres per second','Light travels at about 299,792 kilometres per second in a vacuum.'],
+['science','Biology','easy','Which blood cells carry oxygen around the body?','Red blood cells','White blood cells','Platelets','Nerve cells','Red blood cells contain hemoglobin, which binds oxygen.'],
+['science','Space','easy','Which is the largest planet in our Solar System?','Jupiter','Saturn','Neptune','Earth','Jupiter is more than twice as massive as all the other planets combined.'],
+['science','Physics','easy','At sea level, at what temperature does pure water boil?','100 degrees Celsius','90 degrees Celsius','0 degrees Celsius','212 degrees Celsius','At standard sea-level pressure, pure water boils at 100 degrees Celsius.'],
+['science','Physics','medium','What is the SI unit of energy?','Joule','Watt','Newton','Pascal','The joule is the SI unit of energy and work; the watt is a unit of power.'],
+['science','Biology','medium','Which organ produces the hormone insulin?','Pancreas','Liver','Kidney','Stomach','Beta cells in the pancreas produce insulin, which helps regulate blood sugar.'],
+['science','Space','easy','What is the name of the galaxy that contains our Solar System?','Milky Way','Andromeda','Triangulum','Whirlpool','Our Solar System is in the Milky Way galaxy.'],
+['science','Chemistry','medium','What is the atomic number of carbon?','6','12','8','14','A carbon atom has six protons, so its atomic number is 6.'],
+['science','Physics','hard','Which type of lens is used to correct short-sightedness?','Concave lens','Convex lens','Plane mirror','Prism','A concave, or diverging, lens moves the focus back onto the retina for short-sighted eyes.'],
+];
+
 export const CATEGORY_SOURCES = {
   animals: 'Smithsonian National Zoo animal fact sheets — https://nationalzoo.si.edu/animals',
   birds: 'Cornell Lab of Ornithology, All About Birds — https://www.allaboutbirds.org/guide/',
