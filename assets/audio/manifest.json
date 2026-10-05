@@ -5,7 +5,7 @@
     "correct": {
       "file": "assets/audio/correct.mp3",
       "duration": 1.5,
-      "bytes": 15769,
+      "bytes": 15719,
       "kind": "sfx",
       "use": "Correct answer",
       "title": "Correct answer tone",
@@ -61,7 +61,7 @@
     "timeup": {
       "file": "assets/audio/timeup.mp3",
       "duration": 1.6,
-      "bytes": 322889,
+      "bytes": 16502,
       "kind": "sfx",
       "use": "Time is up",
       "title": "Cooking bell ding",
@@ -103,7 +103,7 @@
     "click": {
       "file": "assets/audio/click.mp3",
       "duration": 0.5,
-      "bytes": 5842,
+      "bytes": 5792,
       "kind": "sfx",
       "use": "Get ready / start",
       "title": "Select click",
