@@ -133,10 +133,10 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const btns=[...d.querySelectorAll('.answer-button')];
   // pick the correct one by checking the question bank
   const { QUESTION_BANK }=await import(ROOT+'src/content.js');
-  const q=QUESTION_BANK.find(x=>titleQ.endsWith(x.question));btns.find(b=>b.textContent===q.correctAnswer).click();await wait(20);
+  const q=QUESTION_BANK.find(x=>titleQ.endsWith(x.question));btns.find(b=>b.dataset.answer===q.correctAnswer).click();await wait(20);
   assert(played.includes('correct.mp3'),'correct answer plays the bell');
   d.querySelector('.next-question').click();await wait(10);
-  const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.textContent!==q2.correctAnswer).click();await wait(20);
+  const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer!==q2.correctAnswer).click();await wait(20);
   assert(played.includes('wrong.mp3'),'wrong answer plays the buzzer');
   for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.next-question')?.click();await wait(5);d.querySelector('.answer-button:not([aria-disabled])')?.click();await wait(5)}
   assert(played.includes('applause.mp3')||played.includes('cheer.mp3'),'results applause');assert(played.includes('music_results.mp3'),'results music');
@@ -162,7 +162,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(d.querySelector('#view-auth').inert,'sign-in view is inert during a game');
   d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
   const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
-  const right=[...d.querySelectorAll('.answer-button')].find(b=>b.textContent===q.correctAnswer);right.focus();right.click();
+  const right=[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===q.correctAnswer);right.focus();right.click();
   for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
   const fb=d.querySelector('#answer-feedback');
   assert.equal(d.activeElement,fb,'focus moves to the result, got '+(d.activeElement?.id||d.activeElement?.tagName));
@@ -170,15 +170,15 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(fb.compareDocumentPosition(d.querySelector('.next-question'))&4,'Next question follows the result');
   assert(!d.activeElement.closest('#view-auth, form, input'),'focus is not on sign-in UI');
   assert(!d.querySelectorAll('.answer-button[disabled]').length,'answer buttons stay focusable (aria-disabled)');
-  assert.equal(right.getAttribute('aria-label'),`${q.correctAnswer}, correct answer`);
+  assert.equal(right.getAttribute('aria-label'),`Option ${right.dataset.letter}: ${q.correctAnswer}, correct answer, your answer`);
   for(const id of ['#announcer','#assertive-announcer'])assert(!/sign in|signed in/i.test(d.querySelector(id).textContent),'no sign-in announcement');
   d.querySelector('.next-question').click();await wait(10);
   const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
   assert.equal(d.activeElement,d.querySelector('#game-title'),'next question receives focus');
-  [...d.querySelectorAll('.answer-button')].find(b=>b.textContent!==q2.correctAnswer).click();
+  [...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer!==q2.correctAnswer).click();
   for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
   assert.equal(d.activeElement,d.querySelector('#answer-feedback'));
-  assert.match(d.activeElement.textContent,new RegExp(`^Incorrect\\. The correct answer is ${q2.correctAnswer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\..*Streak reset\\.`));
+  assert.match(d.activeElement.textContent,new RegExp(`^Incorrect\\. You chose [A-D]: .+ The correct answer is [A-D]: ${q2.correctAnswer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\..*Streak reset\\.`));
   globalThis.setTimeout=fast;
   console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
 }
@@ -269,6 +269,26 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('#view-letters [data-go="home"]').click();await wait(10);d.querySelector('#category-list [data-category="business"]').click();await wait(10);assert.equal($('#view-game').hidden,false);
   globalThis.setTimeout=fast;
   console.log(`ok 15 Letters to Words: letter buttons ("Letter X"), automatic recognition ("Word found"), server XP/coins, invalid words cleared, level ${targets.length>=goal?'progression':'goal'} verified`);
+}
+// 16. Options are A, B, C, D; "Question 1 of 10" is spoken once (title only), never repeated on every option.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  t=await boot({fetchImpl:()=>{throw new Error('offline')}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
+  $('#category-list [data-category="history"]').click();await wait(10);$('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  const btns=[...d.querySelectorAll('.answer-button')];
+  assert.equal(btns.length,4);
+  btns.forEach((b,i)=>{const L='ABCD'[i];assert.equal(b.dataset.letter,L);assert.equal(b.getAttribute('aria-label'),`Option ${L}: ${b.dataset.answer}`);assert.equal(b.querySelector('.answer-letter').textContent,L);assert.equal(b.querySelector('.answer-letter').getAttribute('aria-hidden'),'true');assert(!b.hasAttribute('aria-describedby'),'options do not repeat the progress')});
+  assert.match($('#game-title').textContent,/^Question 1 of 10\. /);assert.equal($('#round-progress').getAttribute('aria-hidden'),'true');
+  const spoken=[...d.querySelectorAll('#view-game *')].filter(el=>!el.closest('[aria-hidden="true"]')&&el.children.length===0).map(el=>el.getAttribute('aria-label')||el.textContent).join(' | ');
+  assert.equal((spoken.match(/Question 1 of 10/g)||[]).length,1,'"Question 1 of 10" is exposed once: '+spoken);
+  $('#repeat-question').click();await wait(10);
+  assert.match($('#assertive-announcer').textContent,/^Question 1 of 10\. .+ Options: A, .+\. B, .+\. C, .+\. D, .+\.$/);
+  d.dispatchEvent(new t.w.KeyboardEvent('keydown',{key:'b',bubbles:true}));for(let i=0;i<40&&!d.querySelector('.next-question');i++)await wait(5);await wait(10);
+  assert.equal(btns[1].getAttribute('aria-disabled'),'true');assert(/your answer/.test(btns[1].getAttribute('aria-label')),'pressing B chose option B');
+  assert.match($('#answer-feedback').textContent,/^(Correct! The answer is B: |Incorrect\. You chose B: .+ The correct answer is [ACD]: )/);
+  globalThis.setTimeout=fast;
+  console.log('ok 16 options labelled A-D ("Option B: …"), progress spoken once, repeat reads the options, A-D keys choose');
 }
 // Legal pages
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}

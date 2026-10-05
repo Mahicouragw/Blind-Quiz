@@ -20,3 +20,7 @@ footer .footer-actions button{margin-left:0}
 .letters-found{display:flex;flex-wrap:wrap;gap:8px 16px;padding-left:1.2em}
 .readonly-field{font-weight:700;padding:12px 14px;border:1px dashed #607580;border-radius:12px}
 .form-success-note{font-weight:700;color:var(--acid)}
+
+.answer-button{display:flex;align-items:center;gap:14px}
+.answer-letter{flex:none;display:inline-grid;place-items:center;width:2.2em;height:2.2em;border-radius:50%;border:2px solid currentColor;font-weight:900}
+.answer-text{flex:1}
