@@ -137,7 +137,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v13'"),'service worker cache is v13');
+assert(sw.includes("const CACHE='blind-quiz-shell-v14'"),'service worker cache is v14');
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
@@ -265,3 +265,19 @@ console.log('PASS: Task 15 sighted-player visuals are decorative and motion-safe
   const sw3=await readFile(new URL('../sw.js',import.meta.url),'utf8');assert(sw3.includes("url.pathname.includes('/download/')"),'service worker never caches the APK');
 }
 console.log('PASS: Task 16 identity, fonts, app download and sign-in text.');
+{ // Task 16: word meanings in Letters to Words (WordNet, bundled, fetched per first letter)
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { WORD_TIERS } = await import('../src/words.js'); const { SHORT_WORD_TIERS } = await import('../src/short-words.js');
+  const dir = new URL('../assets/meanings/', import.meta.url);
+  const all = Object.assign({}, ...readdirSync(dir).filter(f => /^[a-z]\.json$/.test(f)).map(f => JSON.parse(readFileSync(new URL(f, dir), 'utf8'))));
+  const words = [...new Set([...SHORT_WORD_TIERS, ...WORD_TIERS].flatMap(t => t.split(' ')).filter(Boolean))];
+  const missing = words.filter(w => !all[w]);
+  assert(missing.length / words.length < 0.03, `meanings cover at least 97% of answer words (missing ${missing.length})`);
+  for (const w of ['see', 'sees', 'ran', 'is', 'cat', 'tiger']) assert(all[w], `meaning for ${w}`);
+  assert(!/goddess|Maine|nursing/.test(JSON.stringify([all.ate, all.me, all.an])), 'no proper-noun or abbreviation senses for everyday words');
+  assert(/WordNet 3\.1 Copyright 2011 by Princeton University/.test(readFileSync(new URL('LICENSE.txt', dir), 'utf8')), 'WordNet licence shipped with the meanings');
+  const lui = readFileSync(new URL('../src/letters-ui.js', import.meta.url), 'utf8');
+  assert(!/earlier game|profile XP/.test(lui), 'no "earlier game" or "profile XP" wording');
+  assert(lui.includes('meaningLine(m)') && readFileSync(new URL('../index.html', import.meta.url), 'utf8').includes('id="letters-meaning"'), 'meaning is spoken and shown');
+}
+console.log('PASS: Task 16 word meanings for Letters to Words.');

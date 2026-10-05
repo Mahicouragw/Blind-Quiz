@@ -181,3 +181,9 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - Happy Lullaby (cynicmusic)
 
   Any slot can be a playlist (`music_menu`, `music_menu2`…). Each visit starts on the next track, and the next track fades in when one ends. Licences are checked by the bot (CC0 only).
+- [x] **16.7 Word meanings and cleaner word messages (Letters to Words).**
+  - Every found word is followed by its meaning, spoken in the message and shown on a meaning card. Example: "Word found: SEE. Meaning: to perceive by sight. 1 of 4 found."
+  - Meanings cover 17,253 of 17,493 answer words (Princeton WordNet 3.1, bundled, offline).
+  - A word found in an earlier game still counts, without the "earlier game … no new profile XP" sentence.
+  - The round summary says "You earned N XP and N coins this round."
+  - Service worker v14.

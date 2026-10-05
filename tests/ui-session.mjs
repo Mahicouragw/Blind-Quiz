@@ -234,6 +234,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const p0={name:'goldfish',loginId:'ABCD2345',xp:90,coins:18,level:1,currentStreak:5,bestStreak:5,questionsAnswered:10,questionsCorrect:9};
   const words=[];let xp=90;
   t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:p0,loginId:'ABCD2345'},fetchImpl:(u,init)=>{const b=init?.body?JSON.parse(init.body):{};
+    if(String(u).includes('/assets/meanings/'))return json(200,JSON.parse(readFileSync(ROOT+'assets/meanings/'+String(u).split('/').pop(),'utf8')));
     if(b.action==='record-word'){words.push(b);xp+=b.word.length-1;return json(200,{ok:true,valid:true,alreadyFound:false,xp:b.word.length-1,coins:1,profile:{...p0,xp,currentStreak:6}})}
     return json(200,{ok:true,profile:p0})}});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
@@ -259,14 +260,17 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Words that neither extend nor contain a shorter answer as a prefix (spelling BOOT also finds BOO on the way).
   const targets=sols.filter(w=>!sols.some(x=>x!==w&&(x.startsWith(w)||w.startsWith(x)))).slice(0,goal);
   const w1=targets[0]??[...sols].sort((a,b)=>a.length-b.length)[0];await spellWord(w1);
-  assert.match($('#letters-status').textContent,new RegExp(`^Word found: ${w1.toUpperCase()}\\. You earned ${w1.length-1} XP and 1 coin\\. Streak: 6\\.`));
+  {const file=JSON.parse(readFileSync(ROOT+'assets/meanings/'+w1[0]+'.json','utf8'));const e=file[w1];const mean=Array.isArray(e)?e[0]:e;const esc=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+   assert.match($('#letters-status').textContent,new RegExp(`^Word found: ${w1.toUpperCase()}\\. Meaning${Array.isArray(e)?` \\(from ${e[1].toUpperCase()}\\)`:''}: ${esc(mean)}\\.? You earned ${w1.length-1} XP and 1 coin\\. Streak: 6\\.`),'spoken message includes the meaning: '+$('#letters-status').textContent);
+   assert.equal($('#letters-meaning').hidden,false);assert.equal($('#letters-meaning strong').textContent,w1.toUpperCase());assert($('#letters-meaning span').textContent.endsWith(mean),'meaning card shows the meaning');
+   assert(!/profile XP|earlier game/.test(d.body.textContent),'no profile XP or earlier-game wording')}
   assert.deepEqual(words[0],{action:'record-word',letters:words[0].letters,word:w1});assert.equal([...words[0].letters].sort().join(''),letters().sort().join(''));
   assert([...d.querySelectorAll('#letters-found li')].some(li=>li.textContent===w1.toUpperCase()),'found list');
   assert.equal($('#top-meta').textContent,'Signed in as goldfish');
   for(const w of targets.slice(1))await spellWord(w);
   await wait(40);
   if(targets.length>=goal){for(let i=0;i<50&&d.activeElement!==$('#letters-status');i++)await wait(5);
-    assert.match($('#letters-status').textContent,new RegExp(`Round complete! ${goal} words found\\. \\d+ level XP earned, including a 4 XP round bonus\\. \\d+ profile XP and ${goal} coins earned this round\\. Level XP: \\d+ of 30\\. \\d+ more to reach Level 2\\. Next: Round 2\\. Your letters are`));
+    assert.match($('#letters-status').textContent,new RegExp(`Round complete! ${goal} words found\\. \\d+ level XP earned, including a 4 XP round bonus\\. You earned \\d+ XP and ${goal} coins this round\\. Level XP: \\d+ of 30\\. \\d+ more to reach Level 2\\. Next: Round 2\\. Your letters are`));
     assert.equal(d.activeElement,$('#letters-status'),'focus moves to the round result');assert.equal(tiles().length,4,'still level 1');assert.match($('#letters-level').textContent,/^Level 1, Beginner\. Round 2\./);assert.match($('#letters-xp').textContent,/^Level XP: \d+ of 30\./)}
   // Pressing the same letter again (TalkBack keeps focus on it) uses the other copy: T, O, O -> TOO.
   let dup=null;for(let n=0;n<200&&!dup;n++){$('#letters-new').click();await wait(2);const ls=letters();const c=ls.find((x,k)=>ls.indexOf(x)!==k);if(c)dup=c}
