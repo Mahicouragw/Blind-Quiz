@@ -55,7 +55,7 @@ jobs:
           EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
           # Character classes keep these patterns from matching this guard itself.
           if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
-            echo "::error::Only the Management API query endpoint may be used. No Supabase CLI migration, link, psql, or seed commands are allowed."
+            echo "::error::Only the Management API query endpoint may be used. Supabase CLI database tooling, direct Postgres clients, and seed files are not allowed."
             exit 1
           fi
           if [ "$MIGRATION_FILE" != "supabase/migrations/202610050010_add_200_questions.sql" ]; then
