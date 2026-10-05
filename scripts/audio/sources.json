@@ -98,6 +98,18 @@
       "kind": "music",
       "use": "Results screen",
       "max": 60
+    },
+    "correct": {
+      "file": "406243 stubb typewriter-ding-near-mono.wav",
+      "kind": "sfx",
+      "use": "Correct answer",
+      "max": 1.1
+    },
+    "go": {
+      "file": "218318 splicesound referee-whistle-blow-gymnasium.wav",
+      "kind": "sfx",
+      "use": "GO! after the countdown",
+      "max": 1.6
     }
   }
 }
