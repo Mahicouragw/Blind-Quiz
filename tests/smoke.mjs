@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, validateQuestionBank } from '../src/content.js';
@@ -144,4 +145,23 @@ assert(fn.includes("permitAccount('login'")&&fn.includes("permitAccount('recover
 assert(dart.includes('NavDecision classifyNavigation(')&&dart.includes("if (uri.scheme != 'https') return NavDecision.block;")&&dart.includes('LaunchMode.externalApplication'),'Android wrapper: HTTPS-only allowlist, external links open in the browser');
 assert(dart.includes('AndroidWebViewController.enableDebugging(kDebugMode)')&&dart.includes('setAllowFileAccess(false)'),'Android wrapper: no WebView debugging in release, no file access');
 assert(dart.includes("Reload failed. Check your internet connection, then try again.")&&!dart.includes('clearLocalStorage'),'Android Reload reports failures and keeps web storage (session)');
+// Migrations 001-012 are applied remotely and must stay byte-identical.
+{
+  const { createHash }=await import('node:crypto');
+  const pinned={'202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6','202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58','202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138','202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1','202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075'};
+  for(const [f,h] of Object.entries(pinned))assert(createHash('sha256').update(await readFile(new URL('../supabase/migrations/'+f,import.meta.url))).digest('hex')===h,`migration ${f} must stay byte-identical`);
+}
+// Letters to Words dictionary: real SCOWL words, clean, and identical in the game and in the server seed (Migration 013).
+{
+  const { WORD_TIERS }=await import('../src/words.js');
+  const m013=await readFile(new URL('../supabase/migrations/202610050013_profile_changes_and_words.sql',import.meta.url),'utf8');
+  const seeded=[...m013.matchAll(/^  \((\d), '([a-z ]*)'\),?$/gm)].map(x=>x[2]);
+  assert(seeded.length===3&&seeded.every((l,i)=>l===WORD_TIERS[i]),'bq_words seed matches src/words.js');
+  const all=WORD_TIERS.join(' ').split(' ');assert(new Set(all).size===all.length,'no duplicate words across tiers');
+  assert(all.every(w=>/^[a-z]{3,7}$/.test(w)),'words are lowercase a-z, 3-7 letters');
+  const block=(await readFile(new URL('../scripts/words/blocklist.txt',import.meta.url),'utf8')).split('\n').filter(l=>!l.startsWith('#')).join(' ').split(/\s+/).filter(Boolean);
+  const set=new Set(all);assert(block.every(w=>!set.has(w)),'no blocklisted word in the dictionary');
+  assert(WORD_TIERS[0].split(' ').length>2000&&set.has('for')&&set.has('ford')&&!set.has('hes')&&!set.has('sex'),'tier 1 holds the common words');
+  assert(existsSync(new URL('../WORDS_LICENSE.md',import.meta.url))&&(await readFile(new URL('../WORDS_LICENSE.md',import.meta.url),'utf8')).includes('Kevin Atkinson'),'SCOWL licence notice is shipped');
+}
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);

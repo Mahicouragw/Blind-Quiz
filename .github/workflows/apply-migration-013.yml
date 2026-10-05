@@ -1,0 +1,72 @@
+name: Apply Migration 013 (guarded)
+
+# Applies ONLY supabase/migrations/202610050013_profile_changes_and_words.sql (username change cooldown
+# columns, the Letters to Words dictionary, and three service_role-only functions) through the Supabase
+# Management API query endpoint. Approved by the owner on 5 Oct 2026; additive only.
+#
+# Migrations 001-012 are already applied remotely and are never recreated, rerun, or pushed.
+# The Supabase CLI migration commands are deliberately NOT used.
+#
+# Idempotent: skips the apply step when the objects already exist and verify, and refuses if the migration
+# contains anything other than the reviewed additive statements, or if any existing row count changes.
+#
+# Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'supabase/migrations/202610050013_profile_changes_and_words.sql'
+      - 'scripts/apply-migration-013.mjs'
+      - '.github/workflows/apply-migration-013.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migration-013
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+  MIGRATION_FILE: supabase/migrations/202610050013_profile_changes_and_words.sql
+
+jobs:
+  apply:
+    name: Apply Migration 013 only and verify privileges
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard - this workflow never replays migrations 001-012
+        run: |
+          set -euo pipefail
+          SELF=.github/workflows/apply-migration-013.yml
+          EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
+          # Character classes keep these patterns from matching this guard itself.
+          if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
+            echo "::error::Only the Management API query endpoint may be used. Supabase CLI database tooling, direct Postgres clients, and seed files are not allowed."
+            exit 1
+          fi
+          if [ "$MIGRATION_FILE" != "supabase/migrations/202610050013_profile_changes_and_words.sql" ]; then
+            echo "::error::This workflow applies Migration 013 only."
+            exit 1
+          fi
+          echo "Confirmed: no CLI migration tooling; target is Migration 013 only."
+
+      - name: Guard - validate content and Migration 013 statically
+        run: |
+          npm test
+          node --no-warnings scripts/apply-migration-013.mjs --check
+
+      - name: Apply Migration 013 and verify privileges
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node --no-warnings scripts/apply-migration-013.mjs --apply
