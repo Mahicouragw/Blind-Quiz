@@ -151,3 +151,25 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
 
   Puzzles are only chosen when the long-word goal is achievable.
 - [x] **16.3 Sign-in/sign-up text:** removed "No email, password, phone, or OTP…" and the long secret-answer warning. The intro now reads "Log in with your name, Login ID and secret answer." (sign-up: "Create an account with your name, a secret question and a secret answer.").
+- [x] **16.4 Android app 1.2** (`build-android.yml`):
+  - new Blind Quiz launcher icon: a braille "?" cell with sound waves
+  - Share button (QR icon) opening a panel with the website QR code and "Copy website link" / "Copy app download link"
+  - the Reload button stays
+  - it still loads the live site, so players never need to update or reinstall
+
+  Every build is published as the **latest** release with a fixed-name `blind-quiz.apk`, then the Pages deploy mirrors it. Permanent links:
+  - https://mahicouragw.github.io/Blind-Quiz/download/blind-quiz.apk
+  - https://github.com/Mahicouragw/Blind-Quiz/releases/latest/download/blind-quiz.apk
+
+  Service worker v13 never caches `/download/`.
+- [x] **16.5 Own game identity, "Night Arcade":**
+  - a grape night stage with a braille-dot texture
+  - chunky arcade-key buttons that press down
+  - colour-coded A–D answer keys
+  - cream board-game letter tiles
+  - marigold/mint/coral palette, all text at 7:1 contrast or better
+  - self-hosted SIL OFL fonts: Atkinson Hyperlegible (Braille Institute, for low vision) for reading, Bungee for titles
+  - braille-cell logo, new icon, rewritten home copy ("Hear it. Tap it. Win it.")
+  - "Get the Android app" section with app and website QR codes, hidden inside the app
+
+  High contrast, large text and reduced motion still override everything.

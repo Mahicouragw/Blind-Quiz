@@ -65,3 +65,90 @@ footer .footer-actions button{margin-left:0}
 .letters-found li{padding:4px 12px;border-radius:999px;background:#293e35;border:1px solid var(--acid);font-weight:800;letter-spacing:.05em}
 @media (prefers-reduced-motion:reduce){.countdown-num.pop,.answer-button.correct,.answer-button.incorrect,.hud-timer.low .hud-ring,.result-stars,.letters-slots .slot.filled{animation:none!important}}
 @media(max-width:560px){.category-icon{width:44px;height:44px;font-size:1.6rem}.letter-tile{min-width:60px;min-height:60px}}
+
+/* =====================================================================================
+   Blind Quiz identity: "Night Arcade". Grape night stage, braille-dot texture, chunky arcade keys,
+   cream letter tiles, marigold + mint + coral. Fonts are self-hosted (SIL OFL, see assets/fonts/OFL.txt):
+   Atkinson Hyperlegible (Braille Institute, built for low vision) for reading, Bungee for game titles.
+   ===================================================================================== */
+@font-face{font-family:'Atkinson Hyperlegible';src:url(assets/fonts/atkinson-hyperlegible-latin-400-normal.woff2) format('woff2');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'Atkinson Hyperlegible';src:url(assets/fonts/atkinson-hyperlegible-latin-700-normal.woff2) format('woff2');font-weight:700 900;font-style:normal;font-display:swap}
+@font-face{font-family:'Bungee';src:url(assets/fonts/bungee-latin-400-normal.woff2) format('woff2');font-weight:400;font-style:normal;font-display:swap}
+:root{--ink:#fff8ec;--muted:#cfc5ea;--bg:#1b1036;--panel:#28184d;--panel2:#33205f;--line:#5d4a96;--acid:#ffc94a;--coral:#ff6f61;--blue:#5ee6c8;--focus:#ffffff;--danger:#ff8a80;--key-edge:#0f0822;--radius:18px;--display:'Bungee','Atkinson Hyperlegible',system-ui,sans-serif;font-family:'Atkinson Hyperlegible',system-ui,-apple-system,'Segoe UI',sans-serif}
+body{background-color:var(--bg);background-image:radial-gradient(circle at 50% 50%,#ffffff12 2px,transparent 2.6px),radial-gradient(ellipse at 15% -10%,#5b2a8a 0,transparent 45%),radial-gradient(ellipse at 100% 0%,#173f5c 0,transparent 40%);background-size:26px 26px,auto,auto;background-attachment:fixed}
+h1,h2,.home-head h1,.panel h1,.section-head h2,.callout h2,.game-stage h1,.countdown-num,.result-score,.login-id-display,.brand strong,footer span:first-child{font-family:var(--display);font-weight:400;letter-spacing:0}
+.home-head h1{font-size:clamp(2.6rem,8vw,5.4rem);line-height:1.02;text-shadow:0 6px 0 var(--key-edge)}
+.home-head h1 em{color:var(--acid)}
+.panel h1,.auth-panel h1{font-size:clamp(1.8rem,5vw,3rem);line-height:1.08}
+.section-head h2,.callout h2{font-size:clamp(1.4rem,3.4vw,2.1rem)}
+.question-text{font-family:'Atkinson Hyperlegible',system-ui,sans-serif!important;font-weight:700!important;letter-spacing:0!important}
+.eyebrow{display:inline-block;background:var(--blue);color:#140b2b;padding:5px 12px 4px;border-radius:9px;font-weight:800;font-size:.78rem;letter-spacing:.08em;transform:rotate(-1.5deg);box-shadow:0 3px 0 var(--key-edge)}
+.topbar{background:#140b2bd9;border-bottom:3px solid var(--key-edge);backdrop-filter:blur(6px)}
+.brand-mark{display:grid;grid-template-columns:repeat(2,10px);grid-template-rows:repeat(3,10px);gap:5px;place-content:center;width:50px;height:58px;padding:0;border:0;border-radius:12px;background:var(--acid);box-shadow:0 4px 0 var(--key-edge)}
+.brand-mark i{width:10px;height:10px;border-radius:50%;background:var(--bg)}.brand-mark i.off{opacity:.2}
+.brand strong{font-size:15px;color:var(--acid)}
+/* Arcade keys */
+.button,.icon-button,.tool-button,.segment{border:3px solid var(--key-edge);border-radius:14px;box-shadow:0 5px 0 var(--key-edge);transition:transform .08s,box-shadow .08s,background .15s;font-weight:800}
+.button:active,.icon-button:active,.tool-button:active,.segment:active,.answer-button:not(.locked):active,.category-button:active,.mode-button:active,.letter-tile:active{transform:translateY(4px);box-shadow:0 1px 0 var(--key-edge)}
+.button-hot{background:var(--acid);color:#1b1036;border-color:var(--key-edge)}.button-hot:hover{background:#ffd877}
+.button-outline{background:#1d3d4a;color:var(--blue);border-color:var(--key-edge)}.button-outline:hover{background:#245061}
+.button-quiet{background:var(--panel2);color:var(--ink)}
+.icon-button{background:var(--panel2);color:var(--ink)}
+.tool-button{background:var(--panel2);color:var(--blue)}
+.text-button,.back-link{color:var(--blue);font-weight:800;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:2px}
+.segmented{background:var(--key-edge);border-radius:16px}
+.segment{background:transparent;box-shadow:none;border-color:transparent;color:var(--muted)}.segment.active{background:var(--acid);color:#1b1036;border-color:var(--key-edge);box-shadow:0 3px 0 #00000055}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:4px solid var(--focus);outline-offset:3px;box-shadow:0 0 0 8px #ffc94a88}
+/* Strip, cards, panels */
+.signal-strip{border:3px solid var(--key-edge);border-radius:18px;background:var(--panel);padding:14px 18px;box-shadow:0 5px 0 var(--key-edge)}
+.signal-strip span{border-color:var(--line)}.signal-strip b{color:var(--acid);font-family:var(--display);font-weight:400}
+.category-button,.mode-button{border:3px solid var(--key-edge);border-radius:20px;box-shadow:0 6px 0 var(--key-edge)}
+.category-button{background:linear-gradient(160deg,hsl(var(--hue) 55% 34%),hsl(var(--hue) 45% 20%) 70%)}
+.category-button:hover{transform:translateY(-3px);box-shadow:0 9px 0 var(--key-edge);border-color:var(--key-edge);background:linear-gradient(160deg,hsl(var(--hue) 60% 40%),hsl(var(--hue) 50% 24%) 70%)}
+.category-icon{background:#ffffff26;border-radius:50%;box-shadow:inset 0 -3px 0 #00000033}
+.category-button strong{font-size:1.15rem}
+.mode-button{background:var(--panel2)}.mode-button:hover{transform:translateY(-3px);border-color:var(--key-edge);background:#3d2870}.mode-button:after{content:'▶';color:var(--acid)}
+.callout{border:3px solid var(--key-edge);border-radius:24px;background:linear-gradient(120deg,#2b1a55,#1f2f55);box-shadow:0 7px 0 var(--key-edge)}
+.braille-glyph{background:var(--acid);color:#1b1036;border:3px solid var(--key-edge);box-shadow:0 4px 0 var(--key-edge);font-family:var(--display)}
+.panel{border:3px solid var(--key-edge);border-radius:26px;background:var(--panel);box-shadow:0 8px 0 var(--key-edge)}
+input,select{background:#170d30;border:3px solid var(--line);border-radius:14px}input:focus,select:focus{border-color:var(--acid)}
+.login-id-display{color:var(--acid);border:3px dashed var(--acid);background:#170d30}
+/* Get the app */
+.app-callout{grid-template-columns:auto 1fr auto}
+.qr-pair{display:flex;gap:14px}.qr-pair figure{margin:0;text-align:center}.qr-pair img{display:block;width:132px;height:132px;border-radius:14px;border:3px solid var(--key-edge);background:#fff8ec;box-shadow:0 4px 0 var(--key-edge)}
+.qr-pair figcaption{margin-top:8px;font-weight:800;color:var(--blue)}
+/* Game stage */
+.game-stage{border:3px solid var(--key-edge);border-radius:26px;background:radial-gradient(ellipse at 50% -20%,#4a2f8a 0,transparent 60%),linear-gradient(170deg,#2a1952,#1a1037);box-shadow:0 8px 0 var(--key-edge)}
+.round-label{color:var(--acid);font-family:var(--display);font-weight:400;letter-spacing:.02em}
+.meter{height:12px;border:3px solid var(--key-edge);background:#140b2b;border-radius:99px}.meter span{background:linear-gradient(90deg,var(--acid),#ffdf8a);border-radius:99px}
+.answer-button{border:3px solid var(--key-edge);border-radius:18px;background:var(--panel2);box-shadow:0 5px 0 var(--key-edge);font-size:1.08rem}
+.answer-button:not(.locked):hover{background:#3e2a72;border-color:var(--key-edge)}
+.answer-letter{border:3px solid var(--key-edge);font-family:var(--display);font-weight:400;color:#1b1036}
+.answer-button[data-letter=A] .answer-letter{background:#ff8f70}.answer-button[data-letter=B] .answer-letter{background:#6fd3ff}.answer-button[data-letter=C] .answer-letter{background:#7ff0b2}.answer-button[data-letter=D] .answer-letter{background:#ffd35c}
+.answer-button.correct{background:#1f5a4a;border-color:var(--key-edge)}.answer-button.correct .answer-letter{background:var(--blue)}
+.answer-button.incorrect{background:#6a2840;border-color:var(--key-edge)}.answer-button.incorrect .answer-letter{background:var(--coral)}
+.answer-button.correct .answer-letter:before{color:#1b1036}.answer-button.incorrect .answer-letter:before{color:#1b1036}
+.feedback[data-kind]{border:3px solid var(--key-edge);border-left-width:8px;border-radius:14px;box-shadow:0 4px 0 var(--key-edge)}
+.feedback[data-kind=good]{background:#1f5a4a;border-left-color:var(--blue)}.feedback[data-kind=bad]{background:#5d2338;border-left-color:var(--coral)}
+.hud-score{background:var(--acid);color:#1b1036;border:3px solid var(--key-edge);font-family:var(--display);font-weight:400}
+.countdown-num{color:var(--acid);text-shadow:0 8px 0 var(--key-edge)}
+.result-stars{color:var(--acid);text-shadow:0 5px 0 var(--key-edge)}
+.results-panel .result-score{color:var(--acid);font-size:1.7rem}
+/* Letters to Words: cream board-game tiles */
+.letter-tile{background:#fff3d6;color:#2a1a10;border:3px solid var(--key-edge);border-radius:14px;box-shadow:0 6px 0 #b98f4f,0 7px 0 var(--key-edge);font-family:var(--display);font-weight:400;font-size:2.1rem}
+.letter-tile:hover{background:#fffaf0}
+.letter-tile.picked{background:var(--acid);color:#1b1036;outline:none;box-shadow:0 2px 0 #b98f4f,0 3px 0 var(--key-edge);transform:translateY(4px)}
+.letter-tile[data-order]:after{background:var(--coral);color:#fff;border:2px solid var(--key-edge);font-family:'Atkinson Hyperlegible',sans-serif;font-weight:800}
+.letters-slots .slot{border-bottom-width:5px;font-family:var(--display);font-weight:400}.letters-slots .slot.filled{color:var(--acid);border-color:var(--acid)}
+.goal-pips .pip{border:3px solid var(--key-edge);background:#140b2b;width:20px;height:20px}.goal-pips .pip.on{background:var(--blue)}
+.letters-found li{background:#1f5a4a;border:3px solid var(--key-edge);color:var(--ink)}
+.xp-track{height:14px;border:3px solid var(--key-edge);background:#140b2b}.xp-fill{background:linear-gradient(90deg,var(--blue),#a6ffe9)}
+footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:first-child{color:var(--acid)}
+/* Accessibility modes keep working over the identity */
+.high-contrast{--bg:#000;--panel:#000;--panel2:#111;--line:#fff;--key-edge:#fff;--acid:#ffff00;--blue:#00ffff;--coral:#ff9f00;--ink:#fff;--muted:#fff}
+.high-contrast body,body.high-contrast{background-image:none}
+.high-contrast .category-button,.high-contrast .callout,.high-contrast .game-stage{background:#000}
+.high-contrast .letter-tile{background:#fff;color:#000;box-shadow:0 4px 0 #fff}
+.high-contrast .answer-letter{background:#ffff00!important;color:#000}
+@media(max-width:850px){.app-callout{grid-template-columns:1fr}.app-callout .button{justify-self:start}}
+@media(max-width:560px){.brand-mark{width:42px;height:50px;grid-template-columns:repeat(2,8px);grid-template-rows:repeat(3,8px);gap:4px}.brand-mark i{width:8px;height:8px}.qr-pair img{width:112px;height:112px}.letter-tile{font-size:1.8rem}}

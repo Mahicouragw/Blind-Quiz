@@ -254,3 +254,14 @@ console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST
 }
 console.log('PASS: Task 15 sighted-player visuals are decorative and motion-safe.');
 
+{ // Task 16: own game identity (self-hosted OFL fonts), Get the app section with QR codes and APK link
+  const { statSync, existsSync } = await import('node:fs');
+  const html3=await readFile(new URL('../index.html',import.meta.url),'utf8'),css3=await readFile(new URL('../styles.css',import.meta.url),'utf8');
+  for(const f of ['atkinson-hyperlegible-latin-400-normal.woff2','atkinson-hyperlegible-latin-700-normal.woff2','bungee-latin-400-normal.woff2'])assert(statSync(new URL(`../assets/fonts/${f}`,import.meta.url)).size>5000&&css3.includes(`assets/fonts/${f}`),`font ${f} is self-hosted and used`);
+  assert(/SIL Open Font License/i.test(await readFile(new URL('../assets/fonts/OFL.txt',import.meta.url),'utf8')),'font licence shipped');
+  assert(!/fonts\.googleapis|fonts\.gstatic/.test(html3+css3),'no third-party font requests (CSP stays self-only)');
+  assert(html3.includes('href="download/blind-quiz.apk" download')&&html3.includes('src="assets/qr-apk.svg"')&&html3.includes('src="assets/qr-site.svg"')&&existsSync(new URL('../assets/qr-apk.svg',import.meta.url)),'Get the app: APK link and QR codes');
+  assert(!/No email, password, phone, or OTP|Anyone who knows it may be able to access/.test(html3)&&html3.includes('Log in with your name, Login ID and secret answer.'),'simplified sign-in text');
+  const sw3=await readFile(new URL('../sw.js',import.meta.url),'utf8');assert(sw3.includes("url.pathname.includes('/download/')"),'service worker never caches the APK');
+}
+console.log('PASS: Task 16 identity, fonts, app download and sign-in text.');
