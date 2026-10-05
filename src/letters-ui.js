@@ -36,14 +36,20 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
       const on = game.picked.includes(i);
       b.setAttribute('aria-label', `Letter ${game.puzzle.letters[i].toUpperCase()}${on ? ', selected' : ''}`);
       b.classList.toggle('picked', on);
+      if (on) b.dataset.order = String(game.picked.indexOf(i) + 1); else delete b.dataset.order;
     });
     $('#letters-current').textContent = w ? `Your word: ${w.toUpperCase()}` : 'Your word: no letters chosen yet';
+    // Decorative (aria-hidden) word slots and goal pips for sighted players.
+    const slots = $('#letters-slots');
+    if (slots) { slots.innerHTML = ''; const n = Math.max(game.picked.length, 2); for (let k = 0; k < n; k++) { const sp = document.createElement('span'); sp.className = 'slot' + (w[k] ? ' filled' : ''); sp.textContent = w[k] ? w[k].toUpperCase() : ''; slots.append(sp); } }
     const { goal, solutions } = game.puzzle;
     $('#letters-progress').textContent = `Words found: ${game.found.size} of ${goal} needed. ${solutions.length} words are possible. Score ${game.score}.`;
     const list = $('#letters-found');
     list.innerHTML = '';
     for (const f of [...game.found].reverse()) { const li = document.createElement('li'); li.textContent = f.toUpperCase(); list.append(li); }
     $('#letters-found-empty').hidden = game.found.size > 0;
+    const pips = $('#letters-pips');
+    if (pips) { pips.innerHTML = ''; for (let k = 0; k < goal; k++) { const p = document.createElement('span'); p.className = 'pip' + (k < game.found.size ? ' on' : ''); pips.append(p); } }
     renderXp();
     $('#letters-remove').setAttribute('aria-disabled', String(!w));
     $('#letters-clear').setAttribute('aria-disabled', String(!w));

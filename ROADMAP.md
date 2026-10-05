@@ -129,3 +129,11 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
 
 - [x] **15.1 Five new categories:** Medical, Math, Physics, Chemistry, Biology with 20 questions each (`bq-en-1067`-`bq-en-1166`, `MIGRATION_015_ROWS`). No repeated prompts or repeated facts across all 825 questions; 4 unique options with one correct answer. Migration 015 (insert-only, `on conflict (id) do nothing`) is applied by `apply-migration-015.yml` (preflight requires Migration 011 with its fingerprint; verifies 20 rows in each of the 5 categories). Live check `scripts/check-migration-015-live.mjs` confirms they award XP and coins. Migration 014 is now pinned by SHA-256 too.
 - [x] **15.2 Stock audio:** all 10 sound effects now come from Mixkit (Sound Effects Free License, games allowed, no attribution), pinned by asset id in `scripts/audio/sources.json`. They are downloaded as full WAVs by `scripts/audio/stock-audio.mjs` (workflow `audio-assets.yml`), then trimmed, normalised and encoded. Music comes from Pixabay (Content License, human artists only). Pixabay blocks automated downloads (HTTP 403 for GitHub runners) and its FAQ requires downloading from pixabay.com, so the owner downloads tracks by hand and uploads `assets/audio/incoming/<slot>-<file>.mp3`. The workflow encodes them, deletes the originals (never published), regenerates `manifest.json` + `AUDIO_LICENSES.md`, and redeploys Pages. Slots without an upload keep their Commons CC0/PD recording. Audio URLs carry `?v=<bytes>` so replaced files are never served stale; service worker v12. Mixkit music is not used.
+- [x] **15.3 Visuals for sighted players** (all decorative and `aria-hidden`, so screen-reader output is unchanged):
+  - category cards get an icon and colour tint; names stay the only text, as before
+  - quiz HUD shows a visible countdown ring with seconds (turns coral at 5 s and pulses) and a live score
+  - big animated 3-2-1 countdown; answers mark ✓/✗ with pop/shake animations and a coloured feedback banner
+  - results show 0–3 stars
+  - Letters to Words shows word slots, numbers the pick order on tiles, adds goal pips and found-word chips
+  - home shows the current category count (25) and "Tap, click, keys A–D or screen reader"
+  - all animations are disabled by Reduce motion and `prefers-reduced-motion`

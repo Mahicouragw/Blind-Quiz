@@ -35,7 +35,7 @@ function encode(src, slot, kind, max, start) {
   const fadeOut = isMusic ? 3 : Math.min(0.25, max / 4);
   filters.push(`afade=t=in:d=${isMusic ? 1.5 : 0.005}`, 'areverse', `afade=t=in:d=${fadeOut}`, 'areverse');
   const out = new URL(`${slot}.mp3`, outDir).pathname;
-  execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-af', filters.join(','), '-ac', isMusic ? '2' : '1', '-ar', '44100', '-codec:a', 'libmp3lame', '-b:a', isMusic ? '96k' : '80k', out]);
+  execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', src, '-af', filters.join(','), '-map_metadata', '-1', '-map', '0:a:0', '-ac', isMusic ? '2' : '1', '-ar', '44100', '-codec:a', 'libmp3lame', '-b:a', isMusic ? '96k' : '80k', out]);
   const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration,size', '-of', 'json', out]).toString());
   const duration = Number(probe.format.duration), bytes = Number(probe.format.size);
   if (!(duration > 0.1)) throw new Error(`${slot}: encoded file is empty`);

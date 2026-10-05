@@ -24,3 +24,44 @@ footer .footer-actions button{margin-left:0}
 .answer-button{display:flex;align-items:center;gap:14px}
 .answer-letter{flex:none;display:inline-grid;place-items:center;width:2.2em;height:2.2em;border-radius:50%;border:2px solid currentColor;font-weight:900}
 .answer-text{flex:1}
+
+/* ---- Task 15: visuals for sighted players (all decorative; screen-reader output is unchanged) ---- */
+.category-button{--hue:200;background:linear-gradient(150deg,hsl(var(--hue) 45% 22%/.55),var(--panel) 62%);border-color:hsl(var(--hue) 40% 40%/.6);display:flex;flex-direction:column;gap:6px}
+.category-button:hover{border-color:hsl(var(--hue) 75% 65%);background:linear-gradient(150deg,hsl(var(--hue) 50% 28%/.7),var(--panel2) 62%)}
+.category-icon{font-size:1.9rem;line-height:1;display:inline-grid;place-items:center;width:52px;height:52px;border-radius:14px;background:hsl(var(--hue) 50% 50%/.18);margin-bottom:4px}
+.high-contrast .category-button{background:var(--panel);border-color:var(--line)}
+.hud{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.hud-score{font-weight:800;color:var(--acid);padding:2px 10px;border:1px solid var(--line);border-radius:999px}
+.hud-timer{--left:1;display:inline-flex;align-items:center;gap:8px;font-weight:800;color:var(--ink)}
+.hud-ring{width:26px;height:26px;border-radius:50%;background:conic-gradient(var(--acid) calc(var(--left)*360deg),#344653 0);transition:background .3s}
+.hud-timer.low{color:var(--coral)}.hud-timer.low .hud-ring{background:conic-gradient(var(--coral) calc(var(--left)*360deg),#344653 0);animation:hud-pulse 1s infinite}
+@keyframes hud-pulse{50%{transform:scale(1.15)}}
+.countdown-num{font-size:clamp(5rem,18vw,10rem)!important;color:var(--acid);line-height:1}
+.countdown-num.pop{animation:count-pop .9s ease-out}
+@keyframes count-pop{0%{transform:scale(.4);opacity:0}35%{transform:scale(1.12);opacity:1}100%{transform:scale(1)}}
+.answer-button{transition:transform .15s,border-color .15s,background .15s}
+.answer-button:not(.locked):hover{transform:translateY(-2px);background:#26404f}
+.answer-button.correct .answer-letter,.answer-button.incorrect .answer-letter{font-size:0}
+.answer-button.correct .answer-letter:before{content:'✓';font-size:1.1rem;color:var(--acid)}
+.answer-button.incorrect .answer-letter:before{content:'✗';font-size:1.1rem;color:var(--danger)}
+.answer-button.correct{animation:ans-pop .35s ease-out}.answer-button.incorrect{animation:ans-shake .4s}
+@keyframes ans-pop{50%{transform:scale(1.04)}}
+@keyframes ans-shake{20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.feedback[data-kind]{padding:12px 16px;border-radius:14px;border-left:5px solid}
+.feedback[data-kind=good]{background:#293e35;border-color:var(--acid)}
+.feedback[data-kind=bad]{background:#422d36;border-color:var(--danger)}
+.result-stars{font-size:3rem;letter-spacing:.15em;color:var(--acid);margin:0;line-height:1}
+.result-stars[data-stars="3"]{animation:count-pop .8s ease-out}
+.letter-tile{position:relative;transition:transform .12s,background .12s}
+.letter-tile:hover{transform:translateY(-3px)}
+.letter-tile[data-order]:after{content:attr(data-order);position:absolute;top:-9px;right:-9px;width:24px;height:24px;border-radius:50%;background:var(--acid);color:#19251d;font-size:.8rem;display:grid;place-items:center}
+.letters-slots{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px}
+.letters-slots .slot{width:46px;height:54px;border-bottom:4px solid var(--line);display:grid;place-items:center;font-size:1.7rem;font-weight:900}
+.letters-slots .slot.filled{border-color:var(--acid);color:var(--acid);animation:ans-pop .25s}
+.goal-pips{display:flex;gap:6px;margin:10px 0 4px}
+.goal-pips .pip{width:18px;height:18px;border-radius:50%;border:2px solid var(--line)}
+.goal-pips .pip.on{background:var(--acid);border-color:var(--acid)}
+.letters-found{list-style:none;padding-left:0}
+.letters-found li{padding:4px 12px;border-radius:999px;background:#293e35;border:1px solid var(--acid);font-weight:800;letter-spacing:.05em}
+@media (prefers-reduced-motion:reduce){.countdown-num.pop,.answer-button.correct,.answer-button.incorrect,.hud-timer.low .hud-ring,.result-stars,.letters-slots .slot.filled{animation:none!important}}
+@media(max-width:560px){.category-icon{width:44px;height:44px;font-size:1.6rem}.letter-tile{min-width:60px;min-height:60px}}

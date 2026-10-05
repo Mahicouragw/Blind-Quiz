@@ -233,3 +233,14 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   assert(!html.includes('<dl class="profile-stats"'),'profile stats are not a definition list');
 }
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);
+{ // Task 15: visuals for sighted players are decorative only, so screen-reader output does not change
+  const html2=await readFile(new URL('../index.html',import.meta.url),'utf8'),main2=await readFile(new URL('../src/main.js',import.meta.url),'utf8'),lui=await readFile(new URL('../src/letters-ui.js',import.meta.url),'utf8'),css=await readFile(new URL('../styles.css',import.meta.url),'utf8');
+  assert(/<span class="hud" aria-hidden="true">[\s\S]*id="hud-timer"[\s\S]*id="hud-score"/.test(html2),'visible timer and score HUD is aria-hidden (announcements already cover it)');
+  assert(html2.includes('id="result-stars" aria-hidden="true"')&&html2.includes('id="letters-slots" aria-hidden="true"')&&html2.includes('id="letters-pips" aria-hidden="true"'),'stars, word slots and goal pips are decorative');
+  assert(/category-icon\\?" aria-hidden=\\?"true/.test(main2)&&main2.includes("CATEGORY_ICON={"),'category icons are aria-hidden');
+  assert(/function updateHud\(\)/.test(main2)&&/state\.timeLeft--;updateHud\(\)/.test(main2),'timer is shown visually every second');
+  assert(/dataset\.order/.test(lui)&&/prefers-reduced-motion:reduce/.test(css)&&/\.reduce-motion \*/.test(css),'pick order shown on tiles; animations honour reduced motion');
+  assert(html2.includes('<b id="total-categories">25</b> categories'),'home shows the current category count');
+}
+console.log('PASS: Task 15 sighted-player visuals are decorative and motion-safe.');
+
