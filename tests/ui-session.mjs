@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const html=readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'');
 let n=0;
+const WINDOWS=[]; // src/audio.js is loaded once, so its cached audio elements may belong to an earlier window
 async function boot({session,fetchImpl,local}){
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
-  const w=dom.window;
+  const w=dom.window;WINDOWS.push(w);
   for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
   for(const [k,v] of Object.entries(local||{}))w.localStorage.setItem(k,JSON.stringify(v));
@@ -287,7 +288,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const assets=Object.fromEntries(['correct','wrong','click','applause','cheer','levelup','coin'].map(k=>[k,{file:`assets/audio/${k}.mp3`}]));
   t=await boot({local:{'bq.letters.v1':{level:1,levelXp:28,round:4,recent:[]}},fetchImpl:u=>String(u).includes('manifest.json')?json(200,{assets}):json(200,{ok:true})});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
-  const played=[];t.w.HTMLMediaElement.prototype.play=function(){played.push(String(this.src).split('/').pop());return Promise.resolve()};t.w.HTMLMediaElement.prototype.pause=function(){};
+  const played=[];for(const w of WINDOWS){w.HTMLMediaElement.prototype.play=function(){played.push(String(this.src).split('/').pop());return Promise.resolve()};w.HTMLMediaElement.prototype.pause=function(){}}
   $('#letters-open').click();await wait(20);
   assert.match($('#letters-level').textContent,/^Level 1, Beginner\. Round 4\. 4 letters\./);assert.match($('#letters-xp').textContent,/^Level XP: 28 of 30\. 2 more to reach Level 2\./);
   const tiles=()=>[...d.querySelectorAll('#letters-tiles .letter-tile')],letters=()=>tiles().map(b=>b.textContent.toLowerCase());
