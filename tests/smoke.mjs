@@ -44,12 +44,15 @@ assert(html.includes('aria-live="polite"')&&html.includes('aria-live="assertive"
 assert(html.includes('id="recovery-form"')&&html.includes('Forgot Login ID?'),'login ID recovery UI');
 assert(html.includes('Eight-character Login ID'),'Login ID field');
 assert(!/<input[^>]*type="(?:email|password)"/i.test(html),'no email/password input fields');
-assert(!html.includes('sfx-on'),'no unavailable sound-effect control');
+assert(html.includes('id="sfx-on"')&&html.includes('id="music-on"')&&html.includes('id="music-volume"'),'sound effect and music controls');
 const css=await readFile(new URL('../styles.css',import.meta.url),'utf8');
 assert(css.includes(':focus-visible'),'visible focus indicator');
 assert(css.includes('.high-contrast')&&css.includes('.large-text')&&css.includes('.reduce-motion'),'accessibility settings styles');
 const main=await readFile(new URL('../src/main.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator)/.test(main),'no synthetic Web Audio effects');
+const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8');
+assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
+assert(!/\btone\(/.test(main),'no leftover synthetic tone() calls (they crashed every round)');
 assert(main.includes('displayAnswers:shuffled(q.answers)'),'answer choices are shuffled independently');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');
 assert(!html.includes('id=\"backend-note\"'),'no technical backend status element');
@@ -99,7 +102,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v5'"),'service worker cache is v5');
+assert(sw.includes("const CACHE='blind-quiz-shell-v6'"),'service worker cache is v6');
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));

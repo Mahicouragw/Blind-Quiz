@@ -80,6 +80,42 @@ t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,50)
 t.d.querySelector('#view-auth [data-go="home"]').click();await new Promise(r=>setTimeout(r,150));
 assert.equal(t.d.querySelector('#view-home').hidden,false);assert.equal(t.w.history.state,null,'returning Home via the page button pops the sub-view entry');
 console.log('ok 9 back navigation returns to Home');
+// 10. Every category and every mode starts, plays to the results screen, and Play again works.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  t=await boot({fetchImpl:()=>{throw new Error('offline')}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms));
+  const play=async()=>{d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);assert(d.querySelector('.answer-button'),'question appears after the countdown');
+    for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.answer-button:not([disabled])')?.click();await wait(5);d.querySelector('.next-question')?.click();await wait(5)}
+    assert.equal(d.querySelector('#view-results').hidden,false,'round reaches results')};
+  const cats=[...d.querySelectorAll('#category-list [data-category]')].map(b=>b.dataset.category);
+  assert.equal(cats.length,20);
+  for(const c of cats){d.querySelector('#view-results [data-go="home"]')?.click();go:{d.querySelector(`#category-list [data-category="${c}"]`).click()}await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,`${c} opens`);await play()}
+  for(const m of [...d.querySelectorAll('#mode-list [data-mode]')].map(b=>b.dataset.mode)){d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector(`#mode-list [data-mode="${m}"]`).click();await wait(5);await play()}
+  d.querySelector('#play-again').click();await wait(5);await play();
+  // Leave during the countdown, then start a different game straight away.
+  d.querySelector('#view-results [data-go="home"]').click();await wait(5);
+  d.querySelector('#category-list [data-category="business"]').click();await wait(5);d.querySelector('#game-start').click();await wait(3);
+  d.querySelector('#view-game .back-link').click();await wait(5);
+  d.querySelector('#category-list [data-category="history"]').click();await wait(5);
+  assert.match(d.querySelector('#round-label').textContent,/HISTORY/);await play();
+  // Leave mid-question with a timer running: nothing fires later and the next game opens.
+  d.querySelector('#view-results [data-go="home"]').click();await wait(5);
+  d.querySelector('#mode-list [data-mode="rapid"]').click();await wait(5);d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  d.querySelector('#view-game .back-link').click();await wait(60);assert.equal(d.querySelector('#view-home').hidden,false,'timer does not drag the player back');
+  d.querySelector('#random-category').click();await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,'Surprise me opens a game');await play();
+  d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector('.callout [data-category="braille"]').click();await wait(5);assert.match(d.querySelector('#round-label').textContent,/BRAILLE/);
+  globalThis.setTimeout=fast;
+  console.log(`ok 10 all ${cats.length} categories and 6 modes play to results; leaving mid-countdown/mid-timer never blocks the next game`);
+}
+// 11. Signed-in players see their profile, not a sign-in prompt.
+t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}},fetchImpl:()=>json(200,{ok:true,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}})});
+assert.equal(t.d.querySelector('#top-meta').textContent,'Signed in as goldfish');
+assert.equal(t.d.querySelector('#account-open').textContent,'Your profile: goldfish');
+t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
+assert.equal(t.d.querySelector('#view-profile').hidden,false);assert.equal(t.d.querySelector('#profile-auth').hidden,true);
+assert.match(t.d.querySelector('#profile-stats').textContent,/goldfish.*Level.*XP.*Coins.*3 \(75%\)/s);
+console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile with stats');
 // Legal pages
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);
