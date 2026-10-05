@@ -65,8 +65,8 @@ assert.deepEqual(Object.keys(stockSrc.sfx).sort(),[...SFX_SLOTS].sort(),'every s
 for(const [slot,pin] of Object.entries(stockSrc.sfx))assert(Number.isInteger(pin.mixkitId)&&pin.title&&pin.category&&pin.max>0&&pin.max<=8,`${slot}: Mixkit pin is complete`);
 assert.deepEqual(Object.keys(stockSrc.music),['menu','game1','game2','game3','results'],'five music slots');
 for(const [slot,m] of Object.entries(stockSrc.music))assert(m.oga&&/^https:\/\/opengameart\.org\/content\/[a-z0-9-]+$/.test(m.oga.page)&&m.oga.file,`${slot}: pinned OpenGameArt track`);
-assert(audioBuilder.includes("const OGA_OK = l => /^CC0$/i.test(l);")&&/CC0 required/.test(audioBuilder),'OpenGameArt music must list CC0 on its live page or the build fails');
 const audioBuilder=await readFile(new URL('../scripts/audio/stock-audio.mjs',import.meta.url),'utf8');
+assert(audioBuilder.includes("const OGA_OK = l => /^CC0$/i.test(l);")&&/CC0 required/.test(audioBuilder),'OpenGameArt music must list CC0 on its live page or the build fails');
 assert(!/fetch\([^)]*pixabay/i.test(audioBuilder)&&audioBuilder.includes('assets.mixkit.co/active_storage/sfx/')&&!/mixkit\.co\/free-stock-music/.test(audioBuilder),'Mixkit sound effects only; Pixabay music is never fetched automatically; no Mixkit music');
 const MIXKIT=/^Mixkit Sound Effects Free License$/,PIXABAY=/^Pixabay Content License$/,COMMONS=/^(CC0|Public domain)$/i;
 for(const slot of [...SFX_SLOTS,'music_menu','music_game1','music_game2','music_game3','music_results']){const a=audioManifest.assets[slot];
