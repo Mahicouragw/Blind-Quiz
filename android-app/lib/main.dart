@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -11,8 +12,13 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 const String kLiveUrl = 'https://mahicouragw.github.io/Blind-Quiz/';
 const String kAppHost = 'mahicouragw.github.io';
 const String kAppPathPrefix = '/Blind-Quiz';
-const Color kBackground = Color(0xFF111D2B);
-const Color kAcid = Color(0xFFD6FF5F);
+const Color kBackground = Color(0xFF1B1036);
+const Color kAcid = Color(0xFFFFC94A);
+const Color kMint = Color(0xFF5EE6C8);
+const Color kCream = Color(0xFFFFF8EC);
+
+/// Permanent download link for the newest APK (served from the website itself).
+const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-quiz.apk';
 
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
@@ -198,6 +204,18 @@ class _QuizWebViewState extends State<QuizWebView> {
           foregroundColor: Colors.white,
           title: const Text('Blind Quiz'),
           actions: [
+            Semantics(
+              button: true,
+              label: 'Share Blind Quiz: show the QR code and link',
+              excludeSemantics: true,
+              child: IconButton(
+                onPressed: () => showShareSheet(context),
+                color: kMint,
+                iconSize: 28,
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                icon: const Icon(Icons.qr_code_2),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Semantics(
@@ -282,3 +300,81 @@ class OfflineMessage extends StatelessWidget {
     );
   }
 }
+
+/// Opens the share panel with the website QR code.
+Future<void> showShareSheet(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: kBackground,
+    isScrollControlled: true,
+    builder: (_) => const SharePanel(),
+  );
+}
+
+/// Website QR code and links, so players can invite friends from the app.
+class SharePanel extends StatelessWidget {
+  const SharePanel({super.key});
+
+  Future<void> _copy(BuildContext context, String text, String what) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$what copied.')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Semantics(
+              header: true,
+              child: const Text('Share Blind Quiz', style: TextStyle(color: kAcid, fontSize: 24, fontWeight: FontWeight.w800)),
+            ),
+            const SizedBox(height: 8),
+            const Text('Scan this code to play in any browser.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 17)),
+            const SizedBox(height: 16),
+            Semantics(
+              image: true,
+              label: 'QR code for the Blind Quiz website',
+              excludeSemantics: true,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: kCream, borderRadius: BorderRadius.circular(20)),
+                child: QrImageView(data: kLiveUrl, size: 220, backgroundColor: kCream, eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: kBackground), dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: kBackground)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const SelectableText(kLiveUrl, textAlign: TextAlign.center, style: TextStyle(color: kMint, fontSize: 15)),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton(
+                  onPressed: () => _copy(context, kLiveUrl, 'Website link'),
+                  style: FilledButton.styleFrom(backgroundColor: kAcid, foregroundColor: kBackground, minimumSize: const Size(160, 52)),
+                  child: const Text('Copy website link'),
+                ),
+                OutlinedButton(
+                  onPressed: () => _copy(context, kApkUrl, 'App download link'),
+                  style: OutlinedButton.styleFrom(foregroundColor: kMint, side: const BorderSide(color: kMint, width: 2), minimumSize: const Size(160, 52)),
+                  child: const Text('Copy app download link'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: TextButton.styleFrom(foregroundColor: Colors.white, minimumSize: const Size(120, 52)),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

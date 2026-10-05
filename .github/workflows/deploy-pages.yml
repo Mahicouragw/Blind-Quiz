@@ -32,6 +32,16 @@ jobs:
           node --no-warnings tests/ui-session.mjs
       - name: Build static site
         run: npm run build
+      - name: Add the latest Android APK to the site (download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/download
+          if gh release download -R "$GITHUB_REPOSITORY" --pattern blind-quiz.apk -D dist/download 2>/dev/null; then
+            ls -la dist/download; echo "::notice title=APK::Published at /download/blind-quiz.apk"
+          else
+            echo "::warning title=APK::No release with blind-quiz.apk yet"
+          fi
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:

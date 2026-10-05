@@ -1,4 +1,4 @@
-const CACHE='blind-quiz-shell-v12';
+const CACHE='blind-quiz-shell-v13';
 const SHELL=['./','./index.html','./styles.css','./manifest.webmanifest','./src/main.js','./src/content.js','./src/expansion-questions.js','./src/random.js','./src/backend.js','./src/audio.js','./src/words.js','./src/short-words.js','./src/letters.js','./src/letters-ui.js','./src/config.js','./assets/icon.svg','./privacy-policy.html','./terms-and-conditions.html','./src/legal.js'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
@@ -6,6 +6,6 @@ self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=
 // The cache is only consulted inside .catch(), i.e. when the network is unavailable.
 self.addEventListener('fetch',event=>{
  const req=event.request;const url=new URL(req.url);
- if(req.method!=='GET'||url.origin!==self.location.origin)return;
+ if(req.method!=='GET'||url.origin!==self.location.origin||url.pathname.includes('/download/'))return; // the APK download is never cached
  event.respondWith(fetch(req).then(res=>{if(res.status===200){const copy=res.clone();caches.open(CACHE).then(c=>c.put(req.mode==='navigate'?'./index.html':req,copy))}return res}).catch(()=>caches.match(req).then(hit=>hit||(req.mode==='navigate'?caches.match('./index.html'):undefined))));
 });

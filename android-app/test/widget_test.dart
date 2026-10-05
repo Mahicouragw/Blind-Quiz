@@ -46,4 +46,14 @@ void main() {
     expect(retries, 1);
     handle.dispose();
   });
+
+  testWidgets('share panel shows the website QR code and link buttons', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SharePanel())));
+    expect(find.text('Share Blind Quiz'), findsOneWidget);
+    expect(find.text(kLiveUrl), findsOneWidget);
+    expect(find.text('Copy website link'), findsOneWidget);
+    expect(find.text('Copy app download link'), findsOneWidget);
+    expect(find.bySemanticsLabel('QR code for the Blind Quiz website'), findsOneWidget);
+    expect(kApkUrl, startsWith('https://mahicouragw.github.io/Blind-Quiz/'));
+  });
 }

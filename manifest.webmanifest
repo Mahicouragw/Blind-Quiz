@@ -1,14 +1,29 @@
 {
   "name": "Blind Quiz — Listen. Think. Play.",
   "short_name": "Blind Quiz",
-  "description": "An audio-first quiz game designed to work beautifully for blind and sighted players.",
+  "description": "A quiz and word game built to be played by ear or by eye: blind and sighted players together.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#111d2b",
-  "theme_color": "#111d2b",
+  "background_color": "#1b1036",
+  "theme_color": "#1b1036",
   "icons": [
-    {"src":"assets/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }

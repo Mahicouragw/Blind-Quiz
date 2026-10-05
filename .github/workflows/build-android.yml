@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: build-android-${{ github.ref }}
@@ -67,6 +68,9 @@ jobs:
           grep -q 'usesCleartextTraffic' "$MANIFEST" || \
             sed -i 's#<application#<application android:usesCleartextTraffic="false" android:allowBackup="false" android:fullBackupContent="false"#' "$MANIFEST"
           grep -n 'INTERNET\|android:label\|usesCleartextTraffic\|allowBackup' "$MANIFEST"
+          # Blind Quiz launcher icon (braille "?" cell with sound waves) instead of the Flutter default.
+          for d in icons/mipmap-*; do cp "$d/ic_launcher.png" "android/app/src/main/res/$(basename "$d")/ic_launcher.png"; done
+          ls -la android/app/src/main/res/mipmap-*/ic_launcher.png
 
       - name: Get packages
         run: flutter pub get 2>&1 | tee "$RUNNER_TEMP/pub.log" || { sed 's/^/::error title=pub get::/' "$RUNNER_TEMP/pub.log" | tail -20; exit 1; }
@@ -151,17 +155,22 @@ jobs:
         run: |
           set -euo pipefail
           TAG="android-v$VERSION_NAME"
-          PRE=""
-          [ "$GITHUB_REF_NAME" = "main" ] || PRE="--prerelease"
+          # Every build is the latest release and also carries a fixed-name copy, so these links never change:
+          #   https://github.com/<repo>/releases/latest/download/blind-quiz.apk
+          #   https://mahicouragw.github.io/Blind-Quiz/download/blind-quiz.apk (mirrored by the Pages deploy)
+          cp "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk"
           NOTES="Blind Quiz for Android $VERSION_NAME, built from ${GITHUB_SHA::7} on $GITHUB_REF_NAME.
 
           The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Only the INTERNET permission is requested.
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
-          gh release create "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Blind Quiz for Android $VERSION_NAME" --notes "$NOTES" $PRE
+          gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Blind Quiz for Android $VERSION_NAME" --notes "$NOTES" --latest
+          # Publish the new APK on the website download link too.
+          gh workflow run deploy-pages.yml --ref "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" || echo "::warning::Could not trigger the Pages deploy"
           {
             echo "## Android APK"
             echo "- Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            echo "- Download: https://mahicouragw.github.io/Blind-Quiz/download/blind-quiz.apk"
             echo "- Signing: $SIGNING_MODE"
           } >> "$GITHUB_STEP_SUMMARY"
