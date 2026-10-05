@@ -11,7 +11,7 @@ footer .footer-actions button{margin-left:0}
 
 .letters-tiles{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}
 .letter-tile{min-width:72px;min-height:72px;border-radius:16px;border:2px solid #607580;background:#203542;font-size:2rem;font-weight:900;letter-spacing:.02em}
-.letter-tile.picked,.letter-tile[aria-pressed="true"]{border-color:var(--acid);background:#293e35;outline:3px solid var(--acid);outline-offset:2px}
+.letter-tile.picked{border-color:var(--acid);background:#293e35;outline:3px solid var(--acid);outline-offset:2px}
 .letters-current{font-size:1.4rem;font-weight:800;min-height:1.6em}
 .letters-tools{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
 .letters-tools [aria-disabled="true"]{opacity:.55}

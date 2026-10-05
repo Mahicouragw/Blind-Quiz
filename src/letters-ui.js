@@ -23,7 +23,6 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
       b.textContent = ch.toUpperCase();
       b.dataset.index = String(i);
       b.setAttribute('aria-label', `Letter ${ch.toUpperCase()}`);
-      b.setAttribute('aria-pressed', 'false');
       b.addEventListener('click', () => pick(i));
       host.append(b);
     });
@@ -33,7 +32,7 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     game.puzzle.letters.forEach((_, i) => {
       const b = $(`#letters-tiles [data-index="${i}"]`);
       const on = game.picked.includes(i);
-      b.setAttribute('aria-pressed', String(on));
+      b.setAttribute('aria-label', `Letter ${game.puzzle.letters[i].toUpperCase()}${on ? ', selected' : ''}`);
       b.classList.toggle('picked', on);
     });
     $('#letters-current').textContent = w ? `Your word: ${w.toUpperCase()}` : 'Your word: no letters chosen yet';

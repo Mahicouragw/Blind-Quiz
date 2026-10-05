@@ -240,23 +240,23 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal($('#view-letters').hidden,false);assert(!d.querySelector('#view-letters input, #view-letters textarea'),'no typing anywhere in the game');
   const tiles=()=>[...d.querySelectorAll('#letters-tiles .letter-tile')];
   assert.equal(tiles().length,4,'level 1 has 4 letters');
-  for(const b of tiles()){assert.equal(b.tagName,'BUTTON');assert.match(b.getAttribute('aria-label'),/^Letter [A-Z]$/);assert.equal(b.getAttribute('aria-pressed'),'false')}
+  for(const b of tiles()){assert.equal(b.tagName,'BUTTON');assert.match(b.getAttribute('aria-label'),/^Letter [A-Z]$/);assert(!b.hasAttribute('aria-pressed'),'plain button: "Letter D, button"')}
   assert.match($('#letters-status').textContent,/^Level 1\. Your letters are [A-Z], [A-Z], [A-Z], [A-Z]\./);
   const letters=()=>tiles().map(b=>b.textContent.toLowerCase());
   const spellWord=async w=>{const used=new Set();for(const ch of w){const i=letters().findIndex((c,k)=>c===ch&&!used.has(k));used.add(i);tiles()[i].click();await wait(3)}await wait(20)};
   // An invalid start is rejected and cleared.
   const sols=solutionsFor(letters().join(''));let bad=null;
   for(let i=0;i<4&&!bad;i++)for(let j=0;j<4&&!bad;j++)if(i!==j&&!isPrefix(letters()[i]+letters()[j],sols))bad=[i,j];
-  if(bad){tiles()[bad[0]].click();await wait(3);if(!/Not a valid word/.test($('#letters-status').textContent)){tiles()[bad[1]].click();await wait(3)}assert.match($('#letters-status').textContent,/Not a valid word\. Letters cleared/);assert(tiles().every(b=>b.getAttribute('aria-pressed')==='false'),'selection cleared')}
+  if(bad){tiles()[bad[0]].click();await wait(3);if(!/Not a valid word/.test($('#letters-status').textContent)){tiles()[bad[1]].click();await wait(3)}assert.match($('#letters-status').textContent,/Not a valid word\. Letters cleared/);assert(tiles().every(b=>!/selected/.test(b.getAttribute('aria-label'))),'selection cleared')}
   // First letter is announced as selected, then Remove last letter undoes it.
   const first=sols[0];const i0=letters().indexOf(first[0]);tiles()[i0].click();await wait(3);
-  assert.equal(tiles()[i0].getAttribute('aria-pressed'),'true');assert.match($('#letters-status').textContent,new RegExp(`^${first[0].toUpperCase()} selected\\. Your word: ${first[0].toUpperCase()}\\.`));
-  $('#letters-remove').click();await wait(3);assert.equal(tiles()[i0].getAttribute('aria-pressed'),'false');
+  assert.equal(tiles()[i0].getAttribute('aria-label'),`Letter ${first[0].toUpperCase()}, selected`);assert.match($('#letters-status').textContent,new RegExp(`^${first[0].toUpperCase()} selected\\. Your word: ${first[0].toUpperCase()}\\.`));
+  $('#letters-remove').click();await wait(3);assert.equal(tiles()[i0].getAttribute('aria-label'),`Letter ${first[0].toUpperCase()}`);
   // Words are recognised automatically and rewarded by the server.
   const goal=Number($('#letters-level').textContent.match(/Find (\d+) words/)[1]);
   // Words that neither extend nor contain a shorter answer as a prefix (spelling BOOT also finds BOO on the way).
   const targets=sols.filter(w=>!sols.some(x=>x!==w&&(x.startsWith(w)||w.startsWith(x)))).slice(0,goal);
-  const w1=targets[0];await spellWord(w1);
+  const w1=targets[0]??[...sols].sort((a,b)=>a.length-b.length)[0];await spellWord(w1);
   assert.match($('#letters-status').textContent,new RegExp(`^Word found: ${w1.toUpperCase()}\\. You earned ${w1.length-1} XP and 1 coin\\. Streak: 6\\.`));
   assert.deepEqual(words[0],{action:'record-word',letters:words[0].letters,word:w1});assert.equal([...words[0].letters].sort().join(''),letters().sort().join(''));
   assert([...d.querySelectorAll('#letters-found li')].some(li=>li.textContent===w1.toUpperCase()),'found list');
