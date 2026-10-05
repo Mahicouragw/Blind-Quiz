@@ -57,7 +57,8 @@ async function query(q) {
   if (!res.ok) refuse(`Query failed with HTTP ${res.status}: ${text.slice(0, 200)}`);
   return JSON.parse(text || '[]');
 }
-const fn = sig => `coalesce((select not (has_function_privilege('anon', '${sig}'::regprocedure, 'execute') or has_function_privilege('authenticated', '${sig}'::regprocedure, 'execute')) and has_function_privilege('service_role', '${sig}'::regprocedure, 'execute') where to_regprocedure('${sig}') is not null), false)`;
+// to_regprocedure() returns NULL for a missing function (a ::regprocedure cast would error before the apply).
+const fn = sig => `coalesce(not (has_function_privilege('anon', to_regprocedure('${sig}'), 'execute') or has_function_privilege('authenticated', to_regprocedure('${sig}'), 'execute')) and has_function_privilege('service_role', to_regprocedure('${sig}'), 'execute'), false)`;
 const STATE = `select
   (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'bq_profiles' and column_name in ('name_change_count', 'name_changed_at'))::int as new_columns,
   coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.bq_words')), false) as words_rls,
@@ -65,16 +66,18 @@ const STATE = `select
   ${fn('public.bq_change_name(uuid,text,text)')} as change_name_locked,
   ${fn('public.bq_record_word(uuid,text)')} as record_word_locked,
   ${fn('public.bq_name_cooldown_days(integer)')} as cooldown_locked,
-  case when to_regclass('public.bq_words') is null then 0 else (select count(*) from public.bq_words)::int end as words,
+  to_regclass('public.bq_words') is not null as words_table,
   (select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name in ('bq_words', 'bq_word_finds') and grantee in ('anon', 'authenticated', 'PUBLIC'))::int as client_grants,
   (select count(*) from public.bq_questions)::int as questions,
   (select count(*) from public.bq_profiles)::int as profiles`;
-const before = (await query(STATE))[0];
+// A query that names a missing table fails while being parsed, so the words are counted only once the table exists.
+const state = async () => { const s = (await query(STATE))[0]; s.words = s.words_table ? (await query('select count(*)::int as n from public.bq_words'))[0].n : 0; return s; };
+const before = await state();
 note(`Before: ${JSON.stringify(before)}`);
 const done = s => s.new_columns === 2 && s.words_rls && s.finds_rls && s.change_name_locked && s.record_word_locked && s.cooldown_locked && s.words === expectedWords && s.client_grants === 0;
 if (done(before)) note('Already applied; nothing to do.');
 else { await query(sql); note('Migration 013 executed.'); }
-const after = (await query(STATE))[0];
+const after = await state();
 note(`After: ${JSON.stringify(after)}`);
 if (!done(after)) refuse('Verification failed: columns, tables, RLS, function privileges, or the word count are not as expected.');
 if (after.questions !== before.questions || after.profiles !== before.profiles) refuse('Question or profile counts changed; Migration 013 must not touch existing rows.');
