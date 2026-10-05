@@ -107,7 +107,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v9'"),'service worker cache is v9');
+assert(sw.includes("const CACHE='blind-quiz-shell-v10'"),'service worker cache is v10');
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
@@ -145,10 +145,10 @@ assert(fn.includes("permitAccount('login'")&&fn.includes("permitAccount('recover
 assert(dart.includes('NavDecision classifyNavigation(')&&dart.includes("if (uri.scheme != 'https') return NavDecision.block;")&&dart.includes('LaunchMode.externalApplication'),'Android wrapper: HTTPS-only allowlist, external links open in the browser');
 assert(dart.includes('AndroidWebViewController.enableDebugging(kDebugMode)')&&dart.includes('setAllowFileAccess(false)'),'Android wrapper: no WebView debugging in release, no file access');
 assert(dart.includes("Reload failed. Check your internet connection, then try again.")&&!dart.includes('clearLocalStorage'),'Android Reload reports failures and keeps web storage (session)');
-// Migrations 001-012 are applied remotely and must stay byte-identical.
+// Migrations 001-013 are applied remotely and must stay byte-identical.
 {
   const { createHash }=await import('node:crypto');
-  const pinned={'202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6','202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58','202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138','202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1','202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075'};
+  const pinned={'202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6','202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58','202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138','202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1','202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075','202610050013_profile_changes_and_words.sql':'a959267f4b2eb9afe580280e22cd719022ca135196c892cf1e5ee670a0caead5'};
   for(const [f,h] of Object.entries(pinned))assert(createHash('sha256').update(await readFile(new URL('../supabase/migrations/'+f,import.meta.url))).digest('hex')===h,`migration ${f} must stay byte-identical`);
 }
 // Letters to Words dictionary: real SCOWL words, clean, and identical in the game and in the server seed (Migration 013).
@@ -164,6 +164,16 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   assert(WORD_TIERS[0].split(' ').length>2000&&set.has('for')&&set.has('ford')&&!set.has('hes')&&!set.has('sex'),'tier 1 holds the common words');
   assert(existsSync(new URL('../WORDS_LICENSE.md',import.meta.url))&&(await readFile(new URL('../WORDS_LICENSE.md',import.meta.url),'utf8')).includes('Kevin Atkinson'),'SCOWL licence notice is shipped');
 }
+// Two-letter words: identical in the game and in the Migration 014 seed; puzzles accept them.
+{
+  const { SHORT_WORD_TIERS }=await import('../src/short-words.js');const { solutionsFor }=await import('../src/letters.js');
+  const m014=await readFile(new URL('../supabase/migrations/202610050014_two_letter_words.sql',import.meta.url),'utf8');
+  const seeded=[...m014.matchAll(/^  \((\d), '([a-z ]*)'\),?$/gm)].map(x=>x[2]);
+  assert(seeded.length===3&&seeded.every((l,i)=>l===SHORT_WORD_TIERS[i]),'Migration 014 seed matches src/short-words.js');
+  assert(sw.includes("'./src/short-words.js'"),'service worker caches short-words.js');
+  assert(SHORT_WORD_TIERS.join(' ').split(' ').every(w=>/^[a-z]{2}$/.test(w)),'only two-letter words');
+  const ftoo=solutionsFor('ftoo');assert(['foot','too','of','to'].every(w=>ftoo.includes(w)),'F T O O gives FOOT, TOO, OF, TO');
+}
 // Letters to Words: every generated puzzle is solvable, uses only the seed's letters, and grows harder.
 {
   const { makePuzzle, LEVELS, fits, isWord }=await import('../src/letters.js');
@@ -172,7 +182,7 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
     const rules=LEVELS[Math.min(level,LEVELS.length)-1];assert(rules.letters>=prev,'levels never get shorter');prev=rules.letters;
     for(let i=0;i<60;i++){const p=makePuzzle(level);const L=p.letters.join('');
       assert(p.letters.length===rules.letters&&p.solutions.length>=1&&p.common.length>=p.goal&&p.goal>=Math.min(rules.goal,p.common.length),`level ${level} puzzle ${L} is solvable with goal ${p.goal}`);
-      assert(p.solutions.every(w=>isWord(w)&&fits(w,L)&&w.length>=3),`level ${level}: answers use only the supplied letters`);}
+      assert(p.solutions.every(w=>isWord(w)&&fits(w,L)&&w.length>=2),`level ${level}: answers use only the supplied letters`);}
   }
   const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
   assert(html.includes('id="view-letters"')&&html.includes('id="letters-tiles" role="group" aria-label="Letters"')&&!/id="view-letters"[\s\S]*?<input[\s\S]*?id="view-settings"/.test(html),'Letters to Words view has a letter group and no text inputs');

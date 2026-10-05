@@ -265,6 +265,14 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   await wait(40);
   if(targets.length>=goal){assert.equal($('#letters-next').hidden,false,'next level opens when the goal is reached');assert.equal(d.activeElement,$('#letters-next'));assert.match($('#letters-status').textContent,/Level 1 complete!/);
     $('#letters-next').click();await wait(20);assert.equal(tiles().length,5,'level 2 has 5 letters');assert.match($('#letters-level').textContent,/^Level 2\./)}
+  // Pressing the same letter again (TalkBack keeps focus on it) uses the other copy: T, O, O -> TOO.
+  let dup=null;for(let n=0;n<200&&!dup;n++){$('#letters-new').click();await wait(2);const ls=letters();const c=ls.find((x,k)=>ls.indexOf(x)!==k);if(c)dup=c}
+  assert(dup,'found a puzzle with a repeated letter');
+  const ls=letters(),k=ls.indexOf(dup);tiles()[k].click();await wait(3);tiles()[k].click();await wait(3);
+  const picked=tiles().filter(b=>/selected/.test(b.getAttribute('aria-label')));
+  assert(picked.length===2||/Word found|Not a valid word/.test($('#letters-status').textContent),'second press of the same letter used its twin: '+$('#letters-status').textContent);
+  assert(!/removed/.test($('#letters-status').textContent),'pressing a chosen letter never silently removes it');
+  $('#letters-clear').click();await wait(3);
   // Leaving the game and coming back keeps everything working.
   d.querySelector('#view-letters [data-go="home"]').click();await wait(10);d.querySelector('#category-list [data-category="business"]').click();await wait(10);assert.equal($('#view-game').hidden,false);
   globalThis.setTimeout=fast;

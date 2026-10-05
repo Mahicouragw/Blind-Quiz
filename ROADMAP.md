@@ -109,3 +109,8 @@ Owner approvals given during this task: apply an additive privilege-only Migrati
 - [x] **Options are labelled A, B, C, D:** visible letter badges, and TalkBack reads "Option B: Paris". Results name the letter ("You chose A: … The correct answer is B: …"). "Hear question and options again" reads every option. Keyboard players can press A–D.
 - [x] **Mode buttons** are named "Vocabulary mode. …" so they are no longer confused with the category of the same name.
 - [x] **Content check:** all 725 questions have exactly 4 unique options that include the correct answer; there are no duplicates and no "all of the above". A jsdom accessibility sweep over every screen found no duplicate IDs, broken ARIA references, unnamed buttons, unlabelled fields, or focusable elements inside aria-hidden. Test 16 added. Service worker cache v9.
+
+## Task 13 - Letters to Words: duplicate letters and two-letter words (same session, same PR #5)
+
+- [x] **"TOO" could not be made from F T O O:** TalkBack keeps focus on the pressed tile, so pressing O again hit the same tile and removed it. Now a second press uses the other unused O. If there is no other copy, the game says so. Pressing a letter never removes it; only "Remove last letter" and Clear do.
+- [x] **Two-letter words count:** 32 curated common words (of, to, go, in, …) in `src/short-words.js`, recognised automatically from two letters. Migration 014 (approved, additive, applied by its own guarded workflow) widens the `bq_words` length check to 2–7, seeds the words, and pays 1 XP + 1 coin for a two-letter word the first time. `record-word` accepts 2–7 letters (approved). Smoke, live-API and jsdom tests extended. Service worker cache v10.

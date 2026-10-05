@@ -59,23 +59,25 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     $('#letters-next').hidden = true;
     renderTiles(); renderState();
     const signedOut = !getSession() ? ' Sign in to earn XP and coins; you can still play.' : '';
-    status(`Level ${level}. Your letters are ${lettersSentence()}. Choose letters to build a word of three or more letters. Find ${game.puzzle.goal} words.${signedOut}`);
+    status(`Level ${level}. Your letters are ${lettersSentence()}. Choose letters to build a word of two or more letters. Find ${game.puzzle.goal} words.${signedOut}`);
   }
 
   function pick(i) {
     if (!game.puzzle) return;
     const ch = game.puzzle.letters[i].toUpperCase();
     if (game.picked.includes(i)) {
-      if (game.picked[game.picked.length - 1] === i) { game.picked.pop(); renderState(); status(`${ch} removed. ${word() ? `Your word: ${spell(word())}.` : 'No letters chosen.'}`); }
-      else status(`${ch} is already in your word. Use Remove last letter or Clear.`);
-      return;
+      // With TalkBack, focus stays on the letter just pressed, so pressing it again means "this letter again":
+      // use another unused copy of the same letter (T, O, O makes TOO). Removing is only done by Remove last letter.
+      const twin = game.puzzle.letters.findIndex((c, k) => c === game.puzzle.letters[i] && !game.picked.includes(k));
+      if (twin < 0) { status(`${ch} is already used, and there is no other ${ch}. Your word: ${spell(word())}. Use Remove last letter or Clear to change it.`); return; }
+      i = twin;
     }
     game.picked.push(i);
     playSfx('click');
     const w = word();
     renderState();
     const { solutions } = game.puzzle;
-    if (w.length >= 3 && solutions.includes(w)) { foundWord(w); return; }
+    if (w.length >= 2 && solutions.includes(w)) { foundWord(w); return; }
     if (isPrefix(w, solutions)) { status(`${ch} selected. Your word: ${spell(w)}.`); return; }
     game.streak = 0;
     playSfx('wrong');

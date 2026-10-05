@@ -100,7 +100,7 @@ async function handler(req:Request){
   }
   // Letters to Words: the word must use only the puzzle letters; bq_record_word checks the dictionary and pays XP/coins on the first find only.
   if(body.action==='record-word'){
-   const word=clean(body.word,20).toLowerCase(),letters=clean(body.letters,20).toLowerCase();if(!/^[a-z]{3,7}$/.test(word)||!/^[a-z]{4,9}$/.test(letters))return json({ok:false,code:'invalid_request'},400,origin);
+   const word=clean(body.word,20).toLowerCase(),letters=clean(body.letters,20).toLowerCase();if(!/^[a-z]{2,7}$/.test(word)||!/^[a-z]{4,9}$/.test(letters))return json({ok:false,code:'invalid_request'},400,origin);
    const pool=[...letters];for(const ch of word){const i=pool.indexOf(ch);if(i<0)return json({ok:false,code:'invalid_word'},400,origin);pool.splice(i,1)}
    if(!await permitAccount('word',profileId,400,86400))return json({ok:false,code:'rate_limited'},429,origin);
    const {data,error}=await admin.rpc('bq_record_word',{p_profile_id:profileId,p_word:word});if(error){console.error('Word record failed',error.code);return json({ok:false,code:'service_error'},503,origin)}

@@ -2,8 +2,10 @@
 // Every puzzle is built from a real seed word, so it always has at least one answer, and it is only
 // accepted when it holds enough common words for the level's goal.
 import { WORD_TIERS } from './words.js';
+import { SHORT_WORD_TIERS } from './short-words.js';
 
-const TIERS = WORD_TIERS.map(t => t.split(' '));
+// Tier lists of 2-7 letter words (two-letter words come from src/short-words.js).
+const TIERS = WORD_TIERS.map((t, i) => [...SHORT_WORD_TIERS[i].split(' '), ...t.split(' ')]);
 const TIER_OF = new Map();
 TIERS.forEach((words, i) => words.forEach(w => TIER_OF.set(w, i + 1)));
 const ALL = [...TIER_OF.keys()];
@@ -30,7 +32,7 @@ export function fits(word, letters) {
   for (const ch of word) { if (!pool[ch]) return false; pool[ch]--; }
   return true;
 }
-/** Every dictionary word (3+ letters) that can be built from the letters, longest first. */
+/** Every dictionary word (2+ letters) that can be built from the letters, longest first. */
 export function solutionsFor(letters) {
   const out = ALL.filter(w => w.length <= letters.length && fits(w, letters));
   return out.sort((a, b) => b.length - a.length || a.localeCompare(b));
@@ -41,6 +43,7 @@ const keyOf = letters => [...letters].sort().join('');
 export function makePuzzle(level, { random = Math.random, recent = [] } = {}) {
   const rules = levelRules(level);
   const seeds = rules.seedTiers.flatMap(t => TIERS[t - 1]).filter(w => w.length === rules.letters);
+  // Difficulty is judged on words of 3+ letters, so two-letter words are a bonus rather than the whole goal.
   const avoid = new Set(recent);
   let best = null;
   for (let attempt = 0; attempt < 400; attempt++) {
@@ -49,9 +52,10 @@ export function makePuzzle(level, { random = Math.random, recent = [] } = {}) {
     if (avoid.has(key) && attempt < 300) continue;
     const solutions = solutionsFor(seed);
     const common = solutions.filter(w => tierOf(w) <= 2);
-    const candidate = { seed, key, solutions, common };
-    if (!best || common.length > best.common.length) best = candidate;
-    if (common.length >= rules.minCommon) { best = candidate; break; }
+    const longer = common.filter(w => w.length >= 3).length;
+    const candidate = { seed, key, solutions, common, longer };
+    if (!best || longer > best.longer) best = candidate;
+    if (longer >= rules.minCommon) { best = candidate; break; }
   }
   const letters = shuffleLetters(best.seed.split(''), random, best.seed);
   return {

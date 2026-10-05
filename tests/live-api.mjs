@@ -286,11 +286,13 @@ const word2 = await post({ action: 'record-word', letters: 'DROF', word: 'FOR' }
 const wordBad = await post({ action: 'record-word', letters: 'DROF', word: 'ROD' }, { token: wtok });
 const wordFake = await post({ action: 'record-word', letters: 'DROF', word: 'DRO' }, { token: wtok });
 const wordLetters = await post({ action: 'record-word', letters: 'DROF', word: 'FOX' }, { token: wtok });
+const wordTwo = await post({ action: 'record-word', letters: 'DROF', word: 'OF' }, { token: wtok });
 check('Letters to Words: a real word earns XP and coins the first time', word1.body?.valid === true && word1.body.xp > 0 && word1.body.coins > 0 && word1.body.profile?.xp === loginNew.body.profile.xp + word1.body.xp, `xp=${word1.body?.xp}, coins=${word1.body?.coins}`);
 check('Letters to Words: finding the same word again pays nothing', word2.body?.valid === true && word2.body.alreadyFound === true && word2.body.xp === 0, `alreadyFound=${word2.body?.alreadyFound}`);
 check('Letters to Words: non-words and letters not in the puzzle are rejected', wordFake.body?.valid === false && wordFake.body.xp === 0 && wordLetters.status === 400 && wordLetters.body?.code === 'invalid_word' && wordBad.body?.valid === true, `${codeOf(wordFake)} valid=${wordFake.body?.valid}, ${codeOf(wordLetters)}`);
+check('Letters to Words: a two-letter word earns 1 XP and 1 coin', wordTwo.body?.valid === true && wordTwo.body.xp === 1 && wordTwo.body.coins === 1, `code ${codeOf(wordTwo)}, xp=${wordTwo.body?.xp}`);
 for (const t of [tok, wtok]) if (t) await post({ action: 'logout' }, { token: t });
-const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters];
+const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo];
 check('Profile and word responses never contain hashes, salts, or the secret answers',
   !/answer_hash|answer_salt|token_hash|name_normalized/.test(profileResponses.map(r => r.text).join('\n')) && !profileResponses.some(r => r.text.includes(ANSWER) || r.text.includes(NEW_ANSWER)));
 
