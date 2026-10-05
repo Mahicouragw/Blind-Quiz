@@ -70,7 +70,13 @@ class _QuizWebViewState extends State<QuizWebView> {
   /// Fetches the latest version of the site. The HTTP cache is cleared first;
   /// the service worker is network-first, so the newest main.js and content.js load.
   Future<void> _reload() async {
-    SemanticsService.announce('Reloading Blind Quiz to get the latest version.', TextDirection.ltr);
+    // SnackBars are announced automatically by TalkBack.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        content: Text('Reloading Blind Quiz to get the latest version.'),
+        duration: Duration(seconds: 2),
+      ));
     setState(() => _failed = false);
     await _controller.clearCache();
     final current = await _controller.currentUrl();
