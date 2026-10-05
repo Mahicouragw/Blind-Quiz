@@ -3,7 +3,7 @@
 // Web Audio oscillators or generated sounds are used. If a file is missing or the browser blocks
 // playback, the game simply continues silently; every sound also has a text/announcement equivalent.
 const BASE = './assets/audio/';
-const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click'];
+const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin'];
 // Each category and mode gets its own music track from the available recordings.
 const TRACKS = ['music_menu', 'music_game1', 'music_game2', 'music_game3', 'music_results'];
 const GAME_TRACK = {
@@ -53,16 +53,45 @@ export async function preloadAudio() {
   for (const s of SFX) if (have.has(s)) element(s);
 }
 
+const playing = new Set();
+let sequenceId = 0;
 export async function playSfx(slot) {
-  if (!prefs.sfx) return;
+  if (!prefs.sfx) return null;
   unlocked = true;
   const have = await manifest();
-  if (!have.has(slot)) return;
+  if (!have.has(slot)) return null;
   try {
     const a = element(slot).cloneNode();
     a.volume = prefs.sfxVolume;
+    playing.add(a);
+    a.addEventListener('ended', () => playing.delete(a), { once: true });
     await a.play();
-  } catch { /* autoplay blocked or unsupported: silent fallback */ }
+    return a;
+  } catch { return null; /* autoplay blocked or unsupported: silent fallback */ }
+}
+function fadeOutEffect(a, ms = 300) {
+  const start = a.volume, steps = Math.max(1, Math.round(ms / 50));
+  let i = 0;
+  const t = setInterval(() => { i++; a.volume = Math.max(0, start * (1 - i / steps)); if (i >= steps) { clearInterval(t); a.pause(); playing.delete(a); } }, 50);
+}
+/**
+ * Plays effects one after another instead of on top of each other, e.g. ['applause', 'levelup'].
+ * Each step plays for at most `maxMs` (then fades out) before the next one starts. Music is lowered
+ * while the sequence plays so spoken announcements stay clear. A newer sequence replaces an older one.
+ */
+export async function playSequence(slots, { maxMs = 1800 } = {}) {
+  const id = ++sequenceId;
+  if (music && prefs.music) music.volume = Math.min(music.volume, prefs.musicVolume * 0.4);
+  for (let k = 0; k < slots.length; k++) {
+    if (id !== sequenceId) return;
+    const a = await playSfx(slots[k]);
+    const last = k === slots.length - 1;
+    if (!a) continue;
+    if (last) { a.addEventListener('ended', () => { if (id === sequenceId && music && prefs.music && musicSlot) fadeTo(prefs.musicVolume, 800); }, { once: true }); return; }
+    await new Promise(resolve => { const t = setTimeout(resolve, maxMs); a.addEventListener('ended', () => { clearTimeout(t); resolve(); }, { once: true }); });
+    if (!a.ended) fadeOutEffect(a);
+  }
+  if (id === sequenceId && music && prefs.music && musicSlot) fadeTo(prefs.musicVolume, 800);
 }
 
 function fadeTo(target, ms, done) {

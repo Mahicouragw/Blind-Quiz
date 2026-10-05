@@ -107,7 +107,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v10'"),'service worker cache is v10');
+assert(sw.includes("const CACHE='blind-quiz-shell-v11'"),'service worker cache is v11');
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));
@@ -173,6 +173,23 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   assert(sw.includes("'./src/short-words.js'"),'service worker caches short-words.js');
   assert(SHORT_WORD_TIERS.join(' ').split(' ').every(w=>/^[a-z]{2}$/.test(w)),'only two-letter words');
   const ftoo=solutionsFor('ftoo');assert(['foot','too','of','to'].every(w=>ftoo.includes(w)),'F T O O gives FOOT, TOO, OF, TO');
+}
+// Automatic level-up: XP thresholds, harder levels, server-equal word XP, recorded level-up and coin sounds.
+{
+  const { LEVELS, wordXp, roundBonus, applyLevelXp, MAX_LEVEL }=await import('../src/letters.js');
+  for(let i=1;i<LEVELS.length;i++){const a=LEVELS[i-1],b=LEVELS[i];assert(b.goal>a.goal&&b.letters>=a.letters&&(b.letters>a.letters||b.seedTiers.length>a.seedTiers.length),`level ${i+1} is harder than level ${i}`);assert(Number.isFinite(a.xp)&&a.xp>0,'every level below the top has an XP target');assert(a.name&&a.describe,'levels have a name and description')}
+  assert.equal(LEVELS[0].letters,4);assert.equal(MAX_LEVEL,LEVELS.length);
+  assert.deepEqual(['of','too','word','lights','letters'].map(wordXp),[1,2,3,5,6],'word XP matches bq_record_word (2 letters 1 XP, else 2-6 by length)');
+  assert.deepEqual(applyLevelXp(1,28,roundBonus(1)),{level:2,levelXp:0,levelledUp:true},'level-up is automatic when the target is reached');
+  assert.deepEqual(applyLevelXp(1,0,9),{level:1,levelXp:9,levelledUp:false});
+  assert.equal(applyLevelXp(MAX_LEVEL,10,5).level,MAX_LEVEL,'no level beyond the top');
+  const ui=await readFile(new URL('../src/letters-ui.js',import.meta.url),'utf8');
+  assert(/playSequence\(res\.levelledUp \|\| profileUp \? \['applause', 'levelup'\] : \['applause'\]\)/.test(ui),'round sound, then the level-up sound');
+  assert(ui.includes('Level up! You are now Level')&&ui.includes('focusStatus(text)')&&!ui.includes('letters-next'),'level-up announced and focused; no manual level button');
+  const src=JSON.parse(await readFile(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));
+  assert(src.pinned.levelup&&src.pinned.coin,'level-up and coin sounds are pinned Commons recordings');
+  assert(/'levelup', 'coin'/.test(audioSrc)&&/export async function playSequence/.test(audioSrc),'audio knows the new sounds and plays effects in sequence');
+  assert(/levelUpLine\(prevLevel,saved\.profile\?\.level\)/.test(main)&&/playSequence\(up\?\['coin','levelup'\]:\['coin'\]\)/.test(main),'quiz announces profile level-ups with the level-up sound');
 }
 // Letters to Words: every generated puzzle is solvable, uses only the seed's letters, and grows harder.
 {

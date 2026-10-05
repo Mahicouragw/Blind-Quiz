@@ -16,7 +16,7 @@ footer .footer-actions button{margin-left:0}
 .letters-tools{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
 .letters-tools [aria-disabled="true"]{opacity:.55}
 .letters-status{min-height:1.5em;font-weight:700}
-.letters-level{font-weight:700}
+.letters-level{font-weight:700}.letters-xp{margin:.4rem 0 .3rem;color:var(--blue)}.xp-track{height:10px;background:#344653;border-radius:9px;overflow:hidden;margin:0 0 1rem}.xp-fill{height:100%;width:0;background:var(--acid);transition:width .4s}.reduce-motion .xp-fill{transition:none}
 .letters-found{display:flex;flex-wrap:wrap;gap:8px 16px;padding-left:1.2em}
 .readonly-field{font-weight:700;padding:12px 14px;border:1px dashed #607580;border-radius:12px}
 .form-success-note{font-weight:700;color:var(--acid)}

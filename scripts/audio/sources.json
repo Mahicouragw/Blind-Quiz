@@ -110,6 +110,18 @@
       "kind": "sfx",
       "use": "GO! after the countdown",
       "max": 1.6
+    },
+    "levelup": {
+      "file": "Band Call.ogg",
+      "kind": "sfx",
+      "use": "Level up (bugle call, U.S. Marine Band)",
+      "max": 4.7
+    },
+    "coin": {
+      "file": "Coins dropped in metallic moneybox 0.ogg",
+      "kind": "sfx",
+      "use": "XP and coins earned",
+      "max": 1.4
     }
   }
 }

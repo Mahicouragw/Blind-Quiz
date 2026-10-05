@@ -11,16 +11,29 @@ TIERS.forEach((words, i) => words.forEach(w => TIER_OF.set(w, i + 1)));
 const ALL = [...TIER_OF.keys()];
 
 // Level design: more letters, rarer seed words, and a larger goal as the player progresses.
-// goal = words to find before the next level opens (capped by the common words the puzzle holds).
+// A level is played in rounds (one puzzle each). goal = words to find to complete the round.
+// xp = level XP needed to level up automatically; each round earns word XP plus a round bonus.
 export const LEVELS = [
-  { letters: 4, seedTiers: [1], minCommon: 2, goal: 2 },
-  { letters: 5, seedTiers: [1], minCommon: 4, goal: 3 },
-  { letters: 5, seedTiers: [1, 2], minCommon: 5, goal: 4 },
-  { letters: 6, seedTiers: [1], minCommon: 7, goal: 5 },
-  { letters: 6, seedTiers: [1, 2], minCommon: 8, goal: 6 },
-  { letters: 7, seedTiers: [1], minCommon: 10, goal: 7 },
-  { letters: 7, seedTiers: [1, 2], minCommon: 12, goal: 8 },
+  { name: 'Beginner', letters: 4, seedTiers: [1], minCommon: 2, goal: 2, xp: 30, describe: '4 letters and common short words' },
+  { name: 'Easy plus', letters: 5, seedTiers: [1], minCommon: 4, goal: 3, xp: 50, describe: '5 letters, more possible words, find 3 words each round' },
+  { name: 'Intermediate', letters: 5, seedTiers: [1, 2], minCommon: 5, goal: 4, xp: 75, describe: '5 letters, less common words, find 4 words each round' },
+  { name: 'Intermediate plus', letters: 6, seedTiers: [1], minCommon: 7, goal: 5, xp: 100, describe: '6 letters and longer words, find 5 words each round' },
+  { name: 'Advanced', letters: 6, seedTiers: [1, 2], minCommon: 8, goal: 6, xp: 125, describe: '6 letters, harder vocabulary, find 6 words each round' },
+  { name: 'Expert', letters: 7, seedTiers: [1], minCommon: 10, goal: 7, xp: 150, describe: '7 letters, find 7 words each round' },
+  { name: 'Master', letters: 7, seedTiers: [1, 2], minCommon: 12, goal: 8, xp: Infinity, describe: '7 letters, the hardest words, find 8 words each round' },
 ];
+export const MAX_LEVEL = LEVELS.length;
+/** XP a word is worth, the same scale the server uses: two letters 1 XP, otherwise 2-6 XP by length. */
+export const wordXp = word => word.length <= 2 ? 1 : Math.min(6, Math.max(2, word.length - 1));
+/** Bonus level XP for completing a round. */
+export const roundBonus = level => 2 + Math.min(Math.max(1, level), LEVELS.length) * 2;
+/** Adds round XP to the level progress and returns the new level and remaining progress (may skip no levels). */
+export function applyLevelXp(level, levelXp, gained) {
+  const rules = LEVELS[Math.min(Math.max(1, level), LEVELS.length) - 1];
+  const total = levelXp + gained;
+  if (level < LEVELS.length && total >= rules.xp) return { level: level + 1, levelXp: 0, levelledUp: true };
+  return { level, levelXp: total, levelledUp: false };
+}
 export const levelRules = level => LEVELS[Math.min(Math.max(1, level), LEVELS.length) - 1];
 export const tierOf = word => TIER_OF.get(word) || 0;
 export const isWord = word => TIER_OF.has(word);

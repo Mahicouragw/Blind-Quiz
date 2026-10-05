@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const html=readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'');
 let n=0;
-async function boot({session,fetchImpl}){
+async function boot({session,fetchImpl,local}){
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
   const w=dom.window;
   for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
+  for(const [k,v] of Object.entries(local||{}))w.localStorage.setItem(k,JSON.stringify(v));
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
   const calls=[];globalThis.fetch=async(url,init)=>{if(init?.body)calls.push(JSON.parse(init.body).action);return fetchImpl(url,init)};
   await import(ROOT+'src/main.js?'+(++n));
@@ -241,7 +242,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const tiles=()=>[...d.querySelectorAll('#letters-tiles .letter-tile')];
   assert.equal(tiles().length,4,'level 1 has 4 letters');
   for(const b of tiles()){assert.equal(b.tagName,'BUTTON');assert.match(b.getAttribute('aria-label'),/^Letter [A-Z]$/);assert(!b.hasAttribute('aria-pressed'),'plain button: "Letter D, button"')}
-  assert.match($('#letters-status').textContent,/^Level 1\. Your letters are [A-Z], [A-Z], [A-Z], [A-Z]\./);
+  assert.match($('#letters-status').textContent,/^Level 1, Beginner\. Round 1\. Your letters are [A-Z], [A-Z], [A-Z], [A-Z]\./);
   const letters=()=>tiles().map(b=>b.textContent.toLowerCase());
   const spellWord=async w=>{const used=new Set();for(const ch of w){const i=letters().findIndex((c,k)=>c===ch&&!used.has(k));used.add(i);tiles()[i].click();await wait(3)}await wait(20)};
   // An invalid start is rejected and cleared.
@@ -263,8 +264,9 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal($('#top-meta').textContent,'Signed in as goldfish');
   for(const w of targets.slice(1))await spellWord(w);
   await wait(40);
-  if(targets.length>=goal){assert.equal($('#letters-next').hidden,false,'next level opens when the goal is reached');assert.equal(d.activeElement,$('#letters-next'));assert.match($('#letters-status').textContent,/Level 1 complete!/);
-    $('#letters-next').click();await wait(20);assert.equal(tiles().length,5,'level 2 has 5 letters');assert.match($('#letters-level').textContent,/^Level 2\./)}
+  if(targets.length>=goal){for(let i=0;i<50&&d.activeElement!==$('#letters-status');i++)await wait(5);
+    assert.match($('#letters-status').textContent,new RegExp(`Round complete! ${goal} words found\\. \\d+ level XP earned, including a 4 XP round bonus\\. \\d+ profile XP and ${goal} coins earned this round\\. Level XP: \\d+ of 30\\. \\d+ more to reach Level 2\\. Next: Round 2\\. Your letters are`));
+    assert.equal(d.activeElement,$('#letters-status'),'focus moves to the round result');assert.equal(tiles().length,4,'still level 1');assert.match($('#letters-level').textContent,/^Level 1, Beginner\. Round 2\./);assert.match($('#letters-xp').textContent,/^Level XP: \d+ of 30\./)}
   // Pressing the same letter again (TalkBack keeps focus on it) uses the other copy: T, O, O -> TOO.
   let dup=null;for(let n=0;n<200&&!dup;n++){$('#letters-new').click();await wait(2);const ls=letters();const c=ls.find((x,k)=>ls.indexOf(x)!==k);if(c)dup=c}
   assert(dup,'found a puzzle with a repeated letter');
@@ -277,6 +279,37 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('#view-letters [data-go="home"]').click();await wait(10);d.querySelector('#category-list [data-category="business"]').click();await wait(10);assert.equal($('#view-game').hidden,false);
   globalThis.setTimeout=fast;
   console.log(`ok 15 Letters to Words: letter buttons ("Letter X"), automatic recognition ("Word found"), server XP/coins, invalid words cleared, level ${targets.length>=goal?'progression':'goal'} verified`);
+}
+// 17. Automatic level-up from level XP: round sound, then the recorded level-up sound, announcement, harder next level.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const { solutionsFor }=await import(ROOT+'src/letters.js');
+  const assets=Object.fromEntries(['correct','wrong','click','applause','cheer','levelup','coin'].map(k=>[k,{file:`assets/audio/${k}.mp3`}]));
+  t=await boot({local:{'bq.letters.v1':{level:1,levelXp:28,round:4,recent:[]}},fetchImpl:u=>String(u).includes('manifest.json')?json(200,{assets}):json(200,{ok:true})});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
+  const played=[];t.w.HTMLMediaElement.prototype.play=function(){played.push(String(this.src).split('/').pop());return Promise.resolve()};t.w.HTMLMediaElement.prototype.pause=function(){};
+  $('#letters-open').click();await wait(20);
+  assert.match($('#letters-level').textContent,/^Level 1, Beginner\. Round 4\. 4 letters\./);assert.match($('#letters-xp').textContent,/^Level XP: 28 of 30\. 2 more to reach Level 2\./);
+  const tiles=()=>[...d.querySelectorAll('#letters-tiles .letter-tile')],letters=()=>tiles().map(b=>b.textContent.toLowerCase());
+  const spellWord=async w=>{const used=new Set();for(const ch of w){const i=letters().findIndex((c,k)=>c===ch&&!used.has(k));used.add(i);tiles()[i].click();await wait(3)}await wait(20)};
+  const sols=solutionsFor(letters().join(''));const goal=Number($('#letters-level').textContent.match(/Find (\d+) words/)[1]);
+  const targets=sols.filter(w=>!sols.some(x=>x!==w&&(x.startsWith(w)||w.startsWith(x)))).slice(0,goal);
+  if(targets.length<goal){$('#letters-new').click();await wait(10)}
+  const sols2=solutionsFor(letters().join(''));const targets2=sols2.filter(w=>!sols2.some(x=>x!==w&&(x.startsWith(w)||w.startsWith(x)))).slice(0,goal);
+  for(const w of targets2)await spellWord(w);
+  for(let i=0;i<60&&!/Level up!/.test($('#letters-status').textContent);i++)await wait(5);
+  if(targets2.length>=goal){
+    assert.match($('#letters-status').textContent,/Round complete! \d+ words found\. \d+ level XP earned, including a 4 XP round bonus\. Level up! You are now Level 2, Easy plus\. Now: 5 letters, more possible words, find 3 words each round\. Next: Round 1\. Your letters are [A-Z](, [A-Z]){4}\. Find \d words\./);
+    for(let i=0;i<50&&d.activeElement!==$('#letters-status');i++)await wait(5);
+    assert.equal(d.activeElement,$('#letters-status'),'focus moves to the level-up announcement');
+    assert.equal(tiles().length,5,'level 2 is harder: 5 letters');assert.match($('#letters-level').textContent,/^Level 2, Easy plus\. Round 1\. 5 letters\./);assert.match($('#letters-xp').textContent,/^Level XP: 0 of 50\./);
+    assert.equal(JSON.parse(t.w.localStorage.getItem('bq.letters.v1')).level,2,'level saved on the device');
+    for(let i=0;i<100&&!played.includes('levelup.mp3');i++)await wait(5);
+    const a=played.lastIndexOf('applause.mp3'),l=played.lastIndexOf('levelup.mp3');
+    assert(a>=0&&l>a,'round sound, then the level-up sound: '+played.join(','));
+  }
+  globalThis.setTimeout=fast;
+  console.log(`ok 17 automatic level-up ${targets2.length>=goal?'verified':'skipped (no prefix-free words)'}: level XP threshold, applause then bugle level-up sound, "Level up! You are now Level 2", 5-letter level, focus on the announcement`);
 }
 // 16. Options are A, B, C, D; "Question 1 of 10" is spoken once (title only), never repeated on every option.
 {

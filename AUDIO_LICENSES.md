@@ -12,6 +12,8 @@ How it is produced: `scripts/audio/commons-audio.mjs` (workflow `audio-assets.ym
 | `assets/audio/go.mp3` | GO! after the countdown | [218318 splicesound referee-whistle-blow-gymnasium.wav](https://commons.wikimedia.org/wiki/File:218318_splicesound_referee-whistle-blow-gymnasium.wav) | SpliceSound | CC0 | 1.6 s |
 | `assets/audio/timeup.mp3` | Time is up | [Old school bell 4.ogg](https://commons.wikimedia.org/wiki/File:Old_school_bell_4.ogg) | ezwa | Public domain | 2.5 s |
 | `assets/audio/applause.mp3` | Round complete | [Applause ii.ogg](https://commons.wikimedia.org/wiki/File:Applause_ii.ogg) | thore | Public domain | 6 s |
+| `assets/audio/levelup.mp3` | Level up | [Band Call.ogg](https://commons.wikimedia.org/wiki/File:Band_Call.ogg) | Sgt. Codie Lynn Williams, U.S. Marine Corps (U.S. government work) | Public domain | 4.7 s |
+| `assets/audio/coin.mp3` | XP and coins earned | [Coins dropped in metallic moneybox 0.ogg](https://commons.wikimedia.org/wiki/File:Coins_dropped_in_metallic_moneybox_0.ogg) | Wikimedia Commons uploader | Public domain | 1.4 s |
 | `assets/audio/cheer.mp3` | Perfect round | [Clapping hurray.ogg](https://commons.wikimedia.org/wiki/File:Clapping_hurray.ogg) | starlite | Public domain | 7 s |
 | `assets/audio/click.mp3` | Get ready / start | [Computer mouse single click.ogg](https://commons.wikimedia.org/wiki/File:Computer_mouse_single_click.ogg) | Darklanlan | CC0 | 0.5 s |
 | `assets/audio/music_menu.mp3` | Home, sign in, settings, profile | [Bach, Goldberg Variations, Aria (Musopen version).ogg](https://commons.wikimedia.org/wiki/File:Bach%2C_Goldberg_Variations%2C_Aria_(Musopen_version).ogg) | Johann Sebastian Bach | CC0 | 80 s |
