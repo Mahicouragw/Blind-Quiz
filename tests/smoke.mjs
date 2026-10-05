@@ -62,6 +62,19 @@ assert(fn.includes("p_choice:choice"),'answer rewards use the server-side answer
 const logArguments=[...fn.matchAll(/console\.(?:log|error)\(([^;]*?)\);/g)].map(m=>m[1].replace(/(['"])[^'"]*\1/g,''));
 assert(logArguments.every(args=>!/(?:\bSECRET\b|\bPEPPER\b|\bAuthorization\b|\btoken\b|\banswer\b|\braw\b)/i.test(args)),'never log secrets, sessions, auth headers, or secret answers');
 assert(!/secret answer.{0,50}console\.log/i.test(fn),'do not log secret answers');
+// Update path: Reload button and network-first service worker.
+assert(/<button class="text-button" id="reload-button" type="button" aria-label="[^"]+">Reload<\/button>/.test(html),'footer Reload button exists with an aria-label');
+assert(/<span class="footer-actions">[\s\S]*id="reload-button"[\s\S]*id="logout-button"[\s\S]*<\/span><\/footer>/.test(html),'Reload and Log out share the footer actions group');
+assert(css.includes('footer .footer-actions{')&&css.includes('footer .footer-actions button{margin-left:0}'),'footer actions styles');
+const reloadWire=main.slice(main.indexOf("$('#reload-button')"));
+assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload button is wired');
+assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
+assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
+const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
+assert(sw.includes("const CACHE='blind-quiz-shell-v4'"),'service worker cache is v4');
+assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
+const swCatch=sw.slice(sw.indexOf('.catch('));
+assert(sw.includes('.catch(')&&swCatch.includes('caches.match(req)')&&swCatch.includes("caches.match('./index.html')"),'offline .catch() fallback to cache and ./index.html still exists');
 const manifest=JSON.parse(await readFile(new URL('../manifest.webmanifest',import.meta.url),'utf8'));
 assert.equal(manifest.name.startsWith('Blind Quiz'),true);
 console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST.length} categories, shuffle/content/schema/security/accessibility source checks.`);
