@@ -18,7 +18,7 @@ Ground rules that still apply:
 - [x] **Task 0** - Create this ROADMAP.md and keep it up to date.
 - [ ] **Task 1** - Deploy the website on push (`main` and `arena/**`) instead of on merge (`.github/workflows/deploy-pages.yml`), and confirm the Pages workflow ran and the live site updated.
   - [x] Trigger changed to `push: branches: [main, 'arena/**']` + `workflow_dispatch`; steps unchanged. The workflow runs on every push.
-  - [ ] **Blocked on a repository setting:** the `github-pages` environment only allows the `main` branch to deploy, so the deploy job from `arena/**` is rejected ("Branch ... is not allowed to deploy to github-pages due to environment protection rules"). The session token cannot change environment settings (HTTP 403). Owner fix, once: Settings → Environments → `github-pages` → Deployment branches and tags → Add rule → `arena/**`. Then re-run the latest Pages workflow.
+  - [x] Owner added the `arena/**` deployment branch rule to the `github-pages` environment (2026-10-05), so arena session branches can deploy. Before that, GitHub rejected the deploy job ("Branch ... is not allowed to deploy to github-pages due to environment protection rules"); the session token cannot change environment settings (HTTP 403).
 - [x] **Task 2** - Restore the lost update work:
   - [x] a) `sw.js` network-first worker (`blind-quiz-shell-v4`, same SHELL list and install/activate handlers, cache fallback only inside `.catch()`, navigations fall back to `./index.html`).
   - [x] b) `index.html` footer Reload button inside `<span class="footer-actions">` with the Log out button.
