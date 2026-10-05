@@ -20,7 +20,8 @@ const findings = [];
 const notes = [];
 const info = (title, msg) => { notes.push(`${title}: ${msg}`); if (!GH) console.log(`[info] ${title}: ${msg}`); };
 const esc = s => String(s).replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A');
-const finding = (sev, title, msg) => { findings.push({ sev, title, msg }); console.log(GH ? `::${sev === 'HIGH' || sev === 'CRITICAL' ? 'error' : 'warning'} title=${sev} ${title}::${esc(msg)}` : `[${sev}] ${title}: ${msg}`); };
+const finding = (sev, title, msg) => { findings.push({ sev, title, msg }); if (!GH) console.log(`[${sev}] ${title}: ${msg}`); };
+const printFinding = ({ sev, title, msg }) => { console.log(GH ? `::${sev === 'HIGH' || sev === 'CRITICAL' ? 'error' : 'warning'} title=${sev} ${title}::${esc(msg)}` : ''); };
 
 async function mgmt(path, init = {}) {
   const res = await fetch(`https://api.supabase.com/v1/projects/${ref}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'blind-quiz-security-audit', ...(init.headers || {}) } });
@@ -105,7 +106,9 @@ if (token) {
   if (advisors.status === 200) {
     const lints = advisors.body.lints || [];
     info('Security advisor', `${lints.length} lint(s)`);
-    for (const l of lints) finding(l.level === 'ERROR' ? 'HIGH' : l.level === 'WARN' ? 'MEDIUM' : 'LOW', `Advisor ${l.name}`, `${l.title}: ${(l.detail || '').slice(0, 200)}`);
+    const denyAll = lints.filter(l => l.name === 'rls_enabled_no_policy');
+    if (denyAll.length) info('Advisor rls_enabled_no_policy (intended)', `${denyAll.length} tables are deny-all for client roles by design; only the Edge Function (service_role) reads them`);
+    for (const l of lints.filter(x => x.name !== 'rls_enabled_no_policy')) finding(l.level === 'ERROR' ? 'HIGH' : l.level === 'WARN' ? 'MEDIUM' : 'LOW', `Advisor ${l.name}`, `${l.title}: ${(l.detail || '').slice(0, 200)}`);
   } else info('Security advisor', `HTTP ${advisors.status}`);
 } else {
   info('Catalog review', 'skipped (no SUPABASE_ACCESS_TOKEN)');
@@ -189,6 +192,7 @@ if (GH) {
   flush();
 }
 const order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+if (GH) for (const f of [...findings].sort((a, b) => order.indexOf(a.sev) - order.indexOf(b.sev))) printFinding(f);
 const tally = order.map(s => `${s}=${findings.filter(f => f.sev === s).length}`).join(' ');
 console.log(GH ? `::notice title=Audit summary::${tally}` : `Audit summary: ${tally}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
