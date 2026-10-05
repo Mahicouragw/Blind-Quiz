@@ -43,3 +43,11 @@ Ground rules that still apply:
   - Apply Migration 010: run 37260209884 green (already applied, verified 566 total / 200 rows). Build Android APK: run 37261072243 green, release `android-v1.0.4`.
   - `npm run test:live` cannot run from the sandbox (supabase.co connections are reset), so it runs in the read-only Live checks workflow.
   - **Status: waiting for the owner to say "merge" on PR #5. Do not merge without that instruction.**
+
+## Follow-up request (same session, same PR #5)
+
+Owner decisions: leave `blind-quiz-api` alone (no redeploy; re-confirm with live tests), and add 200 more questions as a new Migration 011 applied the same guarded way.
+
+- [ ] **Task 7** - Add 200 more questions: 10 per category across all 20 categories, IDs `bq-en-0867`-`bq-en-1066`, same row format and https sourceNote, no duplicate prompts across all 725. Regenerate `seed.sql`, produce Migration 011 (additive only); Migrations 009 and 010 files must stay byte-identical. Update smoke counts (725 / 652 / `bq-en-1066`).
+- [ ] **Task 8** - Guarded workflow that applies ONLY Migration 011 through the Management API query endpoint using the `SUPABASE_ACCESS_TOKEN` secret (refuses 001-010, never `supabase db push`), verifies 766 total rows, 200 Migration 011 rows, 10 per category; live check that Migration 011 questions award XP and coins.
+- [ ] **Final 2** - Workflows green on PR #5, live site shows 725 questions, `npm run test:live` re-run (function not redeployed), ROADMAP updated, then wait for "merge".
