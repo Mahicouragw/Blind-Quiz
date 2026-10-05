@@ -122,6 +122,28 @@
       "licence": "Public domain",
       "duration": 60,
       "bytes": 720981
+    },
+    "correct": {
+      "file": "assets/audio/correct.mp3",
+      "kind": "sfx",
+      "use": "Correct answer",
+      "title": "406243 stubb typewriter-ding-near-mono.wav",
+      "source": "https://commons.wikimedia.org/wiki/File:406243_stubb_typewriter-ding-near-mono.wav",
+      "creator": "_stubb",
+      "licence": "CC0",
+      "duration": 1.1,
+      "bytes": 11398
+    },
+    "go": {
+      "file": "assets/audio/go.mp3",
+      "kind": "sfx",
+      "use": "GO! after the countdown",
+      "title": "218318 splicesound referee-whistle-blow-gymnasium.wav",
+      "source": "https://commons.wikimedia.org/wiki/File:218318_splicesound_referee-whistle-blow-gymnasium.wav",
+      "creator": "SpliceSound",
+      "licence": "CC0",
+      "duration": 1.6,
+      "bytes": 16887
     }
   }
 }
