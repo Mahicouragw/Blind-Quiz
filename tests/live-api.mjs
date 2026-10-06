@@ -16,7 +16,7 @@
 // Optional overrides (never required): SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
 // BQ_VERIFY_ORIGIN, BQ_VERIFY_NAME, BQ_VERIFY_QUESTION, BQ_VERIFY_ANSWER.
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '../src/config.js';
 import { QUESTION_BANK } from '../src/content.js';
@@ -375,6 +375,23 @@ check('Send a match: friends get a game invite that opens a private room', mInv.
 const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
 const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
 check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
+// Migration 023: room voice messages (24 hours) and sealed signals for direct file transfer and calls.
+const VOICE = 'data:audio/webm;codecs=opus;base64,' + Buffer.from(randomBytes(300)).toString('base64');
+const vSend = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: VOICE, durationMs: 2500 }, { token: wtok });
+const vState = await post({ action: 'room-state', roomId: mInv.body?.roomId, afterId: null }, { token: otok });
+const vGet = await post({ action: 'room-voice', id: vSend.body?.id }, { token: otok });
+const vBad = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: 'data:text/html;base64,PHNjcmlwdD4=', durationMs: 2500 }, { token: wtok });
+check('Room voice messages: others in the room can play them; only audio is accepted', vSend.body?.ok === true && (vState.body?.voices || []).some(v => v.id === vSend.body.id && v.name === NEW_NAME) && !vState.text.includes('base64') && vGet.body?.audio === VOICE && vBad.status === 400, `${codeOf(vSend)}/${codeOf(vState)}/${codeOf(vGet)}/${codeOf(vBad)}`);
+const SESSION = randomUUID();
+const ringText = JSON.stringify({ t: 'file-offer', name: 'notes.pdf', size: 7000000 });
+const ringBoxes = await E2.seal(ringText, devA, mKeys.body?.theirs || []);
+const sRing = await post({ action: 'signal-send', name: OTHER_NAME, deviceId: devA.deviceId, session: SESSION, kind: 'ring', boxes: ringBoxes }, { token: wtok });
+const sBeat = await post({ action: 'touch' }, { token: otok });
+const sPoll = await post({ action: 'signals', deviceId: devB.deviceId, afterId: null }, { token: otok });
+const sig = (sPoll.body?.signals || []).find(x => x.session === SESSION);
+let sOpened = null; try { sOpened = sig ? (await E2.open(sig.box, devB, sig.senderDevice, sig.senderKey)).t : null; } catch { sOpened = null; }
+const sSpy = await post({ action: 'signals', deviceId: devB.deviceId, afterId: null }, { token: wtok });
+check('Direct transfer and call setup: sealed ring reaches the online friend, opens only on their device', sRing.body?.ok === true && sBeat.body?.ring >= 1 && sOpened === ringText && !sPoll.text.includes('notes.pdf') && sSpy.body?.code === 'device_unknown', `${codeOf(sRing)}/ring=${sBeat.body?.ring}/${codeOf(sPoll)}/${codeOf(sSpy)}`);
 const fRemove = await post({ action: 'friend-remove', name: OTHER_NAME }, { token: wtok });
 const mAfter = await post({ action: 'send-message', name: OTHER_NAME, deviceId: devA.deviceId, boxes: sealed }, { token: wtok });
 check('Encrypted messages: only friends can message each other', mAfter.status === 409 && mAfter.body?.code === 'not_friends', `${codeOf(mAfter)}`);
@@ -389,7 +406,7 @@ const annNo = await post({ action: 'admin-announce', text: 'Live check announcem
 const replyNo = await post({ action: 'admin-feedback-reply', id: 1, reply: 'Live check reply' }, { token: wtok });
 const socialNoAuth = await post({ action: 'friends' });
 check('Announcements and feedback replies are admin only; social actions need a session', annNo.status === 403 && annNo.body?.code === 'forbidden' && replyNo.status === 403 && socialNoAuth.status === 401, `${codeOf(annNo)}/${codeOf(replyNo)}/${codeOf(socialNoAuth)}`);
-const socialResponses = [rList, rState, rSay, rSeen, rPriv, rClosed, rInvite, rOpen, gNew, gPost, gSpy, gWatch, gComment, gEnd, gAfter, mInv, mNotes, rRemove, otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
+const socialResponses = [vSend, vState, vGet, vBad, sRing, sBeat, sPoll, sSpy, rList, rState, rSay, rSeen, rPriv, rClosed, rInvite, rOpen, gNew, gPost, gSpy, gWatch, gComment, gEnd, gAfter, mInv, mNotes, rRemove, otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
 for (const t of [tok, wtok, otok]) if (t) await post({ action: 'logout' }, { token: t });
 const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain, ...socialResponses.filter(r => r !== otherLogin)];
 check('Profile and word responses never contain hashes, salts, or the secret answers',

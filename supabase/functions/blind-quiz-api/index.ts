@@ -40,7 +40,7 @@ function publicProfile(p:any){const changes=p.name_change_count??0;return {name:
 async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
 const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{p_name_normalized:n}:null};
 const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
-const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished'];
+const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline'];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Encrypted messages: the server only checks the shape and size of the sealed boxes; it cannot read them.
 const boxesArg=(b:any)=>{const n=nameArg(b),d=String(b.deviceId??''),x=b.boxes;if(!n||!UUID.test(d)||!x||typeof x!=='object'||Array.isArray(x))return null;const k=Object.keys(x);if(!k.length||k.length>8||JSON.stringify(x).length>24000||!k.every(id=>UUID.test(id)&&['s','iv','ct'].every(f=>typeof x[id]?.[f]==='string')))return null;return {...n,p_sender_device:d,p_boxes:x}};
@@ -67,6 +67,11 @@ const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,b
  'game-create':['bq_game_create',b=>{const r=roomArg(b),t=text(b.title,3,80);return r&&t&&['quiz','letters','soundmatch'].includes(b.kind)&&configOk(b.config)?{...r,p_kind:b.kind,p_title:t,p_config:b.config}:null},60],
  'game-join':['bq_game_join',gameArg,300],'game-watch':['bq_game_watch',b=>{const g=gameArg(b),a=after(b.afterId);return g&&a!==undefined?{...g,p_after:a}:null},3000],
  'game-post':['bq_game_post',b=>{const g=gameArg(b),e=b.events;return g&&Array.isArray(e)&&e.length>=1&&e.length<=40&&e.every((x:any)=>x&&typeof x.k==='string'&&(x.b==null||typeof x.b==='string'))&&JSON.stringify(e).length<=12000?{...g,p_events:e.map((x:any)=>({k:x.k,b:String(x.b??'').slice(0,400)}))}:null},3000],
+ 'room-voice-send':['bq_room_voice_send',b=>{const r=roomArg(b),a=typeof b.audio==='string'?b.audio:'',ms=Number(b.durationMs);return r&&a.length<=400000&&/^data:audio\/(webm|ogg|mp4|mpeg|aac|wav)(;codecs=[a-z0-9.]+)?;base64,[A-Za-z0-9+/]+=*$/.test(a)&&Number.isSafeInteger(ms)&&ms>=300&&ms<=60000?{...r,p_audio:a,p_duration_ms:ms}:null},60],
+ 'room-voice':['bq_room_voice_get',b=>{const v=Number(b.id);return Number.isSafeInteger(v)&&v>0?{p_voice_id:v}:null},600],
+ // Calls and file transfers between friends: only sealed connection-setup signals pass through; the media and files go device to device.
+ 'signal-send':['bq_signal_send',b=>{const x=boxesArg(b);return x&&UUID.test(String(b.session??''))&&['ring','signal'].includes(b.kind)?{...x,p_session:b.session,p_kind:b.kind}:null},1500],
+ 'signals':['bq_signals_poll',b=>{const a=after(b.afterId);return UUID.test(String(b.deviceId??''))&&a!==undefined?{p_device_id:b.deviceId,p_after:a}:null},3600],
  'admin-announce':['bq_announce',b=>{const t=text(b.text,3,500);return t?{p_body:t}:null},10,true],
 };
 const SCREENSHOT=/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
