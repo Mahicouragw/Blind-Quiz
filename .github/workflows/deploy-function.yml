@@ -136,10 +136,16 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN || secrets.SB_ACCESS_TOKEN || secrets.SUPABASE_TOKEN }}
         run: |
-          supabase functions deploy "$FUNCTION_NAME" \
-            --project-ref "$PROJECT_REF" \
-            --use-api \
-            --no-verify-jwt
+          # One retry for transient upload errors; on failure the CLI output tail becomes an annotation
+          # (no secrets are printed by the CLI; the token is only in the environment).
+          deployed=false
+          for attempt in 1 2; do
+            if supabase functions deploy "$FUNCTION_NAME" --project-ref "$PROJECT_REF" --use-api --no-verify-jwt > deploy.log 2>&1; then deployed=true; cat deploy.log; break; fi
+            cat deploy.log
+            echo "::warning title=Deploy attempt $attempt failed::$(tail -c 700 deploy.log | tr '\n' ' ')"
+            sleep 20
+          done
+          if [ "$deployed" != true ]; then echo "::error title=Edge Function deploy failed::$(tail -c 900 deploy.log | tr '\n' ' ')"; exit 1; fi
           echo "deployed=true" >> "$GITHUB_OUTPUT"
           {
             echo "## Edge Function deployment — COMPLETE REPLACEMENT"
