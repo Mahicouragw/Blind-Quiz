@@ -23,7 +23,8 @@ for (const cat of CATEGORIES) {
       const after = html.slice(m.index, m.index + 4000);
       const nextTitle = [...after.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map(x => strip(x[1])).filter(Boolean)[0] || '';
       const duration = (strip(after).match(/\b(\d:\d\d)\b/) || [])[1] || '';
-      const s = out.sounds[id] || { id, cats: [], titleBefore: titles.at(-1) || '', titleAfter: nextTitle, duration, context: strip(before).slice(-160) };
+      // Mixkit puts each audio player before its title, so the id belongs to the next heading.
+      const s = out.sounds[id] || { id, title: nextTitle, duration, cats: [] };
       if (!s.cats.includes(cat)) s.cats.push(cat);
       out.sounds[id] = s; last = m.index;
     }

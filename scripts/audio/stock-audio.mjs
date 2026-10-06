@@ -89,6 +89,20 @@ for (const [slot, pin] of Object.entries(config.sfx)) {
   note(`SFX ${slot}`, `Mixkit #${pin.mixkitId} "${pin.title}" | ${enc.duration}s | ${Math.round(enc.bytes / 1024)}KB`);
 }
 
+// ---------------------------------------------------------------- Sound Match clips (Mixkit, same licence)
+// Funny, mysterious, cinematic and interesting sounds for the Sound Match memory game: assets/audio/match_<key>.mp3.
+for (const [key, pin] of Object.entries(config.match || {})) {
+  const slot = `match_${key}`;
+  if (!Number.isInteger(pin.mixkitId)) throw new Error(`${slot}: mixkitId must be an integer`);
+  const url = `https://assets.mixkit.co/active_storage/sfx/${pin.mixkitId}/${pin.mixkitId}.wav`;
+  const res = await fetch(url, { headers: { 'User-Agent': UA } });
+  if (!res.ok || !/audio/.test(res.headers.get('content-type') || '')) throw new Error(`${slot}: ${url} HTTP ${res.status}`);
+  const src = `${tmp}/${slot}.wav`;
+  await writeFile(src, Buffer.from(await res.arrayBuffer()));
+  const enc = encode(src, slot, 'sfx', pin.max, pin.start);
+  assets[slot] = { ...enc, kind: 'match', mood: pin.mood, name: pin.name, use: pin.use, title: pin.title, source: `https://mixkit.co/free-sound-effects/${pin.category}/`, assetId: pin.mixkitId, creator: 'Mixkit', provider: 'Mixkit', licence: 'Mixkit Sound Effects Free License', licenceUrl: 'https://mixkit.co/license/#sfxFree' };
+}
+note('Sound Match', `${Object.keys(config.match || {}).length} Mixkit clips encoded`);
 // ---------------------------------------------------------------- Pixabay music (uploaded by hand)
 const uploads = existsSync(incomingDir) ? (await readdir(incomingDir)).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f)) : [];
 for (const [slot, spec] of Object.entries(config.music)) {
