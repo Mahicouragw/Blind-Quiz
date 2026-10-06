@@ -1,5 +1,5 @@
 // Applies ONLY Migration 020 (end-to-end encrypted private messages: public keys and ciphertext only) with the shared additive guard.
-//   node scripts/apply-migration-020.mjs --check | --apply
+//   node scripts/apply-migration-020.mjs --check | --apply   (re-run after the access token was renewed)
 import { runGuardedMigration } from './lib/guarded-migration.mjs';
 await runGuardedMigration({
   number: '020',
