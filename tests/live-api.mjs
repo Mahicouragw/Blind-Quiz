@@ -372,9 +372,6 @@ check('Room games: spectators get the player\'s sounds, announcements and score;
 const mInv = await post({ action: 'match-invite', name: OTHER_NAME }, { token: wtok });
 const mNotes = await post({ action: 'notifications' }, { token: otok });
 check('Send a match: friends get a game invite that opens a private room', mInv.body?.ok === true && (mNotes.body?.items || []).some(n => n.kind === 'game_invite' && n.ref === mInv.body.roomId), `${codeOf(mInv)}`);
-const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
-const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
-check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
 // Migration 023: room voice messages (24 hours) and sealed signals for direct file transfer and calls.
 const VOICE = 'data:audio/webm;codecs=opus;base64,' + Buffer.from(randomBytes(300)).toString('base64');
 const vSend = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: VOICE, durationMs: 2500 }, { token: wtok });
@@ -382,6 +379,9 @@ const vState = await post({ action: 'room-state', roomId: mInv.body?.roomId, aft
 const vGet = await post({ action: 'room-voice', id: vSend.body?.id }, { token: otok });
 const vBad = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: 'data:text/html;base64,PHNjcmlwdD4=', durationMs: 2500 }, { token: wtok });
 check('Room voice messages: others in the room can play them; only audio is accepted', vSend.body?.ok === true && (vState.body?.voices || []).some(v => v.id === vSend.body.id && v.name === NEW_NAME) && !vState.text.includes('base64') && vGet.body?.audio === VOICE && vBad.status === 400, `${codeOf(vSend)}/${codeOf(vState)}/${codeOf(vGet)}/${codeOf(vBad)}`);
+const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
+const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
+check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
 const SESSION = randomUUID();
 const ringText = JSON.stringify({ t: 'file-offer', name: 'notes.pdf', size: 7000000 });
 const ringBoxes = await E2.seal(ringText, devA, mKeys.body?.theirs || []);
