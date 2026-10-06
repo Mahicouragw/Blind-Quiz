@@ -142,6 +142,20 @@
       "licence": "Mixkit Sound Effects Free License",
       "licenceUrl": "https://mixkit.co/license/#sfxFree"
     },
+    "notify": {
+      "file": "assets/audio/notify.mp3",
+      "duration": 1.2,
+      "bytes": 12634,
+      "kind": "sfx",
+      "use": "New notification (friend request, reply, announcement)",
+      "title": "Unlock game notification",
+      "source": "https://mixkit.co/free-sound-effects/video-game/",
+      "assetId": 253,
+      "creator": "Mixkit",
+      "provider": "Mixkit",
+      "licence": "Mixkit Sound Effects Free License",
+      "licenceUrl": "https://mixkit.co/license/#sfxFree"
+    },
     "match_toy_whistle": {
       "file": "assets/audio/match_toy_whistle.mp3",
       "duration": 1.1,
