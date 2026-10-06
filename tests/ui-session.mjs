@@ -100,13 +100,19 @@ console.log('ok 9 back navigation returns to Home');
   // Leave during the countdown, then start a different game straight away.
   d.querySelector('#view-results [data-go="home"]').click();await wait(5);
   d.querySelector('#category-list [data-category="business"]').click();await wait(5);d.querySelector('#game-start').click();await wait(3);
-  d.querySelector('#view-game .back-link').click();await wait(5);
+  d.querySelector('#view-game .back-link').click();await wait(5);assert.equal(d.querySelector('#exit-confirm').hidden,false,'leaving a game asks first');d.querySelector('#exit-leave').click();await wait(5);
   d.querySelector('#category-list [data-category="history"]').click();await wait(5);
   assert.match(d.querySelector('#round-label').textContent,/HISTORY/);await play();
   // Leave mid-question with a timer running: nothing fires later and the next game opens.
   d.querySelector('#view-results [data-go="home"]').click();await wait(5);
   d.querySelector('#mode-list [data-mode="rapid"]').click();await wait(5);d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
-  d.querySelector('#view-game .back-link').click();await wait(60);assert.equal(d.querySelector('#view-home').hidden,false,'timer does not drag the player back');
+  d.querySelector('#view-game .back-link').click();await wait(5);
+  // Task 19: exit confirmation. "No, keep playing" stays in the round; "Yes, exit" leaves.
+  {const box=d.querySelector('#exit-confirm');assert.equal(box.hidden,false);assert.equal(d.querySelector('#exit-title').textContent,'Exit this quiz?');assert.match(d.querySelector('#exit-text').textContent,/Are you sure you want to exit\?/);
+   assert.equal(d.activeElement.id,'exit-stay','focus starts on the safe choice');assert.equal(box.querySelector('[role="alertdialog"]').getAttribute('aria-modal'),'true');
+   d.querySelector('#exit-stay').click();await wait(5);assert.equal(box.hidden,true);assert.equal(d.querySelector('#view-game').hidden,false,'Stay keeps the round');
+   d.querySelector('#view-game .back-link').click();await wait(5);d.querySelector('#exit-leave').click();}
+  await wait(60);assert.equal(d.querySelector('#view-home').hidden,false,'timer does not drag the player back');
   d.querySelector('#random-category').click();await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,'Surprise me opens a game');await play();
   d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector('.callout [data-category="braille"]').click();await wait(5);assert.match(d.querySelector('#round-label').textContent,/BRAILLE/);
   globalThis.setTimeout=fast;
@@ -283,7 +289,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(!/removed/.test($('#letters-status').textContent),'pressing a chosen letter never silently removes it');
   $('#letters-clear').click();await wait(3);
   // Leaving the game and coming back keeps everything working.
-  d.querySelector('#view-letters [data-go="home"]').click();await wait(10);d.querySelector('#category-list [data-category="business"]').click();await wait(10);assert.equal($('#view-game').hidden,false);
+  d.querySelector('#view-letters [data-go="home"]').click();await wait(10);assert.equal(d.querySelector('#exit-title').textContent,'Exit Letters to Words?');d.querySelector('#exit-leave').click();await wait(10);d.querySelector('#category-list [data-category="business"]').click();await wait(10);assert.equal($('#view-game').hidden,false);
   globalThis.setTimeout=fast;
   console.log(`ok 15 Letters to Words: letter buttons ("Letter X"), automatic recognition ("Word found"), server XP/coins, invalid words cleared, level ${targets.length>=goal?'progression':'goal'} verified`);
 }

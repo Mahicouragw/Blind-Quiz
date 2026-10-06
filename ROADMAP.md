@@ -254,5 +254,8 @@ Built in stages, each pushed and verified live: **A** notifications and feedback
     - jsdom test 21: the full chat against a relay that sees only ciphertext.
     - Live API: 4 checks with two accounts.
   - Offline cache v19.
+- [x] **19.6 Exit confirmation (stage E).** Leaving a quiz, Letters to Words or Sound Match, and rooms once they exist, first asks "Are you sure you want to exit?". It uses an accessible alert dialog, and focus starts on "No, keep playing". Escape also stays.
+  - This covers back buttons, the logo and the Android or browser Back button. Finishing a round never asks.
+  - Tests: jsdom tests 10 and 15 (Stay and Exit), plus a smoke check.
 - API: social actions go through one table in `blind-quiz-api`. Each row is a database function, an argument check and a per-account hourly limit; admin-only rows are checked against `bq_admins`. Other players are addressed by display name only.
 - Tests: smoke (Task 19 block), jsdom test 20 (plus admin reply and announcement in test 18), and 7 new live API checks run with two real accounts. Offline cache v18.

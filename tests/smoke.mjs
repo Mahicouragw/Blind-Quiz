@@ -381,3 +381,12 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/Send \$\{p\.name\} a private message/.test(readFileSync(new URL('../src/social.js', import.meta.url), 'utf8')), 'friends can open a private chat from the card');
   console.log('PASS: Task 19 end-to-end encrypted private messages (real WebCrypto: seal, open, tamper and key-swap rejection, safety code, key pinning).');
 }
+// Task 19 stage E: exit confirmation for games, modes and rooms (buttons, brand link and Android/browser Back).
+{
+  const { readFileSync } = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert(/function go\(view,opts=\{\}\)\{if\(!opts\.confirmed&&needsExitConfirm\(view\)\)/.test(main) && /function onHistory\(e\)\{[^\n]*needsExitConfirm\(v\)/.test(main), 'every way out of a game asks first, including Back');
+  assert(/game:\['Exit this quiz\?'/.test(main) && /letters:\['Exit Letters to Words\?'/.test(main) && /soundmatch:\['Exit Sound Match\?'/.test(main) && /room:\['Leave this room\?'/.test(main) && /view!=='results'/.test(main), 'quiz, Letters, Sound Match and rooms are protected; finishing a round never asks');
+  assert(/role="alertdialog" aria-modal="true" aria-labelledby="exit-title" aria-describedby="exit-text"/.test(html) && html.includes('id="exit-stay"') && html.includes('id="exit-leave"'), 'accessible exit dialog');
+  console.log('PASS: Task 19 exit confirmation (games, modes, rooms; buttons, logo and Back).');
+}

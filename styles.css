@@ -214,3 +214,7 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .chat-msg.mine{align-self:flex-end;border-radius:16px 16px 4px 16px;background:#d6ff5f1a;border-color:#d6ff5f66}
 .chat-who{display:block;font-size:.78rem;color:var(--muted);font-weight:700}.chat-locked{font-style:italic;color:var(--muted)}.chat-read{font-size:.75rem;color:var(--muted)}
 #chat-form textarea{width:100%;color:var(--ink);background:#111e28;border:1px solid #667985;border-radius:12px;padding:12px 14px;font:inherit}#chat-form .button{margin-top:10px}
+/* Task 19 stage E: exit confirmation. */
+.exit-confirm{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:#0b141dcc}
+.exit-card{max-width:460px;width:100%;padding:26px;border:2px solid var(--coral);border-radius:22px 22px 22px 6px;background:var(--panel)}
+.exit-card h2{margin:0 0 8px;font-size:1.6rem;letter-spacing:-.03em}.exit-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
