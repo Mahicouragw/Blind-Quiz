@@ -40,10 +40,14 @@ function publicProfile(p:any){const changes=p.name_change_count??0;return {name:
 async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
 const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{p_name_normalized:n}:null};
 const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
-const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed'];
+const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished'];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Encrypted messages: the server only checks the shape and size of the sealed boxes; it cannot read them.
 const boxesArg=(b:any)=>{const n=nameArg(b),d=String(b.deviceId??''),x=b.boxes;if(!n||!UUID.test(d)||!x||typeof x!=='object'||Array.isArray(x))return null;const k=Object.keys(x);if(!k.length||k.length>8||JSON.stringify(x).length>24000||!k.every(id=>UUID.test(id)&&['s','iv','ct'].every(f=>typeof x[id]?.[f]==='string')))return null;return {...n,p_sender_device:d,p_boxes:x}};
+// Rooms (Migration 021): ids are uuids; game settings are a small flat object of short strings/numbers; events are [{k,b}] checked again in bq_game_post.
+const id=(v:unknown)=>UUID.test(String(v??''))?String(v):null,after=(v:unknown)=>v==null?null:Number.isSafeInteger(Number(v))&&Number(v)>=0?Number(v):undefined;
+const roomArg=(b:any)=>{const r=id(b.roomId);return r?{p_room_id:r}:null},gameArg=(b:any)=>{const g=id(b.gameId);return g?{p_game_id:g}:null};
+const configOk=(c:any)=>c&&typeof c==='object'&&!Array.isArray(c)&&Object.keys(c).length<=8&&Object.entries(c).every(([k,v])=>/^[a-zA-Z]{1,20}$/.test(k)&&(typeof v==='number'||(typeof v==='string'&&v.length<=60)));
 const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,boolean?]>={
  'touch':['bq_touch',()=>({}),400],'notifications':['bq_notifications_list',()=>({}),400],'my-feedback':['bq_my_feedback',()=>({}),200],
  'notifications-read':['bq_notifications_read',b=>({p_ids:Array.isArray(b.ids)?b.ids.map(Number).filter((n:number)=>Number.isSafeInteger(n)&&n>0).slice(0,100):null}),300],
@@ -55,6 +59,14 @@ const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,b
  'register-device':['bq_register_device',b=>UUID.test(String(b.deviceId??''))&&/^[A-Za-z0-9+/]{87}=$/.test(String(b.publicKey??''))?{p_device_id:b.deviceId,p_public_key:b.publicKey}:null,60],
  'message-keys':['bq_message_keys',nameArg,600],'send-message':['bq_send_message',boxesArg,300],'conversations':['bq_conversations',()=>({}),400],
  'messages':['bq_messages_with',b=>{const n=nameArg(b),a=b.afterId==null?null:Number(b.afterId);return n&&UUID.test(String(b.deviceId??''))&&(a===null||(Number.isSafeInteger(a)&&a>=0))?{...n,p_device_id:b.deviceId,p_after_id:a}:null},1200],
+ 'rooms':['bq_rooms_list',()=>({}),600],'room-create':['bq_room_create',b=>{const n=text(b.name,3,40);return n&&typeof b.isPublic==='boolean'?{p_name:n,p_public:b.isPublic}:null},30],
+ 'room-remove':['bq_room_remove',roomArg,60],'room-leave':['bq_room_leave',roomArg,600],'match-invite':['bq_match_invite',nameArg,60],
+ 'room-state':['bq_room_state',b=>{const r=roomArg(b),a=after(b.afterId);return r&&a!==undefined?{...r,p_after:a}:null},3000],
+ 'room-say':['bq_room_say',b=>{const r=roomArg(b),t=text(b.text,1,300),g=b.gameId==null?null:id(b.gameId);return r&&t&&(b.gameId==null||g)?{...r,p_game_id:g,p_body:t}:null},600],
+ 'room-invite':['bq_room_invite',b=>{const r=roomArg(b),n=nameArg(b);return r&&n?{...r,...n}:null},120],
+ 'game-create':['bq_game_create',b=>{const r=roomArg(b),t=text(b.title,3,80);return r&&t&&['quiz','letters','soundmatch'].includes(b.kind)&&configOk(b.config)?{...r,p_kind:b.kind,p_title:t,p_config:b.config}:null},60],
+ 'game-join':['bq_game_join',gameArg,300],'game-watch':['bq_game_watch',b=>{const g=gameArg(b),a=after(b.afterId);return g&&a!==undefined?{...g,p_after:a}:null},3000],
+ 'game-post':['bq_game_post',b=>{const g=gameArg(b),e=b.events;return g&&Array.isArray(e)&&e.length>=1&&e.length<=40&&e.every((x:any)=>x&&typeof x.k==='string'&&(x.b==null||typeof x.b==='string'))&&JSON.stringify(e).length<=12000?{...g,p_events:e.map((x:any)=>({k:x.k,b:String(x.b??'').slice(0,400)}))}:null},3000],
  'admin-announce':['bq_announce',b=>{const t=text(b.text,3,500);return t?{p_body:t}:null},10,true],
 };
 const SCREENSHOT=/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;

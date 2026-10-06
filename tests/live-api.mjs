@@ -348,6 +348,33 @@ try { opened = (await E2.open(got.box, devB, got.senderDevice, got.senderKey)).t
 check('Encrypted messages: device keys register; a device id cannot be taken over', regA.body?.ok === true && regB.body?.ok === true && regSteal.status === 409 && (mKeys.body?.theirs || []).some(k => k.deviceId === devB.deviceId), `${codeOf(regA)}/${codeOf(regB)}/${codeOf(regSteal)}/${codeOf(mKeys)}`);
 check('Encrypted messages: the friend opens the sealed message; the server never received the text', mSend.body?.ok === true && opened === SECRET_TEXT && !mSend.text.includes(SECRET_TEXT) && !mInbox.text.includes(SECRET_TEXT) && got?.fromMe === false, `${codeOf(mSend)}/${codeOf(mInbox)}, opened=${opened === SECRET_TEXT}`);
 check('Encrypted messages: another person\'s device id and plain-text bodies are refused', mForged.status === 409 && mForged.body?.code === 'device_unknown' && mPlain.status === 400, `${codeOf(mForged)}/${codeOf(mPlain)}`);
+// Rooms (Migration 021): default public rooms, private rooms for friends only, live game events for spectators, comments, match invites.
+const rList = await post({ action: 'rooms' }, { token: wtok });
+const pubRoom = (rList.body?.items || []).find(r => r.name === 'Blind Quiz' && r.isDefault);
+check('Rooms: three default public rooms with game and user counts', (rList.body?.items || []).filter(r => r.isDefault).length === 3 && !!pubRoom && typeof pubRoom.games === 'number' && typeof pubRoom.users === 'number', `${codeOf(rList)}, ${(rList.body?.items || []).length} rooms`);
+const rState = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: wtok });
+const rSay = await post({ action: 'room-say', roomId: pubRoom?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
+const rSeen = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: otok });
+check('Rooms: entering shows the people there and room chat reaches others', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text), `${codeOf(rState)}/${codeOf(rSay)}/${codeOf(rSeen)}`);
+const rPriv = await post({ action: 'room-create', name: `Live ${tokenish()}`, isPublic: false }, { token: wtok });
+const rClosed = await post({ action: 'room-state', roomId: rPriv.body?.id, afterId: null }, { token: otok });
+const rInvite = await post({ action: 'room-invite', roomId: rPriv.body?.id, name: OTHER_NAME }, { token: wtok });
+const rOpen = await post({ action: 'room-state', roomId: rPriv.body?.id, afterId: null }, { token: otok });
+check('Rooms: a private room opens only for invited friends', rPriv.body?.ok === true && rClosed.body?.code === 'room_unavailable' && rInvite.body?.ok === true && rOpen.body?.ok === true, `${codeOf(rPriv)}/${codeOf(rClosed)}/${codeOf(rInvite)}/${codeOf(rOpen)}`);
+const gNew = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'quiz', title: 'Live check quiz', config: { category: 'history', mode: 'classic' } }, { token: wtok });
+const gPost = await post({ action: 'game-post', gameId: gNew.body?.id, events: [{ k: 'sfx', b: 'correct' }, { k: 'say', b: 'Correct!' }, { k: 'score', b: '1' }, { k: 'sfx', b: '../../bad' }] }, { token: wtok });
+const gSpy = await post({ action: 'game-post', gameId: gNew.body?.id, events: [{ k: 'say', b: 'not my game' }] }, { token: otok });
+const gWatch = await post({ action: 'game-watch', gameId: gNew.body?.id, afterId: null }, { token: otok });
+const gComment = await post({ action: 'room-say', roomId: pubRoom?.id, gameId: gNew.body?.id, text: 'Nice!' }, { token: otok });
+const gEnd = await post({ action: 'game-post', gameId: gNew.body?.id, events: [{ k: 'end', b: '' }] }, { token: wtok });
+const gAfter = await post({ action: 'game-watch', gameId: gNew.body?.id, afterId: null }, { token: otok });
+check('Room games: spectators get the player\'s sounds, announcements and score; only players post; comments work', gNew.body?.ok === true && gPost.body?.stored === 3 && gSpy.body?.code === 'game_unavailable' && (gWatch.body?.events || []).map(e => e.kind).join() === 'sfx,say,score' && gComment.body?.ok === true && gAfter.body?.status === 'finished' && (gAfter.body.events || []).some(e => e.kind === 'comment'), `${codeOf(gNew)}/${gPost.body?.stored}/${codeOf(gSpy)}/${codeOf(gWatch)}/${gAfter.body?.status}`);
+const mInv = await post({ action: 'match-invite', name: OTHER_NAME }, { token: wtok });
+const mNotes = await post({ action: 'notifications' }, { token: otok });
+check('Send a match: friends get a game invite that opens a private room', mInv.body?.ok === true && (mNotes.body?.items || []).some(n => n.kind === 'game_invite' && n.ref === mInv.body.roomId), `${codeOf(mInv)}`);
+const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
+const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
+check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
 const fRemove = await post({ action: 'friend-remove', name: OTHER_NAME }, { token: wtok });
 const mAfter = await post({ action: 'send-message', name: OTHER_NAME, deviceId: devA.deviceId, boxes: sealed }, { token: wtok });
 check('Encrypted messages: only friends can message each other', mAfter.status === 409 && mAfter.body?.code === 'not_friends', `${codeOf(mAfter)}`);
@@ -362,7 +389,7 @@ const annNo = await post({ action: 'admin-announce', text: 'Live check announcem
 const replyNo = await post({ action: 'admin-feedback-reply', id: 1, reply: 'Live check reply' }, { token: wtok });
 const socialNoAuth = await post({ action: 'friends' });
 check('Announcements and feedback replies are admin only; social actions need a session', annNo.status === 403 && annNo.body?.code === 'forbidden' && replyNo.status === 403 && socialNoAuth.status === 401, `${codeOf(annNo)}/${codeOf(replyNo)}/${codeOf(socialNoAuth)}`);
-const socialResponses = [otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
+const socialResponses = [rList, rState, rSay, rSeen, rPriv, rClosed, rInvite, rOpen, gNew, gPost, gSpy, gWatch, gComment, gEnd, gAfter, mInv, mNotes, rRemove, otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
 for (const t of [tok, wtok, otok]) if (t) await post({ action: 'logout' }, { token: t });
 const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain, ...socialResponses.filter(r => r !== otherLogin)];
 check('Profile and word responses never contain hashes, salts, or the secret answers',
