@@ -94,15 +94,23 @@ for (const [slot, pin] of Object.entries(config.sfx)) {
 for (const [key, pin] of Object.entries(config.match || {})) {
   const slot = `match_${key}`;
   if (!Number.isInteger(pin.mixkitId)) throw new Error(`${slot}: mixkitId must be an integer`);
-  const url = `https://assets.mixkit.co/active_storage/sfx/${pin.mixkitId}/${pin.mixkitId}.wav`;
-  const res = await fetch(url, { headers: { 'User-Agent': UA } });
-  if (!res.ok || !/audio/.test(res.headers.get('content-type') || '')) throw new Error(`${slot}: ${url} HTTP ${res.status}`);
-  const src = `${tmp}/${slot}.wav`;
-  await writeFile(src, Buffer.from(await res.arrayBuffer()));
-  const enc = encode(src, slot, 'sfx', pin.max, pin.start);
+  // Full WAV first; Mixkit's MP3 of the same asset if the WAV is unavailable. A failing clip is skipped (with an error annotation).
+  let src = null, why = '';
+  for (const [url, ext] of [[`https://assets.mixkit.co/active_storage/sfx/${pin.mixkitId}/${pin.mixkitId}.wav`, 'wav'], [`https://assets.mixkit.co/active_storage/sfx/${pin.mixkitId}/${pin.mixkitId}-preview.mp3`, 'mp3']]) {
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': UA } });
+      if (!res.ok || !/audio|octet-stream/.test(res.headers.get('content-type') || '')) { why += ` ${ext}:HTTP ${res.status} ${res.headers.get('content-type')}`; continue; }
+      src = `${tmp}/${slot}.${ext}`; await writeFile(src, Buffer.from(await res.arrayBuffer())); break;
+    } catch (e) { why += ` ${ext}:${e.message}`; }
+  }
+  let enc = null;
+  if (src) { try { enc = encode(src, slot, 'sfx', pin.max, pin.start); } catch (e) { why += ` encode:${String(e.message).slice(0, 160)}`; } }
+  if (!enc) { console.log(`::error title=Sound Match ${key}::Mixkit #${pin.mixkitId} skipped:${why}`); continue; }
   assets[slot] = { ...enc, kind: 'match', mood: pin.mood, name: pin.name, use: pin.use, title: pin.title, source: `https://mixkit.co/free-sound-effects/${pin.category}/`, assetId: pin.mixkitId, creator: 'Mixkit', provider: 'Mixkit', licence: 'Mixkit Sound Effects Free License', licenceUrl: 'https://mixkit.co/license/#sfxFree' };
 }
-note('Sound Match', `${Object.keys(config.match || {}).length} Mixkit clips encoded`);
+const matchCount = Object.keys(assets).filter(k => k.startsWith('match_')).length;
+note('Sound Match', `${matchCount} of ${Object.keys(config.match || {}).length} Mixkit clips encoded`);
+if (config.match && matchCount < 20) throw new Error(`Sound Match needs at least 20 clips, got ${matchCount}`);
 // ---------------------------------------------------------------- Pixabay music (uploaded by hand)
 const uploads = existsSync(incomingDir) ? (await readdir(incomingDir)).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f)) : [];
 for (const [slot, spec] of Object.entries(config.music)) {
