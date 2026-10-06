@@ -13,15 +13,9 @@ name: Apply Migration 022 (guarded)
 #
 # Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
 
+# Migration 022 is applied. It must never run again: a re-run re-creates its functions and can replace
+# newer versions from later migrations. Manual run only, for disaster recovery by the owner.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'supabase/migrations/202610060022_rooms_unlimited.sql'
-      - 'scripts/apply-migration-022.mjs'
-      - 'scripts/lib/guarded-migration.mjs'
-      - 'tests/db-migrations.mjs'
-      - '.github/workflows/apply-migration-022.yml'
   workflow_dispatch:
 
 permissions:

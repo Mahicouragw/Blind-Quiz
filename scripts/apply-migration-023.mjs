@@ -9,6 +9,7 @@ await runGuardedMigration({
   functions: ['bq_touch', 'bq_room_state', 'bq_room_voice_send', 'bq_room_voice_get', 'bq_signal_send', 'bq_signals_poll'],
   deletableInBodies: ['bq_room_voices', 'bq_signals'],
   requires: "to_regclass('public.bq_rooms') is not null and to_regclass('public.bq_devices') is not null",
-  verify: "select to_regclass('public.bq_room_voices') is not null and to_regclass('public.bq_signals') is not null as tables_ready",
+  // The newest definitions must be live: room state lists voice messages and the heartbeat reports rings.
+  verify: "select to_regclass('public.bq_room_voices') is not null and to_regclass('public.bq_signals') is not null as tables_ready, (select bool_and(position('voices' in prosrc) > 0) from pg_proc where proname = 'bq_room_state' and pronamespace = 'public'::regnamespace) as room_state_has_voices, (select bool_and(position('ring' in prosrc) > 0) from pg_proc where proname = 'bq_touch' and pronamespace = 'public'::regnamespace) as touch_has_ring",
   describe: 'Room voice messages (kept 24 hours) and sealed signals for direct file transfer and calls between friends.',
 });

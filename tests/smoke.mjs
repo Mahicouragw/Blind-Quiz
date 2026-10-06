@@ -399,6 +399,17 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(!/loginId|login_id/.test(rooms), 'rooms never handle Login IDs');
   console.log('PASS: Task 19 rooms (public and private rooms, chat, room games, live spectators, comments, match invites).');
 }
+// Applied migrations never re-run: only Migration 023's own files trigger it; 019-022 are manual only.
+{
+  const { readFileSync } = await import('node:fs');
+  for (const n of ['019', '020', '021', '022']) {
+    const wf = readFileSync(new URL(`../.github/workflows/apply-migration-${n}.yml`, import.meta.url), 'utf8');
+    assert(!/^\s+push:/m.test(wf), `Migration ${n} workflow has no push trigger`);
+  }
+  const wf23 = readFileSync(new URL('../.github/workflows/apply-migration-023.yml', import.meta.url), 'utf8');
+  assert(!wf23.includes("- 'tests/db-migrations.mjs'") && !wf23.includes("- 'scripts/lib/guarded-migration.mjs'"), 'Migration 023 does not run on shared file changes');
+  console.log('PASS: applied migrations 019-022 never re-run; 023 runs only on its own files.');
+}
 // Task 19: room voice messages (24 hours) and direct calls/files between online friends with sealed signals.
 {
   const { readFileSync } = await import('node:fs');

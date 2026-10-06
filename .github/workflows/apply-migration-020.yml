@@ -13,15 +13,9 @@ name: Apply Migration 020 (guarded)
 #
 # Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
 
+# Migration 020 is applied. It must never run again: a re-run re-creates its functions and can replace
+# newer versions from later migrations. Manual run only, for disaster recovery by the owner.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'supabase/migrations/202610060020_private_messages.sql'
-      - 'scripts/apply-migration-020.mjs'
-      - 'scripts/lib/guarded-migration.mjs'
-      - 'tests/db-migrations.mjs'
-      - '.github/workflows/apply-migration-020.yml'
   workflow_dispatch:
 
 permissions:

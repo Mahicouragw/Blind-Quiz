@@ -13,14 +13,14 @@ name: Apply Migration 023 (guarded)
 #
 # Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
 
+# Runs only when Migration 023's own files change, never on shared test or library changes, so older
+# migrations are not re-run alongside it.
 on:
   push:
     branches: [main, 'arena/**']
     paths:
       - 'supabase/migrations/202610060023_voice_signals.sql'
       - 'scripts/apply-migration-023.mjs'
-      - 'scripts/lib/guarded-migration.mjs'
-      - 'tests/db-migrations.mjs'
       - '.github/workflows/apply-migration-023.yml'
   workflow_dispatch:
 
