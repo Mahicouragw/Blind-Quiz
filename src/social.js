@@ -6,6 +6,15 @@
 const HEARTBEAT_MS = 10000, HIDDEN_HEARTBEAT_MS = 60000;
 const DEVICE_KEY = 'bq.deviceNotifications';
 
+// Stage F: device notifications inside the Android app. The Android WebView has no browser
+// Notification API, so the Flutter wrapper injects window.BQNotifications and shows a real
+// Android notification. Delivery still comes from the polling heartbeat that drives the bell:
+// no push service and no Firebase account is involved, so nothing is sent to a third party.
+export const NATIVE_CHANNEL = 'BQNotifications';
+const nativeChannel = () => { const c = typeof window === 'undefined' ? null : window[NATIVE_CHANNEL]; return c && typeof c.postMessage === 'function' ? c : null; };
+export const inAndroidApp = () => !!nativeChannel();
+const nativePost = message => { try { const c = nativeChannel(); if (!c) return false; c.postMessage(JSON.stringify(message)); return true; } catch { return false; } };
+
 // Achievements are earned from the public card stats, so every player sees the same badges.
 export const ACHIEVEMENTS = [
   ['first-answer', 'First answer', 'Answered a first question', p => p.questionsAnswered >= 1],
@@ -61,11 +70,70 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     bell.setAttribute('aria-label', unread ? `Notifications, ${unread} new` : 'Notifications, none new');
     bell.classList.toggle('has-unread', unread > 0);
   }
-  function deviceAlert(text) {
+  // ---- Device notifications (browser Notification API, or Android notifications in the app) ------
+  const browserPermission = () => typeof Notification === 'undefined' ? 'unsupported'
+    : Notification.permission === 'granted' ? 'granted'
+    : Notification.permission === 'denied' ? 'denied' : 'prompt';
+  let devicePermission = browserPermission();
+  let nativeId = 0;
+  const permissionWaiters = [];
+  // The Android app answers permission questions here (native -> page).
+  window.bqDeviceNotificationPermission = state => {
+    devicePermission = ['granted', 'denied', 'prompt', 'unsupported'].includes(state) ? state : 'prompt';
+    while (permissionWaiters.length) permissionWaiters.shift()(devicePermission);
+    renderDeviceButton();
+  };
+  // Tapping an Android notification brings the app to the front and opens the notifications list.
+  window.bqNotificationOpened = () => { nativePost({ op: 'clear' }); if (signedIn()) openNotifications(); };
+  const deviceSupported = () => !!nativeChannel() || typeof Notification !== 'undefined';
+  // In the app the answer is whatever Android last reported; in a browser it is read live.
+  const currentPermission = () => nativeChannel() ? devicePermission : browserPermission();
+  const deviceReady = () => localStorage.getItem(DEVICE_KEY) === 'on' && currentPermission() === 'granted';
+  function renderDeviceButton() {
+    const deviceBtn = $('#notif-device'); if (!deviceBtn) return;
+    deviceBtn.hidden = !deviceSupported();
+    deviceBtn.textContent = deviceReady() ? 'Stop showing them on this device'
+      : inAndroidApp() ? 'Also show them as Android notifications' : 'Also show them on this device';
+    deviceBtn.setAttribute('aria-label', deviceReady() ? 'Stop showing notifications on this device'
+      : inAndroidApp() ? 'Also show notifications as Android notifications' : 'Also show notifications on this device');
+  }
+  async function requestDevicePermission() {
+    if (nativeChannel()) {
+      // The answer arrives on window.bqDeviceNotificationPermission; never wait forever.
+      nativePost({ op: 'permission' });
+      return await new Promise(resolve => {
+        const timer = setTimeout(() => resolve(devicePermission), 10000);
+        permissionWaiters.push(state => { clearTimeout(timer); resolve(state); });
+      });
+    }
+    if (typeof Notification === 'undefined') return 'unsupported';
+    try { devicePermission = await Notification.requestPermission(); } catch { devicePermission = 'unsupported'; }
+    return devicePermission;
+  }
+  function deviceAlert(text, kind = 'notification') {
     try {
-      if (localStorage.getItem(DEVICE_KEY) !== 'on' || typeof Notification === 'undefined' || Notification.permission !== 'granted' || !document.hidden) return;
+      // Only while the game is in the background: in the foreground the bell, the chime and the
+      // spoken announcement already tell the player, so a system alert would only repeat it.
+      if (!deviceReady() || !document.hidden) return;
+      if (nativeChannel()) { nativePost({ op: 'post', id: ++nativeId, title: 'Blind Quiz', body: text, kind }); return; }
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
       new Notification('Blind Quiz', { body: text, icon: 'assets/icon-192.png', tag: 'bq-notification' });
     } catch {}
+  }
+  // A new notification is announced by its own words ("Bob sent you a friend request.") rather than
+  // only a count, so the notification is useful without opening the app. Costs one extra API call,
+  // and only when the player turned device notifications on and the game is in the background.
+  async function deviceAlertForNew(count) {
+    if (!deviceReady() || !document.hidden) return;
+    let text = `You have ${count} new notification${count === 1 ? '' : 's'}.`, kind = 'notification';
+    try {
+      const fresh = ((await callApi('notifications')).items || []).filter(n => !n.read);
+      if (fresh.length) {
+        text = notificationText(fresh[0]); kind = fresh[0].kind || 'notification';
+        if (fresh.length > 1) text += ` You have ${fresh.length} new notifications in total.`;
+      }
+    } catch {}
+    deviceAlert(text, kind);
   }
   async function touch() {
     if (!signedIn()) { unread = 0; renderBell(); return; }
@@ -76,7 +144,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       if (lastUnread !== null && unread > lastUnread && enabled) {
         // Never interrupt a running game with speech; the bell count still changes.
         if (!['game', 'soundmatch', 'letters'].includes(currentView())) { playSfx('notify'); announce(`You have ${unread} new notification${unread === 1 ? '' : 's'}.`); }
-        deviceAlert(`You have ${unread} new notification${unread === 1 ? '' : 's'}.`);
+        await deviceAlertForNew(unread);
       }
       lastUnread = unread; renderBell();
       if (currentView() === 'multiplayer' && mpTab === 'online') loadOnline({ quiet: true });
@@ -85,7 +153,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   function schedule() { clearTimeout(timer); if (!signedIn()) return; timer = setTimeout(async () => { await touch(); schedule(); }, document.hidden ? HIDDEN_HEARTBEAT_MS : HEARTBEAT_MS); }
   function start() { lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); }
   function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && signedIn()) { touch(); schedule(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { nativePost({ op: 'clear' }); if (signedIn()) { touch(); schedule(); } } });
 
   // ---- Notifications view ----------------------------------------------------------------------
   const list = $('#notif-list'), summary = $('#notif-summary');
@@ -125,7 +193,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       if (currentView() === 'player') openCard(name, { keepFocus: true });
     } catch (err) { row?.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
   }
-  function openNotifications() { if (!signedIn()) { openSignIn(); return; } go('notifications'); loadNotifications(); }
+  function openNotifications() { if (!signedIn()) { openSignIn(); return; } nativePost({ op: 'clear' }); go('notifications'); loadNotifications(); }
 
   // ---- Multiplayer: online players and friends -------------------------------------------------
   function playerItem(p, extra = []) {
@@ -231,8 +299,10 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     const box = $('#notif-settings'), mine = $('#my-feedback-box');
     if (box) box.hidden = !ok; if (mine) mine.hidden = !ok;
     if (!ok) return;
-    const deviceBtn = $('#notif-device');
-    if (deviceBtn) { const on = localStorage.getItem(DEVICE_KEY) === 'on' && typeof Notification !== 'undefined' && Notification.permission === 'granted'; deviceBtn.textContent = on ? 'Stop showing them on this device' : 'Also show them on this device'; deviceBtn.hidden = typeof Notification === 'undefined'; }
+    // In the Android app the browser Notification API does not exist, so the permission answer
+    // comes from the app itself; in a browser it is read straight from the Notification API.
+    if (nativeChannel()) nativePost({ op: 'state' }); else devicePermission = browserPermission();
+    renderDeviceButton();
     try { const d = await callApi('touch'); enabled = d.notificationsEnabled !== false; $('#notif-on').checked = enabled; unread = Number(d.unread) || 0; renderBell(); } catch {}
     loadMyFeedback();
   }
@@ -257,12 +327,18 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   });
   $('#notif-device')?.addEventListener('click', async () => {
     const status = $('#notif-settings-status');
-    if (localStorage.getItem(DEVICE_KEY) === 'on') { localStorage.setItem(DEVICE_KEY, 'off'); say(status, 'Device notifications are off.'); refreshSettings(); return; }
-    try {
-      const perm = await Notification.requestPermission();
-      if (perm === 'granted') { localStorage.setItem(DEVICE_KEY, 'on'); say(status, 'Done. While Blind Quiz is open in the background, new notifications also appear on this device.'); }
-      else say(status, 'Notifications are blocked for this site. You can allow them in your browser settings.', true);
-    } catch { say(status, 'This device does not support notifications here.', true); }
+    if (localStorage.getItem(DEVICE_KEY) === 'on') { localStorage.setItem(DEVICE_KEY, 'off'); nativePost({ op: 'clear' }); say(status, 'Device notifications are off.'); refreshSettings(); return; }
+    const perm = await requestDevicePermission();
+    if (perm === 'granted') {
+      localStorage.setItem(DEVICE_KEY, 'on');
+      say(status, inAndroidApp()
+        ? 'Done. New notifications also appear as Android notifications while Blind Quiz runs in the background.'
+        : 'Done. While Blind Quiz is open in the background, new notifications also appear on this device.');
+    } else if (perm === 'denied') {
+      say(status, inAndroidApp()
+        ? 'Android is not allowing notifications for Blind Quiz. Allow them in Android settings, under Apps, Blind Quiz, Notifications, then press this button again.'
+        : 'Notifications are blocked for this site. You can allow them in your browser settings.', true);
+    } else say(status, 'This device does not support notifications here.', true);
     refreshSettings();
   });
 

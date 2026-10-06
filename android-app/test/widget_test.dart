@@ -67,4 +67,14 @@ void main() {
     expect(safeReceivedName('x' * 200).length, 120);
     expect(kMaxReceivedBytes, 2 * 1024 * 1024 * 1024);
   });
+
+  test('Android notifications use the native channel and clean tray text', () {
+    expect(kNotifications.name, 'blind_quiz/notifications');
+    expect(notificationBody('Bob sent you a friend request.'), 'Bob sent you a friend request.');
+    expect(notificationBody('Line\n\n  with  spaces \t and\nnewlines'), 'Line with spaces and newlines');
+    expect(notificationBody('   '), '');
+    final long = notificationBody('x' * 500);
+    expect(long.length, kMaxNotificationChars);
+    expect(long.endsWith('…'), isTrue);
+  });
 }

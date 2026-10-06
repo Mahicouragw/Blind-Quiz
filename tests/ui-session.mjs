@@ -640,5 +640,62 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   await wait(() => /Bob declined\./.test(A.text()));
   console.log('ok 23 direct file transfer and calls: sealed ring/accept/offer/answer, chunked file with confirmation and spoken progress, relay sees no file names, video call with mute and hang up, decline');
 }
+// 24. Task 19 stage F: Android device notifications through the native bridge (no push service).
+// Drives src/social.js directly (like scenario 23 drives src/direct.js), because the background
+// delivery timer is minutes long and the Android WebView has no browser Notification API at all.
+{
+  const { createSocial } = await import(ROOT+'src/social.js?'+(++n));
+  const tick=()=>new Promise(r=>setTimeout(r,60));
+  const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
+  const w=dom.window,d=w.document;
+  for(const k of ['window','document','localStorage','sessionStorage','navigator','HTMLElement','Node'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
+  assert.equal(typeof w.Notification,'undefined','no browser Notification API here, exactly like the Android WebView');
+  const posts=[];w.BQNotifications={postMessage(s){posts.push(JSON.parse(s))}};
+  let unreadNow=0,current='home';const sent=[];const said=[];
+  const future24=new Date(Date.now()+86400000).toISOString();
+  w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify({token:'x'.repeat(43),expiresAt:future24,profile}));
+  const responses={touch:()=>({ok:true,unread:unreadNow,notificationsEnabled:true}),
+    notifications:()=>({ok:true,items:[{id:7,kind:'friend_request',actor:'Bob',createdAt:future24,read:false,relation:'incoming'}]}),
+    'notifications-read':()=>({ok:true,unread:0})};
+  const api=createSocial({$:s=>d.querySelector(s),announce:t=>said.push(t),
+    callApi:async(a,b)=>{sent.push({action:a,...(b||{})});return (responses[a]||(()=>({ok:true})))()},
+    getSession:()=>JSON.parse(w.sessionStorage.getItem('blindquiz.session.v1')),
+    go:v=>{current=v;for(const x of d.querySelectorAll('.view'))x.hidden=x.id!=='view-'+v;},
+    openSignIn:()=>{},currentView:()=>current});
+  await api.refreshSettings();await tick();
+  const dev=d.querySelector('#notif-device');
+  assert.equal(dev.hidden,false);assert.match(dev.textContent,/Android notifications/);
+  assert.deepEqual(posts.at(-1),{op:'state'},'Settings asks the app for the current permission state');
+  // Turning them on asks the app; the answer arrives on window.bqDeviceNotificationPermission.
+  dev.click();await tick();
+  assert.deepEqual(posts.at(-1),{op:'permission'});
+  w.bqDeviceNotificationPermission('granted');await tick();
+  assert.equal(w.localStorage.getItem('bq.deviceNotifications'),'on');
+  assert.match(d.querySelector('#notif-settings-status').textContent,/Android notifications while Blind Quiz runs in the background/);
+  // The steady state: one foreground heartbeat (like start() in the app) settles the last-seen count.
+  await api.touch();await tick();
+  assert.equal(posts.filter(p=>p.op==='post').length,0,'nothing is posted while the game is open');
+  // A background heartbeat with a rising unread count posts one tray alert, worded like the notification itself.
+  unreadNow=2;Object.defineProperty(w.document,'hidden',{value:true,configurable:true});
+  await api.touch();await tick();
+  const alert=posts.filter(p=>p.op==='post').at(-1);
+  assert(alert,'a tray notification is posted');assert.equal(alert.title,'Blind Quiz');
+  assert.match(alert.body,/Bob sent you a friend request\./);assert.equal(alert.kind,'friend_request');
+  // In the foreground the bell, chime and speech already tell the player, so no tray alert is posted.
+  Object.defineProperty(w.document,'hidden',{value:false,configurable:true});
+  unreadNow=3;await api.touch();await tick();
+  assert.equal(posts.filter(p=>p.op==='post').length,1,'no tray alert while the game is in the foreground');
+  assert(said.some(t=>/You have 3 new notifications\./.test(t)),'the foreground count is still spoken');
+  // Tapping the notification opens the in-app list and clears the tray.
+  w.bqNotificationOpened();await tick();await tick();
+  assert.deepEqual(posts.at(-1),{op:'clear'});
+  assert.equal(d.querySelector('#view-notifications').hidden,false);
+  assert(sent.some(b=>b.action==='notifications-read'),'the list is marked read');
+  // Turning them off again clears the tray once more.
+  await api.refreshSettings();await tick();dev.click();await tick();
+  assert.equal(w.localStorage.getItem('bq.deviceNotifications'),'off');
+  assert.deepEqual(posts.slice(-2),[{op:'clear'},{op:'state'}],'the tray is cleared and Settings re-reads the state');
+  console.log("ok 24 Android device notifications: native bridge asks Android once, tray alert with the notification's own words only in the background, tap opens the list, no push service");
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

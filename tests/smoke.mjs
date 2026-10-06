@@ -138,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v21'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v22'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -350,6 +350,30 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(soc.includes('To send ${p.name} a match, you need to be friends first.') && soc.includes("act('friend-request'"), 'matches need friendship; Add friend sends a request');
   assert(JSON.parse(r('scripts/audio/sources.json')).sfx.notify?.mixkitId === 253, 'notification chime is a pinned Mixkit recording');
   console.log('PASS: Task 19 notifications, feedback replies, player cards and friends (private by design).');
+}
+// Task 19 stage F: Android device notifications. Polling heartbeat, no push service and no Firebase;
+// the Android WebView has no browser Notification API, so the app bridges window.BQNotifications.
+{
+  const { readFileSync } = await import('node:fs');
+  const r = f => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+  const soc = r('src/social.js'), kt = r('android-app/native/MainActivity.kt'), dart = r('android-app/lib/main.dart'),
+    wf = r('.github/workflows/build-android.yml'), html = r('index.html'), sw = r('sw.js');
+  for (const s of ["const NATIVE_CHANNEL = 'BQNotifications'", 'window.bqDeviceNotificationPermission', 'window.bqNotificationOpened',
+    "nativePost({ op: 'permission' })", "nativePost({ op: 'state' })", "nativePost({ op: 'post', id: ++nativeId, title: 'Blind Quiz', body: text, kind })",
+    'notificationText(fresh[0])']) assert(soc.includes(s), `social.js: ${s}`);
+  assert(/if \(!deviceReady\(\) \|\| !document\.hidden\) return;/.test(soc), 'device alerts only while the game is in the background');
+  assert(soc.includes('await Notification.requestPermission()') && soc.includes("new Notification('Blind Quiz'"), 'the browser Notification path still works');
+  const socCode = soc.replace(/\/\/[^\n]*/g, '');
+  assert(!/firebase|fcm|push[_ -]?(service|provider|key)|wss?:\/\//i.test(socCode), 'no push service, no socket on the page side');
+  for (const s of ['blind_quiz/notifications', 'blind_quiz_notifications', 'POST_NOTIFICATIONS', 'requestNotificationsPermission', 'cancelAll()', 'setAutoCancel(true)', 'openNotificationsOnStart'])
+    assert(kt.includes(s), `MainActivity.kt: ${s}`);
+  assert(kt.includes('private const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"'), 'the notification permission is written as a literal, not a compileSdk constant');
+  for (const s of ["addJavaScriptChannel('BQNotifications'", "notificationBody(", 'kNotifications.invokeMethod', 'window.bqNotificationOpened', 'kMaxNotificationChars'])
+    assert(dart.includes(s), `main.dart: ${s}`);
+  assert(wf.includes('android.permission.POST_NOTIFICATIONS') && wf.includes('POST_NOTIFICATIONS)|io'), 'the manifest asks for POST_NOTIFICATIONS and the audit allowlists exactly that');
+  assert(html.includes('id="notif-device-hint"'), 'Settings explains where device notifications appear');
+  assert(sw.includes("const CACHE='blind-quiz-shell-v22'"), 'service worker cache is v22');
+  console.log('PASS: Task 19 stage F Android device notifications (native bridge, polling delivery, no push service, no Firebase).');
 }
 // Task 19 stage C: end-to-end encryption with real WebCrypto (Node has the same API as browsers).
 {

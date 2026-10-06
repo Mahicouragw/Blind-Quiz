@@ -47,6 +47,22 @@ String safeReceivedName(String name) {
 /// Microphone and camera requests handled by android-app/native/MainActivity.kt.
 const MethodChannel kPermissions = MethodChannel('blind_quiz/permissions');
 
+/// Android notifications handled by android-app/native/MainActivity.kt. The Android WebView has no
+/// browser Notification API, so the page hands friend requests, developer replies, announcements
+/// and game invites to this channel. Delivery comes from the page's own polling heartbeat, so no
+/// push service, no Firebase project and no third party is involved.
+const MethodChannel kNotifications = MethodChannel('blind_quiz/notifications');
+
+/// Longest text a tray notification shows (the expanded view scrolls, the collapsed one does not).
+const int kMaxNotificationChars = 240;
+
+/// What a notification says in the Android tray: one clean line, never empty, never endless.
+String notificationBody(String raw) {
+  final oneLine = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (oneLine.length <= kMaxNotificationChars) return oneLine;
+  return '${oneLine.substring(0, kMaxNotificationChars - 1).trimRight()}…';
+}
+
 /// Largest file a friend can send directly (matches src/direct.js).
 const int kMaxReceivedBytes = 2 * 1024 * 1024 * 1024;
 
@@ -105,6 +121,9 @@ class _QuizWebViewState extends State<QuizWebView> {
   int _progress = 0;
   bool _failed = false;
   bool _reloading = false;
+  bool _loaded = false;
+  bool _openNotifications = false;
+  int _notificationId = 0;
   final Map<String, _Incoming> _incoming = <String, _Incoming>{};
 
   @override
@@ -124,7 +143,13 @@ class _QuizWebViewState extends State<QuizWebView> {
             if (mounted) setState(() => _failed = false);
           },
           onPageFinished: (_) {
-            if (!mounted || !_reloading || _failed) return;
+            if (!mounted || _failed) return;
+            _loaded = true;
+            if (_openNotifications) {
+              _openNotifications = false;
+              _openNotificationsPage();
+            }
+            if (!_reloading) return;
             _reloading = false;
             _say('Blind Quiz reloaded.');
           },
@@ -154,8 +179,60 @@ class _QuizWebViewState extends State<QuizWebView> {
     }
     // Files a friend sends directly arrive in pieces from the page and are offered to save or open.
     _controller.addJavaScriptChannel('BQFiles', onMessageReceived: (m) => _onFileMessage(m.message));
+    // Android notifications: the page hands friend requests, developer replies, announcements and
+    // game invites to MainActivity.kt, which shows them in the system tray. Tapping one returns here.
+    _controller.addJavaScriptChannel('BQNotifications', onMessageReceived: (m) => _onNotificationMessage(m.message));
+    kNotifications.setMethodCallHandler((call) async {
+      if (call.method == 'opened') await _openNotificationsPage();
+    });
     _cleanReceived();
     _controller.loadRequest(Uri.parse(kLiveUrl));
+  }
+
+  /// Android notification messages from the page (src/social.js): ask for the Android
+  /// permission, post or clear tray notifications. The page is told the permission answer
+  /// through window.bqDeviceNotificationPermission, so Settings can show the right button.
+  Future<void> _onNotificationMessage(String raw) async {
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      switch (m['op']) {
+        case 'state':
+          _reportNotificationState((await kNotifications.invokeMethod<bool>('state') ?? false) ? 'granted' : 'denied');
+        case 'request':
+          _reportNotificationState((await kNotifications.invokeMethod<bool>('request') ?? false) ? 'granted' : 'denied');
+        case 'post':
+          final id = (m['id'] as num?)?.toInt() ?? 0;
+          await kNotifications.invokeMethod('post', <String, dynamic>{
+            'title': (m['title'] ?? 'Blind Quiz').toString(),
+            'body': notificationBody((m['body'] ?? '').toString()),
+            'id': id == 0 ? ++_notificationId : id,
+          });
+        case 'clear':
+          await kNotifications.invokeMethod('clear');
+      }
+    } catch (_) {
+      // A broken message must never take the game down.
+    }
+  }
+
+  void _reportNotificationState(String state) {
+    _controller.runJavaScript('if (window.bqDeviceNotificationPermission) { window.bqDeviceNotificationPermission(${jsonEncode(state)}); }').catchError((_) {});
+  }
+
+  /// The player tapped a Blind Quiz notification: clear the tray and open the notifications list
+  /// in the page (it knows the signed-in state and announces the view for TalkBack). If the page
+  /// has not finished loading yet, remember it and open once it has.
+  Future<void> _openNotificationsPage() async {
+    if (!_loaded) {
+      _openNotifications = true;
+      return;
+    }
+    try {
+      await kNotifications.invokeMethod('clear');
+    } catch (_) {}
+    try {
+      await _controller.runJavaScript('if (window.bqNotificationOpened) { window.bqNotificationOpened(); }');
+    } catch (_) {}
   }
 
   Future<void> _onPermissionRequest(WebViewPermissionRequest request) async {
