@@ -61,7 +61,15 @@ secrets (Settings -> Secrets and variables -> Actions):
 | `ANDROID_KEY_ALIAS` | key alias |
 | `ANDROID_KEY_PASSWORD` | key password |
 
-Create a keystore with:
+**Without any tooling on your computer:** run the `Create Android signing keystore` workflow
+(.github/workflows/create-signing-keystore.yml, "Run workflow", choose a zip password). It
+creates the keystore, its base64 text and the four secret values in one password-protected
+zip artifact. Copy the four lines from `secret-values.txt` into the four repository secrets,
+then delete the artifact, and re-run "Build Android APK" so the newest APK is signed with
+your key. Keep the keystore file and the zip somewhere safe: losing the key means new APKs
+can never update installed ones in place.
+
+Create a keystore yourself instead, with:
 
 ```sh
 keytool -genkeypair -v -keystore release.jks -alias blindquiz -keyalg RSA -keysize 2048 -validity 10000
