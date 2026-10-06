@@ -257,5 +257,12 @@ Built in stages, each pushed and verified live: **A** notifications and feedback
 - [x] **19.6 Exit confirmation (stage E).** Leaving a quiz, Letters to Words or Sound Match, and rooms once they exist, first asks "Are you sure you want to exit?". It uses an accessible alert dialog, and focus starts on "No, keep playing". Escape also stays.
   - This covers back buttons, the logo and the Android or browser Back button. Finishing a round never asks.
   - Tests: jsdom tests 10 and 15 (Stay and Exit), plus a smoke check.
+- [x] **19.7 Rooms (stage D, Migration 021).** Multiplayer has a Rooms tab. Three public rooms are always there: Blind Quiz, Word Lovers and Sound Lounge. The list shows each room's name, number of games and number of players inside.
+  - Anyone can make up to five rooms of their own, public or private. Private rooms are hidden and open only to the owner and friends they invite. Invitations arrive as notifications that open the room.
+  - Inside a room: who is there, room chat, the game list (Join and play, Watch) and Create a game: Quiz (any category and mode), Letters to Words, or Sound Match (Easy, Medium, Hard). Up to six players per game.
+  - Watching live: each player's game sends what it announces (questions with options, verdicts, Letters and Sound Match messages), its recorded sound effects, Sound Match sounds and the score. Spectators hear them through their own speech and sound settings, read a live log and scoreboard, and can comment.
+  - Send a match (friends only) opens a private two-player room and sends a game invite notification.
+  - Leaving a room asks first; starting or watching a game in the room does not. Leaving a room game ends it for spectators.
+  - Tests: PGlite dry run, a smoke block, jsdom test 22 and 5 new live API checks. Offline cache v20.
 - API: social actions go through one table in `blind-quiz-api`. Each row is a database function, an argument check and a per-account hourly limit; admin-only rows are checked against `bq_admins`. Other players are addressed by display name only.
 - Tests: smoke (Task 19 block), jsdom test 20 (plus admin reply and announcement in test 18), and 7 new live API checks run with two real accounts. Offline cache v18.

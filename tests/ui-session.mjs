@@ -503,5 +503,62 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   chat.stop();
   console.log('ok 21 encrypted chat: safety code, honest other-device notice, sealed for both devices, tampered message hidden, incoming announced, key change blocks sending until confirmed');
 }
+// 22. Task 19 stage D: rooms list, entering a room, room chat, watching live (sounds and announcements replayed), creating a room game that broadcasts, exit confirmation.
+{
+  const tick=(ms=60)=>new Promise(r=>setTimeout(r,ms));const sent=[];let watchCalls=0;
+  const ROOM='b1a1d000-0000-4000-8000-000000000001',GAME='c0ffee00-0000-4000-8000-000000000001',NEWGAME='c0ffee00-0000-4000-8000-000000000002';
+  const state=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Ann',level:4}],
+    games:[{id:GAME,kind:'quiz',title:'Quiz: History, Classic Quiz',config:{category:'history',mode:'classic'},status:'playing',host:'Ann',players:[{name:'Ann',score:2,finished:false}]}],chat:sent.filter(b=>b.action==='room-state').length>1?[]:[{id:5,name:'Ann',body:'hi all',createdAt:future}]});
+  const watch=()=>{watchCalls++;return watchCalls===1?{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:2,finished:false}],events:[{id:10,name:'Ann',kind:'say',body:'Question 3 of 10.'},{id:11,name:'Ann',kind:'sfx',body:'correct'}]}
+    :watchCalls===2?{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:3,finished:false}],events:[{id:12,name:'Ann',kind:'sfx',body:'correct'},{id:13,name:'Ann',kind:'say',body:'Correct! The answer is B: 1857.'},{id:14,name:'Ann',kind:'score',body:'3'},{id:15,name:'Bo',kind:'comment',body:'Great pick'}]}
+    :{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:3,finished:false}],events:[]}};
+  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);
+    const r={profile:{ok:true,profile},touch:{ok:true,unread:0,notificationsEnabled:true},'online-players':{ok:true,items:[]},
+      rooms:{ok:true,items:[{id:ROOM,name:'Blind Quiz',isPublic:true,isDefault:true,mine:false,games:1,users:2},{id:'b1a1d000-0000-4000-8000-000000000002',name:'Word Lovers',isPublic:true,isDefault:true,mine:false,games:0,users:0}]},
+      'room-state':state,'game-watch':watch,'room-say':{ok:true},'game-create':{ok:true,id:NEWGAME},'game-post':{ok:true,stored:1},'room-leave':{ok:true}}[b.action];
+    return json(200,(typeof r==='function'?r():r)||{ok:true});}});
+  const {d,w}=t22;await tick();
+  d.querySelector('#mp-open').click();await tick();d.querySelector('[data-mp-tab="rooms"]').click();await tick();await tick();
+  const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,2);
+  assert.equal(rb[0].getAttribute('aria-label'),'Blind Quiz. Public room, 1 game, 2 players inside. Enter room');
+  rb[0].click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');
+  assert.match(d.querySelector('#room-status').textContent,/You are in Blind Quiz\. 2 players here, 1 game being played\./);
+  assert.match(d.querySelector('#room-chat').textContent,/Ann: hi all/);assert.match(d.querySelector('#room-people').textContent,/Ann, level 4/);
+  assert.match(d.querySelector('#room-games').textContent,/Quiz: History, Classic Quiz.*Playing now\. Host Ann\. Scores: Ann 2\./s);
+  assert.equal(d.querySelector('#room-invite-box').hidden,true,'public rooms you do not own need no invitations');
+  d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  assert.deepEqual(sent.find(b=>b.action==='room-say'),{action:'room-say',roomId:ROOM,text:'hello room'});
+  // Watch: earlier events are text only; new ones are heard (recorded sound effect) and announced, comments too.
+  [...d.querySelectorAll('#room-games button')].find(b=>/^Watch /.test(b.textContent)).click();await tick();await tick();
+  assert.equal(d.querySelector('#exit-confirm').hidden,true,'watching a room game does not ask to leave the room');
+  assert.equal(d.querySelector('#view-watch').hidden,false);assert.match(d.querySelector('#watch-log').textContent,/Ann's game: Question 3 of 10\./);
+  const played=[];for(const win of WINDOWS)win.HTMLMediaElement.prototype.play=function(){played.push(this.src);return Promise.resolve()};
+  await tick(1700);
+  assert.match(d.querySelector('#watch-log').textContent,/Ann's game: Correct! The answer is B: 1857\..*Ann score: 3.*Bo commented: Great pick/s);
+  assert.match(d.querySelector('#watch-scores').textContent,/Ann: 3/);
+  assert(played.some(src=>/correct/.test(src)),'the spectator hears the player\'s correct-answer sound');
+  assert.match(d.querySelector('#announcer').textContent,/Correct! The answer is B: 1857\.|Bo commented: Great pick/);
+  d.querySelector('#watch-comment-text').value='Well done';d.querySelector('#watch-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='room-say').at(-1),{action:'room-say',roomId:ROOM,gameId:GAME,text:'Well done'});
+  d.querySelector('#watch-back').click();await tick();await tick();assert.equal(d.querySelector('#view-room').hidden,false);
+  // Create a quiz game: it starts locally without the leave-room question, and broadcasts announcements and score.
+  d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-category').value='history';d.querySelector('#room-game-mode').value='classic';
+  d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='game-create'),{action:'game-create',roomId:ROOM,kind:'quiz',title:'Quiz: History, Classic Quiz',config:{category:'history',mode:'classic'}});
+  assert.equal(d.querySelector('#exit-confirm').hidden,true);assert.equal(d.querySelector('#view-game').hidden,false);
+  d.querySelector('#game-start').click();await tick(6900);
+  const posts=sent.filter(b=>b.action==='game-post');assert(posts.length>=1&&posts.every(b=>b.gameId===NEWGAME),'the game is broadcast');
+  const evs=posts.flatMap(b=>b.events);assert(evs.some(e=>e.k==='say'&&/Question 1 of/.test(e.b)),'announcements reach spectators');assert(evs.some(e=>e.k==='score'&&e.b==='0'),'score is sent');
+  d.querySelector('#view-game .back-link').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false);
+  d.querySelector('#exit-leave').click();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-post').at(-1).events.slice(-1),[{k:'end',b:''}],'leaving ends the room game');
+  const after=sent.length;await tick(1500);assert(!sent.slice(after).some(b=>b.action==='game-post'),'nothing is broadcast after the game ends');
+  // Leaving the room asks first, then tells the server.
+  [...d.querySelectorAll('#mp-room-list .room-button')][0]?.click();rb[0].click();await tick();await tick();
+  d.querySelector('#view-room .back-link').click();await tick();assert.equal(d.querySelector('#exit-title').textContent,'Leave this room?');
+  d.querySelector('#exit-leave').click();await tick();assert(sent.some(b=>b.action==='room-leave'&&b.roomId===ROOM));assert.equal(d.querySelector('#view-multiplayer').hidden,false);
+  console.log('ok 22 rooms: list with game and player counts, room chat, watch live with sounds/announcements/comments, create game broadcasts, exit confirmation');
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

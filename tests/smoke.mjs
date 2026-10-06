@@ -138,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v19'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v20'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -380,6 +380,24 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/'send-message':\['bq_send_message',boxesArg,300\]/.test(api) && /'message-keys':\['bq_message_keys',nameArg,600\]/.test(api), 'message API actions');
   assert(/Send \$\{p\.name\} a private message/.test(readFileSync(new URL('../src/social.js', import.meta.url), 'utf8')), 'friends can open a private chat from the card');
   console.log('PASS: Task 19 end-to-end encrypted private messages (real WebCrypto: seal, open, tamper and key-swap rejection, safety code, key pinning).');
+}
+// Task 19 stage D: rooms, room games, spectators hearing the player's sounds and announcements, comments.
+{
+  const { readFileSync } = await import('node:fs');
+  const R = await import('../src/rooms.js');
+  const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const main = read('../src/main.js'), html = read('../index.html'), social = read('../src/social.js'), api = read('../supabase/functions/blind-quiz-api/index.ts'), rooms = read('../src/rooms.js');
+  assert(R.gameTitle('quiz', { category: 'history', mode: 'rapid' }, [{ id: 'history', name: 'History' }]) === 'Quiz: History, Rapid Fire' && R.gameTitle('soundmatch', { level: 'hard' }) === 'Sound Match: Hard' && R.gameTitle('letters') === 'Letters to Words', 'room game titles');
+  assert(R.eventText({ kind: 'say', name: 'Ann', body: 'Correct!' }) === "Ann's game: Correct!" && R.eventText({ kind: 'comment', name: 'Bo', body: 'Nice' }) === 'Bo commented: Nice' && R.eventText({ kind: 'sfx', name: 'Ann', body: 'correct' }) === null, 'spectator log lines (sound effects are heard, not listed)');
+  for (const id of ['view-room', 'view-watch', 'mp-rooms', 'mp-room-list', 'room-create-form', 'room-new-public', 'room-games', 'room-game-form', 'room-game-kind', 'room-game-category', 'room-game-mode', 'room-game-level', 'room-chat', 'room-chat-form', 'room-invite-form', 'watch-log', 'watch-scores', 'watch-comment-form', 'back-to-room']) assert(html.includes(`id="${id}"`), `rooms markup #${id}`);
+  assert(html.includes('data-mp-tab="rooms"'), 'Rooms tab in Multiplayer');
+  for (const a of ['rooms', 'room-create', 'room-remove', 'room-leave', 'room-state', 'room-say', 'room-invite', 'match-invite', 'game-create', 'game-join', 'game-watch', 'game-post']) assert(api.includes(`'${a}':['bq_`), `API action ${a}`);
+  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main) && /const announce=\(text,urgent=false\)=>\{livePush\('say',text\);/.test(main) && /function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main) && /function playMatchSound\(slot,\.\.\.a\)\{livePush\('match',slot\)/.test(main), 'room games broadcast announcements, sound effects and Sound Match sounds only while live');
+  assert(/playSfx:rawSfx,playMatchSound:rawMatch/.test(main), 'spectators replay with plain audio (never re-broadcast)');
+  assert(/state\.view==='room'&&\(view==='watch'\|\|\(live&&view===LIVE_VIEWS\[live\.kind\]\)\)/.test(main), 'starting or watching a room game does not ask to leave the room');
+  assert(/Send \$\{p\.name\} a match/.test(social) && /callApi\('match-invite'/.test(social) && /'room_invite', 'game_invite'\].includes\(n\.kind\) && n\.ref/.test(social), 'friends can send a match; invites open the room');
+  assert(!/loginId|login_id/.test(rooms), 'rooms never handle Login IDs');
+  console.log('PASS: Task 19 rooms (public and private rooms, chat, room games, live spectators, comments, match invites).');
 }
 // Task 19 stage E: exit confirmation for games, modes and rooms (buttons, brand link and Android/browser Back).
 {

@@ -218,3 +218,19 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .exit-confirm{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:#0b141dcc}
 .exit-card{max-width:460px;width:100%;padding:26px;border:2px solid var(--coral);border-radius:22px 22px 22px 6px;background:var(--panel)}
 .exit-card h2{margin:0 0 8px;font-size:1.6rem;letter-spacing:-.03em}.exit-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+/* Task 19 stage D: rooms, room games and watching live. */
+.room-panel,.watch-panel{max-width:760px}
+.room-panel section,.watch-panel h2{margin-top:26px}.room-panel h2,.watch-panel h2{font-size:1.4rem;margin:0 0 10px}
+.room-button small{display:block;color:var(--muted);font-size:.82rem;font-weight:400}
+.room-create{margin-top:22px;padding-top:12px;border-top:1px solid var(--line)}.room-create .button,.room-game-form .button,#room-chat-form .button,#room-invite-form .button,#watch-comment-form .button{margin-top:12px}
+.check-row{display:flex!important;gap:12px;align-items:flex-start;font-weight:400!important}.check-row input{width:26px;height:26px;min-height:0;flex:none;accent-color:var(--acid);margin-top:2px}
+.room-games{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.room-game{padding:14px 16px;border:1px solid var(--line);border-left:6px solid var(--blue);border-radius:6px 16px 16px 6px;background:var(--panel2)}.room-game strong{display:block;font-size:1.05rem}.room-game small{display:block;color:var(--muted);margin:4px 0 10px}
+.room-game-actions{display:flex;flex-wrap:wrap;gap:10px}
+.room-game-form{margin-top:16px;padding:14px 16px;border:1px dashed var(--line);border-radius:16px}.room-game-form h3{margin:0}
+.room-chat,.watch-log{list-style:none;padding:0;margin:10px 0;display:flex;flex-direction:column;gap:6px;max-height:min(50vh,420px);overflow-y:auto}
+.room-chat-line,.watch-line{padding:8px 12px;border-radius:12px;background:#0000002a;overflow-wrap:anywhere}
+.watch-comment{border-left:4px solid var(--coral)}.watch-score,.watch-end{color:var(--acid);font-weight:700}.watch-join{color:var(--blue)}
+.room-people,.watch-scores{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:8px 0}.room-person,.watch-scores li{padding:6px 12px;border:1px solid var(--line);border-radius:999px;font-size:.9rem}
+.watch-scores li{font-weight:800}
+#room-remove{margin-top:24px;color:var(--danger)}

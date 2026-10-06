@@ -35,7 +35,7 @@ export function notificationText(n) {
   }
 }
 
-export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {} }) {
+export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {}, openRoom = () => {}, loadRooms = () => {} }) {
   const bell = $('#notif-open');
   let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online';
   const signedIn = () => !!getSession()?.profile;
@@ -96,6 +96,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       li.append(row);
     } else if (n.kind === 'friend_request' && n.relation === 'friends') li.append(el('p', 'muted', 'Accepted.'));
     if (n.kind === 'message' && n.actor) li.append(button(`Open chat with ${n.actor}`, () => openChat(n.actor), 'button button-outline'));
+    if (['room_invite', 'game_invite'].includes(n.kind) && n.ref) li.append(button(n.kind === 'game_invite' ? `Open the match room with ${n.actor || 'your friend'}` : 'Enter the room', () => openRoom(n.ref), 'button button-hot'));
     if (n.actor && ['friend_request', 'friend_accepted'].includes(n.kind)) li.append(button(`Open ${n.actor}'s player card`, () => openCard(n.actor), 'text-button'));
     return li;
   }
@@ -161,7 +162,8 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     mpTab = tab;
     document.querySelectorAll('[data-mp-tab]').forEach(b => { const on = b.dataset.mpTab === tab; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
     $('#mp-online').hidden = tab !== 'online'; $('#mp-friends').hidden = tab !== 'friends';
-    if (tab === 'online') loadOnline(); else loadFriends();
+    const roomsBox = $('#mp-rooms'); if (roomsBox) roomsBox.hidden = tab !== 'rooms';
+    if (tab === 'online') loadOnline(); else if (tab === 'rooms') loadRooms(); else loadFriends();
   }
   function openMultiplayer() {
     const ok = signedIn();
@@ -201,7 +203,12 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     };
     if (p.relation === 'friends') {
       actions.append(el('p', 'muted', `You and ${p.name} are friends.`));
-      actions.append(button(`Send ${p.name} a private message`, () => openChat(p.name), 'button button-hot'));
+      actions.append(button(`Send ${p.name} a match`, async e => {
+        const b = e.currentTarget; b.disabled = true;
+        try { const d = await callApi('match-invite', { name: p.name }); announce(`Match invitation sent to ${p.name}. Opening your match room.`); openRoom(d.roomId); }
+        catch (err) { b.disabled = false; announce(err.message === 'not_friends' ? `You need to be friends with ${p.name} to send a match.` : errorText(err.message), true); }
+      }, 'button button-hot'));
+      actions.append(button(`Send ${p.name} a private message`, () => openChat(p.name), 'button button-outline'));
       actions.append(button(`Remove ${p.name} from friends`, act('friend-remove', () => `${p.name} was removed from your friends.`)));
     } else if (p.relation === 'incoming') {
       const row = el('div', 'notif-actions');
@@ -264,6 +271,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   $('#mp-signin-button')?.addEventListener('click', () => openSignIn());
   document.querySelectorAll('[data-mp-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.mpTab)));
   $('#mp-online-refresh')?.addEventListener('click', () => loadOnline());
+  $('#mp-rooms-refresh')?.addEventListener('click', () => loadRooms());
   $('#mp-find-form')?.addEventListener('submit', e => { e.preventDefault(); const n = $('#mp-find-name').value.trim(); if (n.length < 2) { announce('Type a player name first.', true); return; } openCard(n); });
 
   return { start, stop, touch, openNotifications, openMultiplayer, openCard, refreshSettings, loadNotifications };
