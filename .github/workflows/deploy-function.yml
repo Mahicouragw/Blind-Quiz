@@ -138,14 +138,17 @@ jobs:
         run: |
           # One retry for transient upload errors; on failure the CLI output tail becomes an annotation
           # (no secrets are printed by the CLI; the token is only in the environment).
-          deployed=false
+          set +e
           for attempt in 1 2; do
-            if supabase functions deploy "$FUNCTION_NAME" --project-ref "$PROJECT_REF" --use-api --no-verify-jwt > deploy.log 2>&1; then deployed=true; cat deploy.log; break; fi
+            supabase functions deploy "$FUNCTION_NAME" --project-ref "$PROJECT_REF" --use-api --no-verify-jwt > deploy.log 2>&1
+            rc=$?
             cat deploy.log
+            [ "$rc" -eq 0 ] && break
             echo "::warning title=Deploy attempt $attempt failed::$(tail -c 700 deploy.log | tr '\n' ' ')"
             sleep 20
           done
-          if [ "$deployed" != true ]; then echo "::error title=Edge Function deploy failed::$(tail -c 900 deploy.log | tr '\n' ' ')"; exit 1; fi
+          set -e
+          if [ "$rc" -ne 0 ]; then echo "::error title=Edge Function deploy failed::$(tail -c 900 deploy.log | tr '\n' ' ')"; exit 1; fi
           echo "deployed=true" >> "$GITHUB_OUTPUT"
           {
             echo "## Edge Function deployment — COMPLETE REPLACEMENT"
