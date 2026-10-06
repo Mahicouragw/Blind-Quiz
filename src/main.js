@@ -102,7 +102,7 @@ async function saveProfile(e){e.preventDefault();$('#edit-error').hidden=true;co
  catch(err){const code=err.message;if(code==='name_taken')editError('This username already exists. Please choose another one.','#edit-name');else if(code==='name_cooldown'){const fresh=await refreshProfile();editError(cooldownText(fresh?.nextNameChangeAt)||'You cannot change your username yet.','#edit-name')}else if(code==='wrong_answer')editError('Your current secret answer is incorrect. Please try again.','#edit-current');else if(code==='rate_limited')editError('Too many attempts. Please wait an hour and try again.');else if(!getSession()){state.profile=null;top();editError('Your session has ended. Please sign in again.')}else editError(/^invalid/.test(code)?'Please check each field and try again.':genericFailure)}
  finally{btn.disabled=false}}
 const lettersGame=createLettersGame({$,announce,callApi,getSession,setSession,onProfile:p=>{state.profile=p;top()},playSfx,playSequence});
-const soundMatch=createSoundMatch({$,announce,matchSounds,playMatchSound,stopMatchSound,playSfx});
+const soundMatch=createSoundMatch({$,announce,matchSounds,playMatchSound,stopMatchSound,playSfx,callApi,getSession,setSession,onProfile:p=>{state.profile=p;top()}});
 function openSoundMatch(){unlockAudio();go('soundmatch',{focus:'#sm-title'});soundMatch.start()}
 const feedback=createFeedback({$,announce,callApi,getSession,go,openSignIn:()=>$('#account-open').click()});
 function openLetters(){unlockAudio();go('letters',{focus:'#letters-game-title'});lettersGame.start()}

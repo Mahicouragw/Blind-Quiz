@@ -14,9 +14,9 @@ function untilEnded(a, maxMs = 3300) {
   });
 }
 
-export function createSoundMatch({ $, announce, matchSounds, playMatchSound, stopMatchSound, playSfx, rnd = Math.random, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
+export function createSoundMatch({ $, announce, matchSounds, playMatchSound, stopMatchSound, playSfx, callApi = null, getSession = () => null, setSession = () => {}, onProfile = () => {}, rnd = Math.random, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
   const grid = $('#sm-grid'), status = $('#sm-status'), stats = $('#sm-stats'), finish = $('#sm-finish');
-  let level = 'easy', state = null, busy = false, game = 0;
+  let level = 'easy', state = null, busy = false, game = 0, serverGame = null;
 
   const say = (text, urgent = false) => { status.textContent = text; announce(text, urgent); };
   const label = (card, extra = '') => `Number ${card.number}${extra}`;
@@ -81,12 +81,32 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
     busy = false; grid.removeAttribute('aria-busy');
   }
 
-  function finishGame() {
+  // Signed-in players get XP and coins, checked and paid by the server (Migration 018).
+  async function reward(tries, myGame) {
+    if (!callApi || !getSession()) return ' Sign in to earn XP and coins.';
+    const id = await serverGame;
+    if (!id || myGame !== game) return '';
+    try {
+      const before = getSession()?.profile?.level;
+      const r = await callApi('soundmatch-finish', { gameId: id, tries });
+      if (r.profile) { setSession({ ...getSession(), profile: r.profile }); onProfile(r.profile); }
+      if (r.dailyLimit) return " You have reached today's limit for Sound Match rewards.";
+      if (!(r.xp > 0 || r.coins > 0)) return '';
+      playSfx('coin');
+      const up = before && r.profile?.level > before ? ` Level up! You are now Level ${r.profile.level}.` : '';
+      return ` You earned ${r.xp} XP and ${r.coins} coin${r.coins === 1 ? '' : 's'}.${up}`;
+    } catch { return ''; }
+  }
+
+  async function finishGame() {
+    const myGame = game;
     const pairs = state.board.length / 2, tries = state.tries, stars = starsFor(pairs, tries);
     const best = readBest(), prev = best[level];
     const isBest = !prev || tries < prev;
     if (isBest) { best[level] = tries; saveBest(best); }
-    const text = `You found all ${pairs} pairs in ${tries} tries! ${stars} star${stars === 1 ? '' : 's'}.${isBest ? ' New best score!' : ` Your best is ${prev} tries.`}`;
+    const earned = await reward(tries, myGame);
+    if (myGame !== game) return;
+    const text = `You found all ${pairs} pairs in ${tries} tries! ${stars} star${stars === 1 ? '' : 's'}.${isBest ? ' New best score!' : ` Your best is ${prev} tries.`}${earned}`;
     finish.hidden = false;
     $('#sm-finish-text').textContent = text;
     $('#sm-finish-stars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
@@ -105,6 +125,8 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
     const { pairs, label: name, describe } = SM_LEVELS[level];
     try { state = newMatchState(buildBoard(pairs, pool, rnd)); }
     catch { state = null; renderStats(); say('Sound Match needs its sounds. Please check your internet connection and try again.', true); return; }
+    // Register the game with the server (signed-in players only); the board never waits for it.
+    serverGame = callApi && getSession() ? callApi('soundmatch-start', { level }).then(d => d.gameId || null).catch(() => null) : null;
     grid.dataset.size = String(pairs * 2);
     grid.append(...state.board.map(cardButton));
     renderStats();

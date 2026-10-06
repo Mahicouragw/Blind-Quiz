@@ -300,8 +300,19 @@ const fbItem = await post({ action: 'feedback-item', id: 1 }, { token: wtok });
 check('Feedback: a name that is not the signed-in account is refused', fbWrongName.status === 403 && fbWrongName.body?.code === 'name_mismatch', `code ${codeOf(fbWrongName)}`);
 check('Feedback: only image screenshots are accepted, and a session is required', fbBadShot.status === 400 && fbBadShot.body?.code === 'invalid_request' && fbNoAuth.status === 401, `${codeOf(fbBadShot)}/${codeOf(fbNoAuth)}`);
 check('Feedback inbox: players who are not the admin are refused', fbInbox.status === 403 && fbInbox.body?.code === 'forbidden' && fbItem.status === 403 && loginNew.body?.profile?.isAdmin === false, `${codeOf(fbInbox)}/${codeOf(fbItem)}, isAdmin=${loginNew.body?.profile?.isAdmin}`);
+// Sound Match rewards (Migration 018): the server pays once, only for a believable finish.
+const smStart = await post({ action: 'soundmatch-start', level: 'easy' }, { token: wtok });
+const smGame = smStart.body?.gameId;
+const smFast = await post({ action: 'soundmatch-finish', gameId: smGame, tries: 5 }, { token: wtok });
+const smBadTries = await post({ action: 'soundmatch-finish', gameId: smGame, tries: 3 }, { token: wtok });
+await new Promise(r => setTimeout(r, 8500)); // Easy needs at least 7.5 seconds (5 pairs x 1.5 s)
+const smDone = await post({ action: 'soundmatch-finish', gameId: smGame, tries: 5 }, { token: wtok });
+const smAgain = await post({ action: 'soundmatch-finish', gameId: smGame, tries: 5 }, { token: wtok });
+const smBadLevel = await post({ action: 'soundmatch-start', level: 'impossible' }, { token: wtok });
+check('Sound Match: a game is registered; impossible finishes are refused (too fast, too few tries, bad level)', smStart.status === 200 && /^[0-9a-f-]{36}$/.test(smGame || '') && smFast.body?.code === 'too_fast' && smBadTries.body?.code === 'invalid_tries' && smBadLevel.status === 400, `${codeOf(smStart)}/${codeOf(smFast)}/${codeOf(smBadTries)}/${codeOf(smBadLevel)}`);
+check('Sound Match: a perfect Easy board pays 10 XP and 1 coin, exactly once', smDone.body?.ok === true && smDone.body.stars === 3 && smDone.body.xp === 10 && smDone.body.coins === 1 && smDone.body.profile?.xp === (wordTwo.body?.profile?.xp ?? -99) + 10 && smAgain.body?.code === 'already_finished', `stars=${smDone.body?.stars}, xp=${smDone.body?.xp}, coins=${smDone.body?.coins}, again=${codeOf(smAgain)}`);
 for (const t of [tok, wtok]) if (t) await post({ action: 'logout' }, { token: t });
-const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem];
+const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain];
 check('Profile and word responses never contain hashes, salts, or the secret answers',
   !/answer_hash|answer_salt|token_hash|name_normalized/.test(profileResponses.map(r => r.text).join('\n')) && !profileResponses.some(r => r.text.includes(ANSWER) || r.text.includes(NEW_ANSWER)));
 

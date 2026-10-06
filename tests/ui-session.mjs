@@ -400,7 +400,20 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal(JSON.parse(w.localStorage.getItem('blindquiz.soundmatch.best.v1')).easy,6);assert(['cheer','applause'].includes(sfx.at(-1)));
   d.querySelector('[data-sm-level="hard"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,20);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
   d.querySelector('[data-sm-level="medium"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,16);assert.equal(d.querySelector('#sm-finish').hidden,true);
-  console.log('ok 19 Sound Match: numbers 1-10 on Easy (16 Medium, 20 Hard), press plays its sound, match/miss spoken, found sounds named, stars and best score');
+  // Signed in: the board registers a game, and finishing it pays the server-checked reward.
+  const api=[];let sess={token:'t',profile:{name:'Asha',level:1,xp:95,coins:3}};const profs=[];
+  const sm2=createSoundMatch({$:(s)=>d.querySelector(s),announce:()=>{},matchSounds:async()=>pool,playMatchSound:async()=>fakeAudio,stopMatchSound:()=>{},playSfx:s=>sfx.push(s),rnd,wait:async()=>{},
+    callApi:async(action,body)=>{api.push({action,...body});if(action==='soundmatch-start')return {ok:true,gameId:'11111111-2222-4333-8444-555555555555'};return {ok:true,stars:3,xp:10,coins:1,profile:{name:'Asha',level:2,xp:105,coins:4}}},
+    getSession:()=>sess,setSession:v=>{sess=v},onProfile:p=>profs.push(p)});
+  await sm2.start('easy');assert.deepEqual(api[0],{action:'soundmatch-start',level:'easy'});
+  const b2=sm2.state.board,pair2=n=>b2.find(c=>c.number!==n&&c.sound.slot===b2[n-1].sound.slot).number;const cards2=()=>[...d.querySelectorAll('#sm-grid .sm-card')];
+  for(const c of b2){if(sm2.state.matched.has(c.number))continue;cards2()[c.number-1].click();await tick();cards2()[pair2(c.number)-1].click();await tick();await tick()}
+  await tick();
+  assert.deepEqual(api[1],{action:'soundmatch-finish',gameId:'11111111-2222-4333-8444-555555555555',tries:5});
+  assert.match(d.querySelector('#sm-finish-text').textContent,/You found all 5 pairs in 5 tries! 3 stars\..* You earned 10 XP and 1 coin\. Level up! You are now Level 2\./);
+  assert(!/profile XP|profile level/i.test(d.querySelector('#sm-finish-text').textContent));
+  assert.equal(sess.profile.xp,105);assert.equal(profs.at(-1).level,2);assert(sfx.includes('coin'));
+  console.log('ok 19 Sound Match: numbers 1-10 on Easy (16 Medium, 20 Hard), press plays its sound, match/miss spoken, found sounds named, stars and best score; signed-in players earn server-checked XP and coins');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

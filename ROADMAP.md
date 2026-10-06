@@ -210,3 +210,7 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - **32 recorded Mixkit clips** (Sound Effects Free License, games allowed): 8 funny, 8 mysterious, 8 cinematic and 8 interesting. They are pinned by id in `scripts/audio/sources.json`, encoded by `audio-assets.yml` to `assets/audio/match_*.mp3` (700 KB total) and listed in `AUDIO_LICENSES.md`. Ids were chosen from the read-only `mixkit-catalog.yml` listing.
   - Pixabay and Freesound were not used: Pixabay allows only manual downloads, and Freesound needs an account. No XP is awarded yet; paying XP would need a server change.
   - Tests: logic in smoke; full Easy game, Medium and Hard in jsdom test 19.
+- [x] **17.5 Sound Match XP and coins (Migration 018, approved).** Signed-in players earn Easy 5 XP + 1 coin, Medium 10 XP + 2 coins, Hard 15 XP + 3 coins, with XP doubled for 3 stars. The finish message says "You earned N XP and N coins", plus the usual "Level up! You are now Level N."
+  - Server-checked: `soundmatch-start` registers the board, and `soundmatch-finish` pays once per game.
+  - The finish is refused if it is faster than 1.5 s per pair, if the number of tries is impossible, or if the game is older than 3 hours. Stars are computed on the server, and payouts stop after 40 paid games in 24 hours.
+  - `bq_sound_match_games` has row level security; both functions are service_role only. The migration was pushed and applied before the API change, so the live checks never ran against a missing migration.

@@ -126,6 +126,19 @@ async function handler(req:Request){
    const {data,error}=await admin.from('bq_feedback').update({read_at:new Date().toISOString()}).eq('id',id).select('id,screenshot').maybeSingle();if(error){console.error('Feedback item failed',error.code);return json({ok:false,code:'service_error'},503,origin)}if(!data)return json({ok:false,code:'invalid_request'},404,origin);
    return json({ok:true,id:data.id,screenshot:data.screenshot},200,origin);
   }
+  // Sound Match (Migration 018): the board registers a game; finishing pays once, with time, tries and daily limits checked in bq_finish_sound_match.
+  if(body.action==='soundmatch-start'){
+   const level=clean(body.level,10);if(!['easy','medium','hard'].includes(level))return json({ok:false,code:'invalid_request'},400,origin);
+   if(!await permitAccount('soundmatch-start',profileId,300,86400))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data,error}=await admin.rpc('bq_start_sound_match',{p_profile_id:profileId,p_level:level});if(error||!data?.ok){console.error('Sound Match start failed',error?.code);return json({ok:false,code:'service_error'},503,origin)}return json({ok:true,gameId:data.gameId},200,origin);
+  }
+  if(body.action==='soundmatch-finish'){
+   const gameId=clean(body.gameId,40),tries=Number(body.tries);if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(gameId)||!Number.isSafeInteger(tries))return json({ok:false,code:'invalid_request'},400,origin);
+   if(!await permitAccount('soundmatch-finish',profileId,300,86400))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data,error}=await admin.rpc('bq_finish_sound_match',{p_profile_id:profileId,p_game_id:gameId,p_tries:tries});if(error){console.error('Sound Match finish failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!data?.ok)return json({ok:false,code:['too_fast','already_finished','invalid_tries','game_expired','game_unavailable'].includes(data?.code)?data.code:'invalid_request'},409,origin);
+   return json({ok:true,stars:data.stars,xp:data.xp,coins:data.coins,dailyLimit:data.dailyLimit,profile:{...publicProfile(auth.profile),...data.profile}},200,origin);
+  }
   if(body.action==='submit-report'){
    const questionId=clean(body.questionId,100),reason=clean(body.reason,20),details=clean(body.details,500);if(!questionId||!['incorrect','ambiguous','language','duplicate','inappropriate','other'].includes(reason))return json({ok:false,code:'invalid_request'},400,origin);if(!await permitAccount('report',profileId,20,86400))return json({ok:false,code:'rate_limited'},429,origin);const {error}=await admin.from('bq_question_reports').insert({profile_id:profileId,question_id:questionId,reason,details});if(error)return json({ok:false,code:error.code==='23503'?'invalid_request':'service_error'},error.code==='23503'?400:503,origin);return json({ok:true},201,origin);
   }
