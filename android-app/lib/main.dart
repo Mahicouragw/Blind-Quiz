@@ -1,8 +1,15 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -31,6 +38,16 @@ const String kContactEmail = 'numbersareplaying@gmail.com';
 /// HTTPS links (for example GitHub in the legal pages) open in the user's own
 /// browser. Everything else (http, intent:, file:, javascript:, data:, custom
 /// schemes) is blocked.
+/// A safe file name for a file a friend sent directly (no folders, no control characters).
+String safeReceivedName(String name) {
+  final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').replaceAll(RegExp(r'^\.+'), '_').trim();
+  final cut = cleaned.length > 120 ? cleaned.substring(0, 120) : cleaned;
+  return cut.isEmpty ? 'file' : cut;
+}
+
+/// Largest file a friend can send directly (matches src/direct.js).
+const int kMaxReceivedBytes = 2 * 1024 * 1024 * 1024;
+
 NavDecision classifyNavigation(String url) {
   final uri = Uri.tryParse(url);
   if (uri == null) return NavDecision.block;
@@ -86,11 +103,13 @@ class _QuizWebViewState extends State<QuizWebView> {
   int _progress = 0;
   bool _failed = false;
   bool _reloading = false;
+  final Map<String, _Incoming> _incoming = <String, _Incoming>{};
 
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
+    // Calls and voice messages: the page asks for the microphone (and camera for video calls); Android asks the player.
+    _controller = WebViewController(onPermissionRequest: _onPermissionRequest)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(kBackground)
       ..setNavigationDelegate(
@@ -127,9 +146,104 @@ class _QuizWebViewState extends State<QuizWebView> {
       platform.setAllowFileAccess(false);
       // Settings > Send feedback can attach a screenshot: the page's <input type="file" accept="image/*">
       // opens the system photo picker (no storage permission). Only the chosen image is handed to the page.
-      platform.setOnShowFileSelector(_pickImageForPage);
+      platform.setOnShowFileSelector(_pickForPage);
+      // Call audio from a friend starts playing as soon as the call connects.
+      platform.setMediaPlaybackRequiresUserGesture(false);
     }
+    // Files a friend sends directly arrive in pieces from the page and are offered to save or open.
+    _controller.addJavaScriptChannel('BQFiles', onMessageReceived: (m) => _onFileMessage(m.message));
+    _cleanReceived();
     _controller.loadRequest(Uri.parse(kLiveUrl));
+  }
+
+  Future<void> _onPermissionRequest(WebViewPermissionRequest request) async {
+    final wantsCamera = request.types.contains(WebViewPermissionResourceType.camera);
+    final wantsMic = request.types.contains(WebViewPermissionResourceType.microphone);
+    if (!wantsCamera && !wantsMic) {
+      await request.deny();
+      return;
+    }
+    final needed = <Permission>[if (wantsMic) Permission.microphone, if (wantsCamera) Permission.camera];
+    final results = await needed.request();
+    if (results.values.every((s) => s.isGranted)) {
+      await request.grant();
+    } else {
+      await request.deny();
+      _say(wantsCamera ? 'Blind Quiz needs the microphone and camera for video calls. You can allow them in Android settings.' : 'Blind Quiz needs the microphone for calls and voice messages. You can allow it in Android settings.');
+    }
+  }
+
+  /// Images (feedback screenshots) use the photo picker; any other file (Send a file) uses the system file picker.
+  Future<List<String>> _pickForPage(FileSelectorParams params) async {
+    final types = params.acceptTypes.where((t) => t.trim().isNotEmpty).toList();
+    final imagesOnly = types.isNotEmpty && types.every((t) => t.startsWith('image/'));
+    if (imagesOnly) return _pickImageForPage(params);
+    try {
+      final result = await FilePicker.platform.pickFiles();
+      final path = result?.files.single.path;
+      if (path == null) return <String>[];
+      return <String>[Uri.file(path).toString()];
+    } catch (_) {
+      _say('The file could not be opened. Please try again.');
+      return <String>[];
+    }
+  }
+
+  Future<Directory> _receivedDir() async {
+    final dir = Directory('${(await getTemporaryDirectory()).path}/received');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// Received files are only a hand-over to the share sheet; anything older than a day is removed.
+  Future<void> _cleanReceived() async {
+    try {
+      final dir = await _receivedDir();
+      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+      await for (final f in dir.list()) {
+        if (f is File && (await f.lastModified()).isBefore(cutoff)) await f.delete();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _onFileMessage(String raw) async {
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final id = (m['id'] ?? '').toString();
+      if (!RegExp(r'^[0-9a-f-]{36}$').hasMatch(id)) return;
+      switch (m['op']) {
+        case 'open':
+          final size = (m['size'] as num?)?.toInt() ?? -1;
+          if (size < 0 || size > kMaxReceivedBytes || _incoming.containsKey(id)) return;
+          final file = File('${(await _receivedDir()).path}/$id-${safeReceivedName((m['name'] ?? 'file').toString())}');
+          _incoming[id] = _Incoming(file, file.openWrite(), size, (m['mime'] ?? 'application/octet-stream').toString(), safeReceivedName((m['name'] ?? 'file').toString()));
+        case 'chunk':
+          final inc = _incoming[id];
+          if (inc == null) return;
+          final bytes = base64Decode((m['data'] ?? '').toString());
+          inc.written += bytes.length;
+          if (inc.written > inc.size) {
+            await inc.sink.close();
+            _incoming.remove(id);
+            await inc.file.delete();
+            return;
+          }
+          inc.sink.add(bytes);
+        case 'close':
+          final inc = _incoming.remove(id);
+          if (inc == null) return;
+          await inc.sink.flush();
+          await inc.sink.close();
+          if (inc.written != inc.size) {
+            await inc.file.delete();
+            _say('The file did not arrive completely.');
+            return;
+          }
+          await Share.shareXFiles(<XFile>[XFile(inc.file.path, mimeType: inc.mime, name: inc.name)], subject: inc.name);
+      }
+    } catch (_) {
+      _say('The file could not be saved. Please try again.');
+    }
   }
 
   Future<List<String>> _pickImageForPage(FileSelectorParams params) async {
@@ -399,3 +513,13 @@ class SharePanel extends StatelessWidget {
   }
 }
 
+/// A file a friend is sending directly, written piece by piece.
+class _Incoming {
+  _Incoming(this.file, this.sink, this.size, this.mime, this.name);
+  final File file;
+  final IOSink sink;
+  final int size;
+  final String mime;
+  final String name;
+  int written = 0;
+}

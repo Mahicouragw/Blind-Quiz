@@ -58,4 +58,13 @@ void main() {
     expect(find.bySemanticsLabel('QR code for the Blind Quiz website'), findsOneWidget);
     expect(kApkUrl, startsWith('https://mahicouragw.github.io/Blind-Quiz/'));
   });
+
+  test('files received from friends get safe names', () {
+    expect(safeReceivedName('notes.pdf'), 'notes.pdf');
+    expect(safeReceivedName('../../shared_prefs/a.xml'), '__.._shared_prefs_a.xml');
+    expect(safeReceivedName('a/b\\c:d'), 'a_b_c_d');
+    expect(safeReceivedName(''), 'file');
+    expect(safeReceivedName('x' * 200).length, 120);
+    expect(kMaxReceivedBytes, 2 * 1024 * 1024 * 1024);
+  });
 }

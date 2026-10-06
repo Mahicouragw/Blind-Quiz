@@ -70,7 +70,13 @@ jobs:
           # Android 11+ package visibility: let the Contact us link open the user's email app.
           grep -q 'android.intent.action.SENDTO' "$MANIFEST" || \
             sed -i 's#<application#<queries><intent><action android:name="android.intent.action.SENDTO"/><data android:scheme="mailto"/></intent></queries>\n    <application#' "$MANIFEST"
-          grep -n 'INTERNET\|android:label\|usesCleartextTraffic\|allowBackup\|SENDTO' "$MANIFEST"
+          # Calls between friends and room voice messages: microphone, camera (video calls only) and call audio routing.
+          # Asked at runtime only when the player starts or answers a call or records. No storage permissions:
+          # files are picked with the system picker and received files are handed to the share sheet.
+          grep -q 'xmlns:tools' "$MANIFEST" || sed -i 's#<manifest #<manifest xmlns:tools="http://schemas.android.com/tools" #' "$MANIFEST"
+          grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST" || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <uses-feature android:name="android.hardware.microphone" android:required="false"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>\n    <application#' "$MANIFEST"
+          grep -n 'INTERNET\|RECORD_AUDIO\|CAMERA\|MODIFY_AUDIO\|tools:node\|android:label\|usesCleartextTraffic\|allowBackup\|SENDTO' "$MANIFEST"
           # Blind Quiz launcher icon (braille "?" cell with sound waves) instead of the Flutter default.
           for d in icons/mipmap-*; do cp "$d/ic_launcher.png" "android/app/src/main/res/$(basename "$d")/ic_launcher.png"; done
           ls -la android/app/src/main/res/mipmap-*/ic_launcher.png
@@ -137,7 +143,7 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           PERMS=$("$BT/aapt2" dump permissions "$APK_PATH" | grep -oE "name='[^']+'" | sed "s/name='//;s/'//" | sort -u)
           echo "Permissions:"; echo "$PERMS"
-          EXTRA=$(echo "$PERMS" | grep -vE '^(android\.permission\.INTERNET|io\.github\.mahicouragw\.blind_quiz\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)$' || true)
+          EXTRA=$(echo "$PERMS" | grep -vE '^(android\.permission\.(INTERNET|RECORD_AUDIO|CAMERA|MODIFY_AUDIO_SETTINGS)|io\.github\.mahicouragw\.blind_quiz\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)$' || true)
           if [ -n "$EXTRA" ]; then echo "::error title=APK permissions::Unexpected permissions: $(echo $EXTRA)"; exit 1; fi
           MAN=$("$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK_PATH")
           if echo "$MAN" | grep -qE 'debuggable\([^)]*\)=(true|\(type 0x12\)0xffffffff)'; then echo "::error title=APK::APK is debuggable"; exit 1; fi
@@ -164,7 +170,7 @@ jobs:
           cp "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk"
           NOTES="Blind Quiz for Android $VERSION_NAME, built from ${GITHUB_SHA::7} on $GITHUB_REF_NAME.
 
-          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Only the INTERNET permission is requested.
+          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; microphone and camera, asked only when you start or answer a call between friends or record a room voice message. No storage or contacts access: files you send are picked with the Android file picker, and files friends send are offered to save or open.
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
           gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
