@@ -34,6 +34,8 @@ export async function runGuardedMigration({ number, file, newTables = [], alterT
     new RegExp(`^alter table ${T} add column if not exists [a-z_]+ [^;]+$`, 'i'),
     new RegExp(`^create (unique )?index if not exists [a-z_]+ on ${T} \\([^;]+\\)$`, 'i'),
     new RegExp(`^alter table ${NT} enable row level security$`, 'i'),
+    // Seed rows for a table created by the same migration (for example default rooms); never overwrites.
+    new RegExp(`^insert into ${NT} \\([a-z_, ]+\\) values (\\(('',? ?|true,? ?|false,? ?)+\\),? ?)+ on conflict \\([a-z_]+\\) do nothing$`, 'i'),
     new RegExp(`^revoke all on ${tableList} from public, anon, authenticated$`, 'i'),
     new RegExp(`^grant select, insert, update, delete on ${tableList} to service_role$`, 'i'),
     new RegExp(`^create or replace function ${F}\\([a-z_ ,\\[\\]]*\\) returns (jsonb|text|boolean) language (plpgsql|sql)( stable)? security definer set search_path = public, pg_temp as \\$\\$$`, 'i'),

@@ -67,5 +67,34 @@ if (await j(`select to_regclass('public.bq_messages') is not null`)) {
   for (const n of [4, 5, 6, 7]) await q(`select bq_register_device($1,$2,$3)`, [a, `0000000${n}-0000-4000-8000-000000000000`, key(String(n))]);
   ok(Number((await q(`select count(*) n from bq_devices where profile_id=$1 and revoked_at is null`, [a]))[0].n) === 4, 'at most 4 active devices');
 }
+// Migration 021: rooms, chat, live games, spectators, comments.
+if (await j(`select to_regclass('public.bq_rooms') is not null`)) {
+  const dd = await mk('Dave');
+  const rooms = await j(`select bq_rooms_list($1)`, [dd]); ok(rooms.length === 3 && rooms.map(r => r.name).join() === 'Blind Quiz,Word Lovers,Sound Lounge', 'three default public rooms');
+  const pub = rooms[0].id;
+  const st = await j(`select bq_room_state($1,$2,null)`, [a, pub]); ok(st.ok && st.people.some(p => p.name === 'Alice'), 'entering a room shows you there');
+  ok((await j(`select bq_rooms_list($1)`, [dd]))[0].users >= 1, 'room list counts users');
+  ok((await j(`select bq_room_say($1,$2,null,'Hello room')`, [a, pub])).ok, 'room chat');
+  ok((await j(`select bq_room_state($1,$2,null)`, [dd, pub])).chat.at(-1).body === 'Hello room', 'others read the chat');
+  const priv = (await j(`select bq_room_create($1,'Alice private',false)`, [a])).id;
+  ok((await j(`select bq_room_state($1,$2,null)`, [dd, priv])).code === 'room_unavailable', 'private room closed to others');
+  ok(!(await j(`select bq_rooms_list($1)`, [dd])).some(r => r.id === priv), 'private room hidden from others');
+  ok((await j(`select bq_room_invite($1,$2,'dave')`, [a, priv])).code === 'not_friends', 'invites only for friends');
+  ok((await j(`select bq_room_invite($1,$2,'bob')`, [a, priv])).ok && (await j(`select bq_room_state($1,$2,null)`, [b, priv])).ok, 'invited friend can enter');
+  ok((await j(`select bq_notifications_list($1)`, [b])).some(n => n.kind === 'room_invite' && n.ref === priv), 'room invite notification');
+  const g = (await j(`select bq_game_create($1,$2,'quiz','Quiz: History',$3)`, [a, pub, { category: 'history', mode: 'classic' }])).id; ok(!!g, 'create game');
+  ok((await j(`select bq_rooms_list($1)`, [dd]))[0].games === 1, 'room list counts games');
+  ok((await j(`select bq_game_post($1,$2,$3)`, [dd, g, [{ k: 'say', b: 'hack' }]])).code === 'game_unavailable', 'spectators cannot post game events');
+  const posted = await j(`select bq_game_post($1,$2,$3)`, [a, g, [{ k: 'sfx', b: 'correct' }, { k: 'say', b: 'Correct! The answer is B: 1857.' }, { k: 'score', b: '1' }, { k: 'sfx', b: 'bad slot!' }, { k: 'evil', b: 'x' }]]);
+  ok(posted.stored === 3, 'only valid events are stored');
+  const w = await j(`select bq_game_watch($1,$2,null)`, [dd, g]); ok(w.ok && w.events.map(e => e.kind).join() === 'sfx,say,score' && w.players[0].score === 1, 'spectator sees sounds, announcements and score');
+  ok((await j(`select bq_game_join($1,$2)`, [dd, g])).config.category === 'history', 'join a game');
+  ok((await j(`select bq_room_say($1,$2,$3,'Nice one!')`, [dd, pub, g])).ok && (await j(`select bq_game_watch($1,$2,$3)`, [b, g, w.events.at(-1).id])).events.some(e => e.kind === 'comment' && e.body === 'Nice one!'), 'comments on a game');
+  await q(`select bq_game_post($1,$2,$3)`, [a, g, [{ k: 'end', b: '' }]]);
+  ok((await j(`select bq_game_watch($1,$2,null)`, [dd, g])).status === 'finished' && (await j(`select bq_game_post($1,$2,$3)`, [dd, g, [{ k: 'say', b: 'late' }]])).code === 'game_finished', 'host ending finishes the game');
+  const m1 = await j(`select bq_match_invite($1,'bob')`, [a]), m2 = await j(`select bq_match_invite($1,'bob')`, [a]);
+  ok(m1.ok && m1.roomId === m2.roomId && (await j(`select bq_room_state($1,$2,null)`, [b, m1.roomId])).ok && (await j(`select bq_match_invite($1,'carol')`, [a])).code === 'not_friends', 'match invite: friends only, one private room reused');
+  ok((await j(`select bq_room_remove($1,$2)`, [dd, pub])).code === 'forbidden' && (await j(`select bq_room_remove($1,$2)`, [a, priv])).ok, 'only owners remove their own rooms; defaults stay');
+}
 if (failed) process.exit(1);
 console.log('PASS database dry run');
