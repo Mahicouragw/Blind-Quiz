@@ -173,3 +173,20 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .inbox-item{padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:#ffffff08}.inbox-item.unread{border:2px solid var(--acid)}
 .inbox-item h2{font-size:1.1rem;margin:0 0 4px}.inbox-meta{margin:0 0 10px;color:var(--muted);font-size:.85rem}.inbox-message{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 10px}
 .inbox-shot{display:block;max-width:100%;border-radius:12px;border:1px solid var(--line);margin-top:8px}
+/* Task 17: Sound Match */
+.sm-glyph{font-family:'Bungee',system-ui,sans-serif;font-size:2rem}
+.sm-panel{max-width:860px}.sm-levels{margin:20px 0 12px}.sm-stats{font-weight:800;color:var(--acid);min-height:1.5em;margin:6px 0 14px}
+.sm-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.sm-card{position:relative;min-height:92px;padding:10px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:3px solid var(--key-edge,#0f0822);border-radius:18px;box-shadow:0 6px 0 var(--key-edge,#0f0822);background:linear-gradient(160deg,#3a2a6e,#1f1640 70%);color:var(--ink);transition:transform .12s,background .15s}
+.sm-card:hover{transform:translateY(-2px)}.sm-card:active{transform:translateY(4px);box-shadow:0 2px 0 var(--key-edge,#0f0822)}
+.sm-num{font-family:'Bungee',system-ui,sans-serif;font-size:2rem;line-height:1}
+.sm-name{font-size:.72rem;font-weight:700;line-height:1.2;text-align:center;min-height:1.2em}
+.sm-card.open{background:linear-gradient(160deg,#ffcf4a,#ff8c4a 75%);color:#1b1036;outline:3px solid var(--focus);outline-offset:2px}
+.sm-card.open .sm-num:after{content:' ♪';font-size:1.2rem}
+.sm-card.matched{background:linear-gradient(160deg,#2f8f74,#1a4f45 75%);color:#eafff8}
+.sm-status{min-height:3em;font-weight:700;margin-top:16px}
+.sm-finish{margin:12px 0 18px;padding:18px;border:2px solid var(--acid);border-radius:18px;text-align:center}.sm-stars{font-size:2.2rem;letter-spacing:.2em;color:var(--acid);margin:0}
+#sm-new{margin-top:6px}
+@media(max-width:560px){.sm-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.sm-card{min-height:76px}.sm-num{font-size:1.6rem}}
+.high-contrast .sm-card{background:#000;border-color:#fff}.high-contrast .sm-card.open{background:#ff0;color:#000}.high-contrast .sm-card.matched{background:#063;color:#fff}
+.reduce-motion .sm-card{transition:none}

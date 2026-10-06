@@ -25,6 +25,7 @@ const cache = new Map();
 let music = null, musicSlot = null, fadeTimer = null, unlocked = false, wantedSlot = null;
 
 let pending = null;
+let matchInfo = [];
 const versions = new Map(); // slot -> file size, appended to the URL so replaced recordings are never served stale
 // The manifest is cached once it loads; a failed load (e.g. offline) is retried on the next sound.
 async function manifest() {
@@ -34,7 +35,8 @@ async function manifest() {
       const res = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
       if (!res.ok) return new Set();
       const data = await res.json();
-      const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || isTrack(k)));
+      const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || isTrack(k) || /^match_[a-z0-9_]+$/.test(k)));
+      matchInfo = [...found].filter(k => k.startsWith('match_')).map(k => ({ slot: k, name: String(data.assets[k].name || k.slice(6).replace(/_/g, ' ')), mood: String(data.assets[k].mood || 'interesting') }));
       for (const k of found) versions.set(k, data.assets[k].bytes || 0);
       if (found.size) available = found;
       return found;
@@ -115,6 +117,7 @@ function fadeTo(target, ms, done) {
 }
 
 export function musicFor(view, category, mode) {
+  if (view === 'soundmatch') return null; // Sound Match is played by ear: no background music over the clues
   if (view === 'game') return GAME_TRACK[mode] && mode !== 'classic' ? GAME_TRACK[mode] : (GAME_TRACK[category] || 'music_game1');
   if (view === 'letters') return 'music_game2';
   if (view === 'results') return 'music_results';
@@ -123,6 +126,7 @@ export function musicFor(view, category, mode) {
 
 /** Switches the background music playlist, cross-fading from the current track. */
 export async function playMusic(slot) {
+  if (slot == null) { wantedSlot = null; stopMusic(); return; }
   wantedSlot = slot;
   if (!prefs.music || !unlocked) return;
   const have = await manifest();
@@ -175,3 +179,25 @@ if (typeof document !== 'undefined') {
     else if (prefs.music && musicSlot) { try { Promise.resolve(music.play()).catch(() => {}); } catch { /* ignore */ } }
   });
 }
+
+// ---- Sound Match clips (assets/audio/match_*.mp3, Mixkit) -----------------------------------------
+/** The Sound Match clips listed in the manifest: [{ slot, name, mood }]. Empty when offline before the first load. */
+export async function matchSounds() { await manifest(); return matchInfo.map(m => ({ ...m })); }
+let matchPlaying = null;
+/** Plays one Sound Match clip, stopping the previous one. These clips are the game itself, so they play even
+ *  when sound effects are switched off in Settings. Resolves to the playing element, or null if it could not play. */
+export async function playMatchSound(slot) {
+  unlocked = true;
+  const have = await manifest();
+  if (!have.has(slot)) return null;
+  if (matchPlaying) { try { matchPlaying.pause(); } catch { /* already stopped */ } }
+  try {
+    const a = element(slot);
+    a.volume = Math.max(prefs.sfxVolume, 0.6);
+    a.currentTime = 0;
+    matchPlaying = a;
+    await a.play();
+    return a;
+  } catch { return null; }
+}
+export function stopMatchSound() { if (matchPlaying) { try { matchPlaying.pause(); } catch { /* ignore */ } matchPlaying = null; } }

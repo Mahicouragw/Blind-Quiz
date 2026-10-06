@@ -137,7 +137,32 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v16'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v17'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+{ // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
+  const { readFileSync } = await import('node:fs');
+  const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
+  assert.deepEqual(Object.fromEntries(Object.entries(SM_LEVELS).map(([k,v])=>[k,v.pairs*2])),{easy:10,medium:16,hard:20},'Easy shows numbers 1-10, Medium 1-16, Hard 1-20');
+  const pool=[];for(const mood of ['funny','mysterious','cinematic','interesting'])for(let i=0;i<8;i++)pool.push({slot:`match_${mood}${i}`,name:`${mood} ${i}`,mood});
+  let seed=7;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
+  for(const lv of Object.values(SM_LEVELS)){const b=buildBoard(lv.pairs,pool,rnd);assert.equal(b.length,lv.pairs*2);assert.deepEqual(b.map(c=>c.number),b.map((_,i)=>i+1));
+    const counts={};for(const c of b)counts[c.sound.slot]=(counts[c.sound.slot]||0)+1;assert(Object.values(counts).every(n=>n===2)&&Object.keys(counts).length===lv.pairs,'every sound is hidden behind exactly two numbers');
+    assert(new Set(b.map(c=>c.sound.mood)).size===Math.min(4,lv.pairs),'boards mix the moods');}
+  assert.throws(()=>buildBoard(5,pool.slice(0,3)),/not_enough_sounds/);
+  const b=buildBoard(5,pool,rnd),st=newMatchState(b);const pairOf=n=>b.find(c=>c.number!==n&&c.sound.slot===b[n-1].sound.slot).number;const other=n=>b.find(c=>c.sound.slot!==b[n-1].sound.slot).number;
+  assert.equal(press(st,1).type,'first');assert.equal(press(st,1).type,'replay','pressing the open number replays it');
+  const miss=press(st,other(1));assert.equal(miss.type,'miss');assert.equal(st.open,null);assert.equal(st.tries,1);
+  assert.equal(press(st,1).type,'first');const m=press(st,pairOf(1));assert.equal(m.type,'match');assert(st.matched.has(1)&&st.matched.has(pairOf(1)));assert.equal(press(st,1).type,'replay','found numbers can be heard again');
+  for(const c of b){if(st.matched.has(c.number))continue;press(st,c.number);press(st,pairOf(c.number))}
+  assert(st.done&&st.matched.size===10);assert.equal(press(st,2).type,'ignored');
+  assert.equal(starsFor(5,5),3);assert.equal(starsFor(5,12),2);assert.equal(starsFor(5,20),1);
+  const src=JSON.parse(readFileSync(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));const mm=Object.values(src.match);
+  assert(mm.length>=20&&mm.length<=40,'20-40 Sound Match clips');assert.equal(new Set(mm.map(x=>x.mixkitId)).size,mm.length,'no clip twice');
+  for(const mood of ['funny','mysterious','cinematic'])assert(mm.filter(x=>x.mood===mood).length>=6,`enough ${mood} clips`);
+  assert(mm.every(x=>Number.isInteger(x.mixkitId)&&x.name&&x.max<=3),'Mixkit ids, names, short clips');
+  const au=readFileSync(new URL('../src/audio.js',import.meta.url),'utf8');assert(/view === 'soundmatch'\) return null/.test(au)&&/if \(slot == null\) \{ wantedSlot = null; stopMusic\(\); return; \}/.test(au),'no background music over Sound Match clues');
+  assert(!/AudioContext|createOscillator|speechSynthesis/.test(au+readFileSync(new URL('../src/sound-match-ui.js',import.meta.url),'utf8')),'recorded audio only');
+  assert(html.includes('id="sm-open"')&&html.includes('id="view-soundmatch"')&&html.includes('data-sm-level="easy"'),'Sound Match entry and screen');
+}
 { // Task 17: Migration 016 - 250 questions (10 per category) and the 5 XP + 1 coin word reward.
   const { readFileSync } = await import('node:fs');
   const { MIGRATION_016_ROWS } = await import('../src/questions-016.js');

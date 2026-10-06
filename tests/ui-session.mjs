@@ -373,5 +373,34 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.deepEqual(sent.find(b=>b.action==='feedback-item'),{action:'feedback-item',id:7});
   console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
 }
+{ // 19. Sound Match screen (Easy): numbers 1-10, press plays a sound, match/miss feedback, finish with stars and best score.
+  const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});const w=dom.window,d=w.document;
+  for(const k of ['window','document','localStorage'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
+  const { createSoundMatch } = await import(ROOT+'src/sound-match-ui.js');
+  const pool=[];for(const mood of ['funny','mysterious','cinematic','interesting'])for(let i=0;i<8;i++)pool.push({slot:`match_${mood}_${i}`,name:`${mood} sound ${i}`,mood});
+  const played=[],sfx=[],said=[];let seed=11;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
+  const fakeAudio={addEventListener:(ev,fn)=>{if(ev==='ended')setTimeout(fn,1)}};
+  const sm=createSoundMatch({$:(s)=>d.querySelector(s),announce:t=>said.push(t),matchSounds:async()=>pool,playMatchSound:async s=>{played.push(s);return fakeAudio},stopMatchSound:()=>{},playSfx:s=>sfx.push(s),rnd,wait:async()=>{}});
+  sm.wire();await sm.start('easy');
+  const cards=[...d.querySelectorAll('#sm-grid .sm-card')];assert.equal(cards.length,10);assert.deepEqual(cards.map(c=>c.textContent.trim()),['1','2','3','4','5','6','7','8','9','10']);
+  assert.equal(cards[0].getAttribute('aria-label'),'Number 1');assert.match(d.querySelector('#sm-stats').textContent,/Pairs found: 0 of 5 · Tries: 0/);
+  assert.match(d.querySelector('#sm-status').textContent,/Easy: Numbers 1 to 10, 5 pairs of sounds\. Press a number/);
+  const board=sm.state.board,pairOf=n=>board.find(c=>c.number!==n&&c.sound.slot===board[n-1].sound.slot).number,other=n=>board.find(c=>c.sound.slot!==board[n-1].sound.slot).number;
+  const tick=()=>new Promise(r=>setTimeout(r,20));
+  cards[0].click();await tick();assert.equal(played.at(-1),board[0].sound.slot,'pressing 1 plays its sound');assert(cards[0].classList.contains('open'));assert.equal(cards[0].getAttribute('aria-label'),'Number 1, playing');
+  const o=other(1);cards[o-1].click();await tick();await tick();
+  assert.equal(played.at(-1),board[o-1].sound.slot);assert.match(d.querySelector('#sm-status').textContent,new RegExp(`Not a match\\. 1 and ${o} play different sounds\\.`));assert.equal(sfx.at(-1),'wrong');
+  assert(!cards[0].classList.contains('open')&&!cards[o-1].classList.contains('open'),'both close after a miss');
+  const p=pairOf(1);cards[0].click();await tick();cards[p-1].click();await tick();await tick();
+  assert.match(d.querySelector('#sm-status').textContent,new RegExp(`Match! 1 and ${p} are both ${board[0].sound.name}\\.`));assert.equal(sfx.at(-1),'correct');
+  assert(cards[0].classList.contains('matched'));assert.equal(cards[0].querySelector('.sm-name').textContent,board[0].sound.name);assert.equal(cards[0].getAttribute('aria-label'),`Number 1, found: ${board[0].sound.name}`);
+  assert.match(d.querySelector('#sm-stats').textContent,/Pairs found: 1 of 5 · Tries: 2/);
+  for(const c of board){if(sm.state.matched.has(c.number))continue;cards[c.number-1].click();await tick();cards[pairOf(c.number)-1].click();await tick();await tick()}
+  assert.equal(d.querySelector('#sm-finish').hidden,false);assert.match(d.querySelector('#sm-finish-text').textContent,/You found all 5 pairs in 6 tries! 3 stars\. New best score!/);
+  assert.equal(JSON.parse(w.localStorage.getItem('blindquiz.soundmatch.best.v1')).easy,6);assert(['cheer','applause'].includes(sfx.at(-1)));
+  d.querySelector('[data-sm-level="hard"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,20);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
+  d.querySelector('[data-sm-level="medium"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,16);assert.equal(d.querySelector('#sm-finish').hidden,true);
+  console.log('ok 19 Sound Match: numbers 1-10 on Easy (16 Medium, 20 Hard), press plays its sound, match/miss spoken, found sounds named, stars and best score');
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

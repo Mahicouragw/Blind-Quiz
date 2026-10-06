@@ -203,3 +203,10 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - Both tables have row level security on and are reachable only through the Edge Function. Migration 017 is additive and is applied by `.github/workflows/apply-migration-017.yml` with exact-statement guards.
   - Android: the app now opens the system photo picker for the screenshot field (`image_picker`, no storage permission). Older APKs can still send feedback without a screenshot.
   - Live checks exercise only the refusal paths, so they never put test messages in the inbox. jsdom test 18 covers the whole flow.
+- [x] **17.4 Sound Match (a memory game played by ear).** Home → Sound Match. Every number hides a recorded sound, and each sound sits behind exactly two numbers. Press a number to hear it, then find the other number with the same sound.
+  - Levels: Easy shows numbers 1–10 (5 pairs), Medium 1–16 (8 pairs), Hard 1–20 (10 pairs). Each board mixes the moods.
+  - A match plays the correct sound, names the sound on both buttons, and is spoken ("Match! 3 and 7 are both Lion roar."). A miss plays the wrong sound and closes both numbers. Found numbers can be replayed.
+  - At the end the game shows stars (perfect memory = 3) and the best score per level, saved on the device. Background music stops on this screen so the clues are clear. Clips play even when sound effects are off, because they are the game.
+  - **32 recorded Mixkit clips** (Sound Effects Free License, games allowed): 8 funny, 8 mysterious, 8 cinematic and 8 interesting. They are pinned by id in `scripts/audio/sources.json`, encoded by `audio-assets.yml` to `assets/audio/match_*.mp3` (700 KB total) and listed in `AUDIO_LICENSES.md`. Ids were chosen from the read-only `mixkit-catalog.yml` listing.
+  - Pixabay and Freesound were not used: Pixabay allows only manual downloads, and Freesound needs an account. No XP is awarded yet; paying XP would need a server change.
+  - Tests: logic in smoke; full Easy game, Medium and Hard in jsdom test 19.
