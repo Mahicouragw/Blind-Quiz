@@ -17,6 +17,8 @@ void main() {
 
   test('other HTTPS links open in the external browser', () {
     expect(classifyNavigation('https://github.com/Mahicouragw/Blind-Quiz/issues'), NavDecision.external);
+    expect(classifyNavigation('mailto:numbersareplaying@gmail.com?subject=Blind%20Quiz%20feedback'), NavDecision.external);
+    expect(classifyNavigation('mailto:someone.else@example.com'), NavDecision.block);
     expect(classifyNavigation('https://mahicouragw.github.io/Other-Project/'), NavDecision.external);
     expect(classifyNavigation('https://mahicouragw.github.io.evil.example/Blind-Quiz/'), NavDecision.external);
   });

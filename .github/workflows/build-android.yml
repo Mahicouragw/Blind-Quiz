@@ -67,7 +67,10 @@ jobs:
           # HTTPS only, and no cloud/device backups of WebView storage (remembered name/Login ID, session).
           grep -q 'usesCleartextTraffic' "$MANIFEST" || \
             sed -i 's#<application#<application android:usesCleartextTraffic="false" android:allowBackup="false" android:fullBackupContent="false"#' "$MANIFEST"
-          grep -n 'INTERNET\|android:label\|usesCleartextTraffic\|allowBackup' "$MANIFEST"
+          # Android 11+ package visibility: let the Contact us link open the user's email app.
+          grep -q 'android.intent.action.SENDTO' "$MANIFEST" || \
+            sed -i 's#<application#<queries><intent><action android:name="android.intent.action.SENDTO"/><data android:scheme="mailto"/></intent></queries>\n    <application#' "$MANIFEST"
+          grep -n 'INTERNET\|android:label\|usesCleartextTraffic\|allowBackup\|SENDTO' "$MANIFEST"
           # Blind Quiz launcher icon (braille "?" cell with sound waves) instead of the Flutter default.
           for d in icons/mipmap-*; do cp "$d/ic_launcher.png" "android/app/src/main/res/$(basename "$d")/ic_launcher.png"; done
           ls -la android/app/src/main/res/mipmap-*/ic_launcher.png

@@ -187,3 +187,9 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - A word found in an earlier game still counts, without the "earlier game … no new profile XP" sentence.
   - The round summary says "You earned N XP and N coins this round."
   - Service worker v14.
+
+## Task 17: Settings-only legal links, contact, feedback, more questions, Sound Match
+- [x] **17.1 Legal links and contact.**
+  - Privacy Policy and Terms and Conditions links were removed from the footer that shows during play. They remain in Settings > About and legal.
+  - Settings has a new **Contact us** section with numbersareplaying@gmail.com, as an email link plus a Copy email address button (older app versions block email links). The legal pages list the same address.
+  - Android app: opens exactly that mailto: address in the user's email app (SENDTO query); all other mailto: links stay blocked.

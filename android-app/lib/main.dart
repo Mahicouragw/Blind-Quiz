@@ -23,6 +23,9 @@ const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
 
+/// The developer's contact address: the only mailto: link the app opens (in the user's email app).
+const String kContactEmail = 'numbersareplaying@gmail.com';
+
 /// Only the Blind Quiz site itself, over HTTPS, opens inside the app. Other
 /// HTTPS links (for example GitHub in the legal pages) open in the user's own
 /// browser. Everything else (http, intent:, file:, javascript:, data:, custom
@@ -31,6 +34,9 @@ NavDecision classifyNavigation(String url) {
   final uri = Uri.tryParse(url);
   if (uri == null) return NavDecision.block;
   if (uri.scheme == 'about' && url == 'about:blank') return NavDecision.inApp;
+  if (uri.scheme == 'mailto') {
+    return uri.path.toLowerCase() == kContactEmail ? NavDecision.external : NavDecision.block;
+  }
   if (uri.scheme != 'https') return NavDecision.block;
   if (uri.host.isEmpty || uri.userInfo.isNotEmpty) return NavDecision.block;
   if (uri.host == kAppHost &&

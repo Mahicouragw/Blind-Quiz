@@ -29,6 +29,7 @@ assert.equal(t.d.querySelector('#top-meta').textContent,'');assert.equal(t.d.que
 assert(!/playable questions/i.test(t.d.body.textContent),'no question count');
 const pl=t.d.querySelector('#privacy-link'),tl=t.d.querySelector('#terms-link');
 assert.equal(pl.textContent,'Privacy Policy');assert.equal(tl.textContent,'Terms and Conditions');
+{const footer=t.d.querySelector('footer');assert(!footer.querySelector('a[href*="privacy"],a[href*="terms"]'),'no legal links in the footer during play');const cb=t.d.querySelector('#copy-email');t.w.navigator.clipboard={writeText:async()=>{}};cb.click();await new Promise(r=>setTimeout(r,5));assert.equal(t.d.querySelector('#copy-email-status').textContent,'Email address copied: numbersareplaying@gmail.com')}
 assert.equal(pl.href,'https://mahicouragw.github.io/Blind-Quiz/privacy-policy.html');assert.equal(tl.href,'https://mahicouragw.github.io/Blind-Quiz/terms-and-conditions.html');
 assert(pl.closest('#view-settings')&&tl.closest('#view-settings'),'links in Settings');
 t.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,100));assert.equal(t.d.querySelector('#view-settings').hidden,false);

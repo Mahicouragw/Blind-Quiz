@@ -281,3 +281,14 @@ console.log('PASS: Task 16 identity, fonts, app download and sign-in text.');
   assert(lui.includes('meaningLine(m)') && readFileSync(new URL('../index.html', import.meta.url), 'utf8').includes('id="letters-meaning"'), 'meaning is spoken and shown');
 }
 console.log('PASS: Task 16 word meanings for Letters to Words.');
+{ // Task 17: legal links only in Settings (never in the footer shown during play); Contact us email in Settings
+  const { readFileSync } = await import('node:fs');
+  const h=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  const footer=h.slice(h.indexOf('<footer'),h.indexOf('</footer>'));
+  assert(!/privacy-policy|terms-and-conditions/.test(footer),'no legal links in the game footer');
+  const settings=h.slice(h.indexOf('id="view-settings"'),h.indexOf('id="view-results"'));
+  assert(settings.includes('href="privacy-policy.html"')&&settings.includes('href="terms-and-conditions.html"'),'legal links stay in Settings');
+  assert(settings.includes('href="mailto:numbersareplaying@gmail.com?subject=Blind%20Quiz%20feedback"')&&settings.includes('id="copy-email"'),'Contact us email and copy button in Settings');
+  for(const p of ['privacy-policy.html','terms-and-conditions.html'])assert(readFileSync(new URL('../'+p,import.meta.url),'utf8').includes('mailto:numbersareplaying@gmail.com'),p+' contact email');
+}
+console.log('PASS: Task 17 legal links in Settings only, Contact us email.');

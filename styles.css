@@ -156,3 +156,6 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .letters-meaning{margin:10px 0 0;padding:12px 16px;border:3px solid var(--key-edge);border-left:8px solid var(--blue);border-radius:14px;background:#170d30;box-shadow:0 4px 0 var(--key-edge);line-height:1.45}
 .letters-meaning strong{font-family:var(--display);font-weight:400;color:var(--acid);margin-right:6px}
 .high-contrast .letters-meaning{background:#000;border-color:#fff}
+/* Settings: Contact us */
+.contact-box{margin-top:32px;padding-top:20px;border-top:1px solid var(--line)}.contact-box h2{font-size:1.15rem;margin:0 0 10px}
+.contact-email{font-size:1.15rem;font-weight:800;word-break:break-all}.contact-email a{color:var(--acid)}
