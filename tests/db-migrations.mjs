@@ -111,5 +111,39 @@ if (await j(`select to_regclass('public.bq_rooms') is not null`)) {
   const left = (await q(`select name from public.bq_rooms where owner_id = $1 or is_default`, [ee])).map(r => r.name);
   ok(!left.includes('Erin room 0') && left.includes('Erin room 1') && ['Blind Quiz', 'Word Lovers', 'Sound Lounge'].every(n => left.includes(n)), 'unused rooms are removed after 30 days; used and default rooms stay');
 }
+// Migration 023: room voice messages (24 hours) and sealed signals for direct transfers and calls between friends.
+if (await j(`select to_regclass('public.bq_signals') is not null`)) {
+  const dB = '22222222-2222-4222-8222-222222222222', dC = '33333333-3333-4333-8333-333333333333';
+  const [{ device_id: dA, public_key: keyA }] = await q(`select device_id, public_key from public.bq_devices where profile_id = $1 and revoked_at is null order by created_at limit 1`, [a]);
+  const box = { s: 'c2FsdA==', iv: 'aXZpdml2aXZpdml2', ct: 'Y2lwaGVydGV4dA==' }, sess = '44444444-4444-4444-8444-444444444444';
+  const c = (await q(`select id from public.bq_profiles where name_normalized = 'carol'`))[0].id;
+  await j(`select bq_touch($1)`, [b]);
+  ok((await j(`select bq_signal_send($1,'carol',$2,$3,'ring',$4)`, [a, dA, sess, { [dC]: box }])).code === 'not_friends', 'calls and transfers only between friends');
+  ok((await j(`select bq_signal_send($1,'bob',$2,$3,'ring',$4)`, [a, dB, sess, { [dB]: box }])).code === 'device_unknown', 'sender must use their own device');
+  ok((await j(`select bq_signal_send($1,'bob',$2,$3,'ring',$4)`, [a, dA, sess, { [dA]: box }])).code === 'keys_changed', 'signals are sealed for the friend\'s devices only');
+  ok((await j(`select bq_signal_send($1,'bob',$2,$3,'ring',$4)`, [a, dA, sess, { [dB]: box }])).ok, 'ring a friend who is online');
+  ok((await j(`select bq_touch($1)`, [b])).ring === 1, 'the heartbeat tells the friend a call or file is waiting');
+  ok((await j(`select bq_signal_send($1,'bob',$2,$3,'signal',$4)`, [a, dA, sess, { [dB]: box }])).ok, 'connection setup signal');
+  const got = await j(`select bq_signals_poll($1,$2,null)`, [b, dB]);
+  ok(got.ok && got.signals.length === 2 && got.signals[0].from === 'Alice' && got.signals[0].senderKey === keyA && got.signals[0].box.ct === box.ct, 'the friend gets the sealed signals with the sender key');
+  ok((await j(`select bq_signals_poll($1,$2,$3)`, [b, dB, got.signals[1].id])).signals.length === 0, 'poll after the last id');
+  ok((await j(`select bq_signals_poll($1,$2,null)`, [c, dB])).code === 'device_unknown', 'nobody else can read a device\'s signals');
+  await q(`update public.bq_profiles set last_seen_at = now() - interval '10 minutes' where id = $1`, [b]);
+  ok((await j(`select bq_signal_send($1,'bob',$2,$3,'ring',$4)`, [a, dA, sess, { [dB]: box }])).code === 'player_offline', 'files and calls need the friend online');
+  await q(`update public.bq_signals set created_at = now() - interval '20 minutes'`);
+  await q(`select bq_signal_send($1,'bob',$2,$3,'signal',$4)`, [a, dA, sess, { [dB]: box }]);
+  ok(Number((await q(`select count(*) n from public.bq_signals`))[0].n) === 1, 'signals are deleted after 10 minutes');
+  const room = (await j(`select bq_rooms_list($1)`, [a]))[0].id;
+  const voice = 'data:audio/webm;codecs=opus;base64,' + 'QUFB'.repeat(50);
+  const v = await j(`select bq_room_voice_send($1,$2,$3,4200)`, [a, room, voice]); ok(v.ok, 'send a voice message to a room');
+  ok((await j(`select bq_room_voice_send($1,$2,'data:text/html;base64,PHNjcmlwdD4=',4200)`, [a, room])).code === 'invalid_request', 'only audio is accepted');
+  ok((await j(`select bq_room_voice_send($1,$2,$3,90000)`, [a, room, voice])).code === 'invalid_request', 'at most 60 seconds');
+  const st = await j(`select bq_room_state($1,$2,null)`, [c, room]); ok(st.voices.some(x => x.id === v.id && x.name === 'Alice' && x.durationMs === 4200) && !JSON.stringify(st.voices).includes('base64'), 'room state lists voice messages without the audio');
+  ok((await j(`select bq_room_voice_get($1,$2)`, [c, v.id])).audio === voice, 'anyone in a public room can play it');
+  await q(`update public.bq_room_voices set created_at = now() - interval '25 hours'`);
+  ok((await j(`select bq_room_voice_get($1,$2)`, [c, v.id])).code === 'room_unavailable', 'voice messages expire after 24 hours');
+  await j(`select bq_room_state($1,$2,null)`, [c, room]);
+  ok(Number((await q(`select count(*) n from public.bq_room_voices`))[0].n) === 0, 'expired voice messages are deleted');
+}
 if (failed) process.exit(1);
 console.log('PASS database dry run');
