@@ -51,28 +51,39 @@ as a workflow artifact and a GitHub Release (`android-v1.0.<run>`).
 
 ### Signing
 
-For a stable signing identity (so new APKs install over old ones), add these repository
-secrets (Settings -> Secrets and variables -> Actions):
+The signing key lives **inside this repository, encrypted**, so only **one short secret** is
+needed — no base64 blob, no alias, no second password, nothing to generate with local tools:
 
 | Secret | Value |
 | --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
-| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
-| `ANDROID_KEY_ALIAS` | key alias |
-| `ANDROID_KEY_PASSWORD` | key password |
+| `ANDROID_KEYSTORE_PASSWORD` | one line, 48 characters |
 
-**Without any tooling on your computer:** run the `Create Android signing keystore` workflow
-(.github/workflows/create-signing-keystore.yml, "Run workflow", choose a zip password). It
-creates the keystore, its base64 text and the four secret values in one password-protected
-zip artifact. Copy the four lines from `secret-values.txt` into the four repository secrets,
-then delete the artifact, and re-run "Build Android APK" so the newest APK is signed with
-your key. Keep the keystore file and the zip somewhere safe: losing the key means new APKs
-can never update installed ones in place.
+Add it in Settings -> Secrets and variables -> Actions -> New repository secret, then re-run
+"Build Android APK". The workflow decrypts `signing/release-keystore.b64` (AES-256-CBC,
+PBKDF2 200000 iterations) with the password, verifies it opens, and signs the APK. A wrong
+password fails the build with a plain-language error instead of a cryptic one.
 
-Create a keystore yourself instead, with:
+Why this is safe even though the repository is public: the file in Git is the 2048-bit RSA
+signing key wrapped with AES-256 under a 48-random-hex-character password that exists only in
+the repository secrets (and the owner's own backup). Guessing it is not feasible; the
+unencrypted keystore was never committed. The release notes of every build say which signing
+mode was used.
+
+If `ANDROID_KEYSTORE_BASE64` (+ optional `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) are set
+as well, they take precedence over the committed file — the old path still works. With no
+secrets at all the build falls back to a temporary key (installs fine, but later builds cannot
+update it in place).
+
+Rotating the key (only if it ever leaks): create a new keystore, re-encrypt it with
+`openssl enc -aes-256-cbc -pbkdf2 -iter 200000`, replace `signing/release-keystore.b64`, and
+update the secret. Installed apps then update by uninstall-once, exactly like the first
+stable install.
+
+Create or inspect a keystore yourself (optional, needs Java's keytool):
 
 ```sh
 keytool -genkeypair -v -keystore release.jks -alias blindquiz -keyalg RSA -keysize 2048 -validity 10000
+keytool -list -keystore release.jks -storetype PKCS12
 ```
 
 Without these secrets the workflow still produces a signed release APK, using a temporary

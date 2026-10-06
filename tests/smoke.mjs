@@ -138,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v22'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v23'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -372,8 +372,50 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
     assert(dart.includes(s), `main.dart: ${s}`);
   assert(wf.includes('android.permission.POST_NOTIFICATIONS') && wf.includes('POST_NOTIFICATIONS)|io'), 'the manifest asks for POST_NOTIFICATIONS and the audit allowlists exactly that');
   assert(html.includes('id="notif-device-hint"'), 'Settings explains where device notifications appear');
-  assert(sw.includes("const CACHE='blind-quiz-shell-v22'"), 'service worker cache is v22');
+  assert(sw.includes("const CACHE='blind-quiz-shell-v23'"), 'service worker cache is v22');
   console.log('PASS: Task 19 stage F Android device notifications (native bridge, polling delivery, no push service, no Firebase).');
+}
+// Signing with one short secret: the keystore is committed encrypted, so the owner never pastes a
+// giant base64 blob into GitHub's "Add secret" screen (which can silence TalkBack mid-paste).
+{
+  const { readFileSync, existsSync } = await import('node:fs');
+  const r = f => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+  const wf = r('.github/workflows/build-android.yml'), readme = r('android-app/README.md');
+  assert(existsSync(new URL('../android-app/signing/release-keystore.b64', import.meta.url)), 'the encrypted keystore is committed');
+  assert(r('android-app/signing/release-keystore.b64').length > 1000, 'the encrypted keystore is not empty');
+  for (const s of ["base64 -d signing/release-keystore.b64", 'openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000',
+    'ANDROID_KEYSTORE_PASSWORD does not open this keystore', 'keytool -list -keystore "$KS"'])
+    assert(wf.includes(s), `build-android.yml: ${s}`);
+  assert(!/echo\s+"?\$\{?KEYSTORE_PASSWORD/.test(wf), 'the workflow never prints the keystore password value');
+  assert(!existsSync(new URL('../.github/workflows/create-signing-keystore.yml', import.meta.url)), 'the superseded keystore-generator workflow is gone');
+  assert(readme.includes('`ANDROID_KEYSTORE_PASSWORD`') && readme.includes('AES-256-CBC'), 'the README documents the one-secret signing');
+  console.log('PASS: signing needs one short secret (committed encrypted keystore; password never printed).');
+}
+// Text entry must never interfere with TalkBack: native labeled controls, no paste interception,
+// no input replacement, typing in a field never triggers game keyboard handling, dialogs restore focus.
+{
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const labelFor = [...html.matchAll(/<label[^>]*for="([^"]+)"/g)].map(m => m[1]);
+  for (const m of html.matchAll(/<(input|select|textarea)\b([^>]*)>/g)) {
+    const attrs = m[2];
+    const id = (attrs.match(/id="([^"]+)"/) || [])[1];
+    const ariaLabel = /aria-label="/.test(attrs);
+    // A control with no id can still be named by an enclosing <label> (for example
+    // <label><input type="radio" ...> General feedback</label>).
+    const before = html.slice(Math.max(0, m.index - 600), m.index);
+    const wrapped = before.lastIndexOf('<label') > before.lastIndexOf('</label');
+    assert(labelFor.includes(id) || ariaLabel || wrapped, `control ${id || m[1]} has an accessible name`);
+  }
+  for (const f of ['src/main.js', 'src/social.js', 'src/feedback.js', 'src/chat.js', 'src/rooms.js']) {
+    const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+    assert(!/onpaste|addEventListener\('paste|addEventListener\("paste/.test(src), `${f} never intercepts pasting`);
+    assert(!/replaceChild\([^)]*input|\.outerHTML\s*=/.test(src), `${f} never replaces an input element`);
+  }
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert(/e\.ctrlKey\|\|e\.metaKey\|\|e\.altKey\|\|\/\^\(INPUT\|SELECT\|TEXTAREA\)\$\/\.test\(e\.target/.test(main), 'the A-D keyboard handler ignores typing inside form fields');
+  assert(main.includes('exitReturn?.focus?.()'), 'the exit dialog returns focus when closed');
+  console.log('PASS: text entry is TalkBack-safe (labeled native controls, no paste/focus interception, focus is restored).');
 }
 // Task 19 stage C: end-to-end encryption with real WebCrypto (Node has the same API as browsers).
 {

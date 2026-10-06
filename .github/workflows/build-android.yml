@@ -119,17 +119,31 @@ jobs:
         run: |
           set -euo pipefail
           KS="$RUNNER_TEMP/release.jks"
-          if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PASSWORD:-}" ] && [ -n "${KEY_ALIAS:-}" ]; then
+          if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PASSWORD:-}" ]; then
             printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+            KEY_ALIAS="${KEY_ALIAS:-blindquiz}"
             KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
-            echo "SIGNING_MODE=repository keystore" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=repository keystore (ANDROID_KEYSTORE_BASE64 secret)" >> "$GITHUB_ENV"
+          elif [ -n "${KEYSTORE_PASSWORD:-}" ]; then
+            # Preferred path, and the kindest one to a screen reader: the only repository secret
+            # needed is the short ANDROID_KEYSTORE_PASSWORD. The keystore itself is committed
+            # encrypted (signing/release-keystore.b64, AES-256-CBC with PBKDF2, 200000 iterations),
+            # so the public repository never contains the private key. The password is never printed.
+            base64 -d signing/release-keystore.b64 \
+              | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "pass:$KEYSTORE_PASSWORD" -out "$KS"
+            KEY_ALIAS=blindquiz
+            KEY_PASSWORD="$KEYSTORE_PASSWORD"
+            echo "SIGNING_MODE=repository keystore (committed, encrypted; opened by ANDROID_KEYSTORE_PASSWORD)" >> "$GITHUB_ENV"
           else
-            echo "::warning title=Temporary signing key::ANDROID_KEYSTORE_* secrets are not set, so this APK is signed with a key generated for this run. It installs normally, but later builds cannot update it in place. See android-app/README.md."
+            echo "::warning title=Temporary signing key::ANDROID_KEYSTORE_PASSWORD is not set, so this APK is signed with a key generated for this run. It installs normally, but later builds cannot update it in place. See android-app/README.md. One short secret is enough: no base64 blob, no key alias, no key password."
             KEYSTORE_PASSWORD=$(openssl rand -hex 24); KEY_PASSWORD="$KEYSTORE_PASSWORD"; KEY_ALIAS=blindquiz
             keytool -genkeypair -keystore "$KS" -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -dname "CN=Blind Quiz, O=Blind Quiz, C=IN" >/dev/null
-            echo "SIGNING_MODE=temporary key (set ANDROID_KEYSTORE_* secrets for a stable key)" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=temporary key (set ANDROID_KEYSTORE_PASSWORD for a stable key)" >> "$GITHUB_ENV"
           fi
+          # Fail fast with a plain-language error if the password does not open the keystore.
+          keytool -list -keystore "$KS" -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1 \
+            || { echo "::error::ANDROID_KEYSTORE_PASSWORD does not open this keystore. Paste the secret value again: one line, 48 characters, no spaces or quotes."; exit 1; }
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           IN=build/app/outputs/flutter-apk/app-release.apk
           OUT="$GITHUB_WORKSPACE/blind-quiz-$VERSION_NAME.apk"
