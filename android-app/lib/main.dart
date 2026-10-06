@@ -1,13 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -44,6 +43,9 @@ String safeReceivedName(String name) {
   final cut = cleaned.length > 120 ? cleaned.substring(0, 120) : cleaned;
   return cut.isEmpty ? 'file' : cut;
 }
+
+/// Microphone and camera requests handled by android-app/native/MainActivity.kt.
+const MethodChannel kPermissions = MethodChannel('blind_quiz/permissions');
 
 /// Largest file a friend can send directly (matches src/direct.js).
 const int kMaxReceivedBytes = 2 * 1024 * 1024 * 1024;
@@ -163,9 +165,13 @@ class _QuizWebViewState extends State<QuizWebView> {
       await request.deny();
       return;
     }
-    final needed = <Permission>[if (wantsMic) Permission.microphone, if (wantsCamera) Permission.camera];
-    final results = await needed.request();
-    if (results.values.every((s) => s.isGranted)) {
+    var granted = false;
+    try {
+      granted = await kPermissions.invokeMethod<bool>('request', <String>[if (wantsMic) 'microphone', if (wantsCamera) 'camera']) ?? false;
+    } catch (_) {
+      granted = false;
+    }
+    if (granted) {
       await request.grant();
     } else {
       await request.deny();
@@ -179,10 +185,9 @@ class _QuizWebViewState extends State<QuizWebView> {
     final imagesOnly = types.isNotEmpty && types.every((t) => t.startsWith('image/'));
     if (imagesOnly) return _pickImageForPage(params);
     try {
-      final result = await FilePicker.platform.pickFiles();
-      final path = result?.files.single.path;
-      if (path == null) return <String>[];
-      return <String>[Uri.file(path).toString()];
+      final picked = await openFile();
+      if (picked == null || picked.path.isEmpty) return <String>[];
+      return <String>[Uri.file(picked.path).toString()];
     } catch (_) {
       _say('The file could not be opened. Please try again.');
       return <String>[];
@@ -239,7 +244,7 @@ class _QuizWebViewState extends State<QuizWebView> {
             _say('The file did not arrive completely.');
             return;
           }
-          await Share.shareXFiles(<XFile>[XFile(inc.file.path, mimeType: inc.mime, name: inc.name)], subject: inc.name);
+          await SharePlus.instance.share(ShareParams(files: <XFile>[XFile(inc.file.path, mimeType: inc.mime, name: inc.name)], subject: inc.name));
       }
     } catch (_) {
       _say('The file could not be saved. Please try again.');
