@@ -156,7 +156,34 @@ export function createFeedback({ $, announce, callApi, getSession, go, openSignI
       });
       li.append(b);
     }
+    li.append(replyBox(f, li, meta));
     return li;
+  }
+  // Admin reply (Migration 019): the player sees it in Settings > My feedback and gets a notification.
+  function replyBox(f, li, meta) {
+    const wrap = document.createElement('div'); wrap.className = 'inbox-reply';
+    const shown = document.createElement('p'); shown.className = 'feedback-reply';
+    const showReply = text => { shown.textContent = `Your reply: ${text}`; shown.hidden = false; };
+    if (f.reply) showReply(f.reply); else shown.hidden = true;
+    const form = document.createElement('form'); form.noValidate = true;
+    const id = `reply-${f.id}`, label = document.createElement('label'); label.htmlFor = id; label.textContent = f.reply ? `Change your reply to ${f.name}` : `Reply to ${f.name}`;
+    const area = document.createElement('textarea'); area.id = id; area.rows = 3; area.maxLength = 2000;
+    const send = document.createElement('button'); send.type = 'submit'; send.className = 'button button-outline'; send.textContent = 'Send reply';
+    form.append(label, area, send);
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const text = area.value.trim(); if (!text) { announce('Write a reply first.', true); area.focus(); return; }
+      send.disabled = true;
+      try {
+        await callApi('admin-feedback-reply', { id: f.id, reply: text });
+        f.reply = text; f.read = true; li.classList.remove('unread'); meta.textContent = meta.textContent.replace(' · New', '');
+        showReply(text); area.value = ''; label.textContent = `Change your reply to ${f.name}`;
+        announce(`Reply sent to ${f.name}.`); updateSummary();
+      } catch { announce('The reply could not be sent. Please try again.', true); }
+      finally { send.disabled = false; }
+    });
+    wrap.append(shown, form);
+    return wrap;
   }
   let items = [];
   function updateSummary() {
@@ -176,6 +203,16 @@ export function createFeedback({ $, announce, callApi, getSession, go, openSignI
   }
   $('#open-inbox')?.addEventListener('click', () => { go('inbox'); loadInbox(); });
   $('#inbox-refresh')?.addEventListener('click', loadInbox);
+  // Admin announcement to every player, for example when a new game is added.
+  $('#announce-form')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const area = $('#announce-text'), out = $('#announce-status'), text = area.value.trim();
+    if (text.length < 3) { say(out, 'Write the announcement first.', true); area.focus(); return; }
+    const btn = e.target.querySelector('button'); btn.disabled = true;
+    try { const d = await callApi('admin-announce', { text }); area.value = ''; say(out, `Announcement sent to ${d.sent} players.`); }
+    catch (err) { say(out, err.message === 'forbidden' ? 'Only the game admin can send announcements.' : 'The announcement could not be sent. Please try again.', true); }
+    finally { btn.disabled = false; }
+  });
 
   return { refresh, loadInbox };
 }

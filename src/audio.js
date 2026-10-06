@@ -3,7 +3,7 @@
 // Web Audio oscillators or generated sounds are used. If a file is missing or the browser blocks
 // playback, the game simply continues silently; every sound also has a text/announcement equivalent.
 const BASE = './assets/audio/';
-const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin'];
+const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify'];
 // Each category and mode gets its own music track from the available recordings.
 const TRACKS = ['music_menu', 'music_game1', 'music_game2', 'music_game3', 'music_results'];
 // A slot is a playlist: `music_menu`, then `music_menu2`, `music_menu3`… if the manifest has them.

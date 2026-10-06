@@ -69,6 +69,13 @@
       "category": "coin",
       "use": "XP and coins earned",
       "max": 1.4
+    },
+    "notify": {
+      "mixkitId": 253,
+      "title": "Unlock game notification",
+      "category": "video-game",
+      "use": "New notification (friend request, reply, announcement)",
+      "max": 1.2
     }
   },
   "music": {

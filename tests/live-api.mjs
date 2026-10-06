@@ -254,7 +254,8 @@ if (relogin.body?.token) await post({ action: 'logout' }, { token: relogin.body.
 // --- 10. Profile changes (own profile only) and Letters to Words rewards. ----
 // Runs last because it renames the verification account and changes its secret answer.
 const OTHER_NAME = `BQ Other ${tokenish()}`;
-const other = await post({ action: 'signup', name: OTHER_NAME, question: QUESTION, answer: guard(`other-${hex(12)}`) });
+const OTHER_ANSWER = guard(`other-${hex(12)}`);
+const other = await post({ action: 'signup', name: OTHER_NAME, question: QUESTION, answer: OTHER_ANSWER });
 const session2 = await post({ action: 'login', name: NAME, loginId, answer: ANSWER });
 const tok = guard(session2.body?.token || '');
 const before = session2.body?.profile || {};
@@ -311,8 +312,38 @@ const smAgain = await post({ action: 'soundmatch-finish', gameId: smGame, tries:
 const smBadLevel = await post({ action: 'soundmatch-start', level: 'impossible' }, { token: wtok });
 check('Sound Match: a game is registered; impossible finishes are refused (too fast, too few tries, bad level)', smStart.status === 200 && /^[0-9a-f-]{36}$/.test(smGame || '') && smFast.body?.code === 'too_fast' && smBadTries.body?.code === 'invalid_tries' && smBadLevel.status === 400, `${codeOf(smStart)}/${codeOf(smFast)}/${codeOf(smBadTries)}/${codeOf(smBadLevel)}`);
 check('Sound Match: a perfect Easy board pays 10 XP and 1 coin, exactly once', smDone.body?.ok === true && smDone.body.stars === 3 && smDone.body.xp === 10 && smDone.body.coins === 1 && smDone.body.profile?.xp === (wordTwo.body?.profile?.xp ?? -99) + 10 && smAgain.body?.code === 'already_finished', `stars=${smDone.body?.stars}, xp=${smDone.body?.xp}, coins=${smDone.body?.coins}, again=${codeOf(smAgain)}`);
-for (const t of [tok, wtok]) if (t) await post({ action: 'logout' }, { token: t });
-const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain];
+// Social (Migration 019): presence, private player cards, friend request -> notification -> accept, admin-only actions.
+const otherLogin = await post({ action: 'login', name: OTHER_NAME, loginId: other.body?.loginId, answer: OTHER_ANSWER });
+const otok = guard(otherLogin.body?.token || '');
+const beatA = await post({ action: 'touch' }, { token: wtok }), beatB = await post({ action: 'touch' }, { token: otok });
+const online = await post({ action: 'online-players' }, { token: wtok });
+check('Presence: signed-in players appear online', beatA.status === 200 && typeof beatA.body?.unread === 'number' && beatB.status === 200 && (online.body?.items || []).some(p => p.name === OTHER_NAME), `${codeOf(beatA)}/${codeOf(online)}, ${(online.body?.items || []).length} online`);
+const card = await post({ action: 'player-card', name: OTHER_NAME.toLowerCase() }, { token: wtok });
+const ghostCard = await post({ action: 'player-card', name: `nobody ${tokenish()}` }, { token: wtok });
+check('Player card shows activity only, never the Login ID or secret question', card.status === 200 && card.body?.player?.name === OTHER_NAME && typeof card.body.player.questionsAnswered === 'number' && !card.text.includes(other.body?.loginId || '\u0000') && !/loginId|login_id|secret|question\b/i.test(JSON.stringify(Object.keys(card.body.player))) && ghostCard.status === 409 && ghostCard.body?.code === 'player_unavailable', `${codeOf(card)}/${codeOf(ghostCard)}`);
+const fReq = await post({ action: 'friend-request', name: OTHER_NAME }, { token: wtok });
+const oNotes = await post({ action: 'notifications' }, { token: otok });
+const reqNote = (oNotes.body?.items || []).find(n => n.kind === 'friend_request' && n.actor === NEW_NAME);
+check('Friend request: the other player gets an "X sent a friend request" notification', fReq.body?.relation === 'outgoing' && !!reqNote && reqNote.relation === 'incoming' && reqNote.read === false, `${codeOf(fReq)}, note=${!!reqNote}`);
+const fAccept = await post({ action: 'friend-respond', name: NEW_NAME, accept: true }, { token: otok });
+const fList = await post({ action: 'friends' }, { token: wtok });
+const aNotes = await post({ action: 'notifications' }, { token: wtok });
+check('Friend request accepted: both are friends and the sender is notified', fAccept.body?.relation === 'friends' && (fList.body?.friends || []).some(f => f.name === OTHER_NAME) && (aNotes.body?.items || []).some(n => n.kind === 'friend_accepted' && n.actor === OTHER_NAME), `${codeOf(fAccept)}/${codeOf(fList)}`);
+const fRemove = await post({ action: 'friend-remove', name: OTHER_NAME }, { token: wtok });
+const cardAfter = await post({ action: 'player-card', name: OTHER_NAME }, { token: wtok });
+const readAll = await post({ action: 'notifications-read', ids: null }, { token: otok });
+check('Friends can be removed; notifications can be marked read', fRemove.body?.relation === 'none' && cardAfter.body?.player?.relation === 'none' && readAll.body?.unread === 0, `${codeOf(fRemove)}/${codeOf(readAll)}`);
+const notifOff = await post({ action: 'set-notifications', enabled: false }, { token: otok });
+const notifBad = await post({ action: 'set-notifications', enabled: 'yes' }, { token: otok });
+const myFb = await post({ action: 'my-feedback' }, { token: wtok });
+check('Notification switch and My feedback work; bad input is refused', notifOff.body?.notificationsEnabled === false && notifBad.status === 400 && Array.isArray(myFb.body?.items), `${codeOf(notifOff)}/${codeOf(notifBad)}/${codeOf(myFb)}`);
+const annNo = await post({ action: 'admin-announce', text: 'Live check announcement' }, { token: wtok });
+const replyNo = await post({ action: 'admin-feedback-reply', id: 1, reply: 'Live check reply' }, { token: wtok });
+const socialNoAuth = await post({ action: 'friends' });
+check('Announcements and feedback replies are admin only; social actions need a session', annNo.status === 403 && annNo.body?.code === 'forbidden' && replyNo.status === 403 && socialNoAuth.status === 401, `${codeOf(annNo)}/${codeOf(replyNo)}/${codeOf(socialNoAuth)}`);
+const socialResponses = [otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, fRemove, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
+for (const t of [tok, wtok, otok]) if (t) await post({ action: 'logout' }, { token: t });
+const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain, ...socialResponses.filter(r => r !== otherLogin)];
 check('Profile and word responses never contain hashes, salts, or the secret answers',
   !/answer_hash|answer_salt|token_hash|name_normalized/.test(profileResponses.map(r => r.text).join('\n')) && !profileResponses.some(r => r.text.includes(ANSWER) || r.text.includes(NEW_ANSWER)));
 

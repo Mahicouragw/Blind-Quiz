@@ -190,3 +190,18 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 @media(max-width:560px){.sm-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.sm-card{min-height:76px}.sm-num{font-size:1.6rem}}
 .high-contrast .sm-card{background:#000;border-color:#fff}.high-contrast .sm-card.open{background:#ff0;color:#000}.high-contrast .sm-card.matched{background:#063;color:#fff}
 .reduce-motion .sm-card{transition:none}
+/* Task 19: notifications, Multiplayer, player cards (own look: keycap rows, acid unread markers). */
+.notif-button.has-unread{border-color:var(--acid);color:var(--acid)}
+.notif-list,.player-list,.badge-list{list-style:none;padding:0;margin:16px 0;display:grid;gap:10px}
+.notif-item{padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:#ffffff08}.notif-item.unread{border:2px solid var(--acid)}
+.notif-text{margin:0 0 6px;overflow-wrap:anywhere}.notif-actions,.player-actions{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0}
+.player-button{width:100%;min-height:56px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 16px;text-align:left;border:1px solid var(--line);border-radius:16px;background:var(--panel2);font-weight:800}
+.player-button small{color:var(--muted);font-weight:500}.player-button:hover{border-color:var(--blue)}
+.player-item>.notif-actions{margin-top:8px}
+.badge{padding:10px 14px;border-radius:14px 14px 14px 4px;background:#d6ff5f14;border:1px solid #d6ff5f55}.badge strong{display:block;color:var(--acid)}.badge small{color:var(--muted)}
+.mp-find{margin-top:28px;padding-top:12px;border-top:1px solid var(--line)}.mp-find .button{margin-top:12px}
+.feedback-reply{margin:8px 0 0;padding:10px 12px;border-left:4px solid var(--blue);background:#89d9e812;border-radius:4px 12px 12px 4px;white-space:pre-wrap;overflow-wrap:anywhere}
+.inbox-reply textarea,.announce-box textarea{width:100%;color:var(--ink);background:#111e28;border:1px solid #667985;border-radius:12px;padding:12px 14px;font:inherit}
+.inbox-reply .button,.announce-box .button{margin-top:10px}.announce-box,.notif-settings,.my-feedback{margin-top:34px;padding-top:18px;border-top:1px solid var(--line)}
+.mp-glyph{font-size:2.6rem}
+@media(max-width:560px){.notif-button{padding-inline:10px;font-size:.85rem}}

@@ -38,6 +38,19 @@ async function session(req:Request){const token=(req.headers.get('authorization'
 function publicProfile(p:any){const changes=p.name_change_count??0;return {name:p.display_name,loginId:p.login_id,secretQuestion:p.secret_question,nameChangeCount:changes,nextNameChangeAt:p.name_changed_at?new Date(Date.parse(p.name_changed_at)+cooldownDays(changes)*86400000).toISOString():null,xp:p.xp,coins:p.coins,level:p.level,currentStreak:p.current_streak,bestStreak:p.best_streak,questionsAnswered:p.questions_answered,questionsCorrect:p.questions_correct,quizzesCompleted:p.quizzes_completed}}
 // Admin = a row in bq_admins (Migration 017: the owner's Goldfish account). Missing table or row means not an admin.
 async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
+const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{p_name_normalized:n}:null};
+const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
+const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request'];
+const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,boolean?]>={
+ 'touch':['bq_touch',()=>({}),400],'notifications':['bq_notifications_list',()=>({}),400],'my-feedback':['bq_my_feedback',()=>({}),200],
+ 'notifications-read':['bq_notifications_read',b=>({p_ids:Array.isArray(b.ids)?b.ids.map(Number).filter((n:number)=>Number.isSafeInteger(n)&&n>0).slice(0,100):null}),300],
+ 'set-notifications':['bq_set_notifications',b=>typeof b.enabled==='boolean'?{p_enabled:b.enabled}:null,60],
+ 'online-players':['bq_online_players',()=>({}),400],'friends':['bq_friends',()=>({}),400],'player-card':['bq_player_card',nameArg,400],
+ 'friend-request':['bq_friend_request',nameArg,60],'friend-remove':['bq_friend_remove',nameArg,60],
+ 'friend-respond':['bq_friend_respond',b=>{const n=nameArg(b);return n&&typeof b.accept==='boolean'?{...n,p_accept:b.accept}:null},120],
+ 'admin-feedback-reply':['bq_feedback_reply',b=>{const r=text(b.reply,1,2000),id=Number(b.id);return r&&Number.isSafeInteger(id)&&id>0?{p_feedback_id:id,p_reply:r}:null},200,true],
+ 'admin-announce':['bq_announce',b=>{const t=text(b.text,3,500);return t?{p_body:t}:null},10,true],
+};
 const SCREENSHOT=/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 async function handler(req:Request){
  const origin=req.headers.get('origin');if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors(origin)});if(req.method!=='POST')return json({ok:false,code:'method_not_allowed'},405,origin);if(origin&&!ALLOWED_ORIGINS.has(origin))return json({ok:false,code:'origin_not_allowed'},403,origin);
@@ -120,8 +133,8 @@ async function handler(req:Request){
   // Admin feedback inbox: list without screenshots; opening one item returns its screenshot and marks it read.
   if(body.action==='feedback-inbox'||body.action==='feedback-item'){
    if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
-   if(body.action==='feedback-inbox'){const {data,error}=await admin.from('bq_feedback').select('id,name,kind,message,has_screenshot,created_at,read_at').order('created_at',{ascending:false}).limit(200);if(error){console.error('Feedback inbox failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
-    return json({ok:true,unread:data.filter((f:any)=>!f.read_at).length,items:data.map((f:any)=>({id:f.id,name:f.name,kind:f.kind,message:f.message,hasScreenshot:f.has_screenshot,createdAt:f.created_at,read:!!f.read_at}))},200,origin)}
+   if(body.action==='feedback-inbox'){const {data,error}=await admin.from('bq_feedback').select('id,name,kind,message,has_screenshot,created_at,read_at,reply,replied_at').order('created_at',{ascending:false}).limit(200);if(error){console.error('Feedback inbox failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+    return json({ok:true,unread:data.filter((f:any)=>!f.read_at).length,items:data.map((f:any)=>({id:f.id,name:f.name,kind:f.kind,message:f.message,hasScreenshot:f.has_screenshot,createdAt:f.created_at,read:!!f.read_at,reply:f.reply??null,repliedAt:f.replied_at??null}))},200,origin)}
    const id=Number(body.id);if(!Number.isSafeInteger(id)||id<1)return json({ok:false,code:'invalid_request'},400,origin);
    const {data,error}=await admin.from('bq_feedback').update({read_at:new Date().toISOString()}).eq('id',id).select('id,screenshot').maybeSingle();if(error){console.error('Feedback item failed',error.code);return json({ok:false,code:'service_error'},503,origin)}if(!data)return json({ok:false,code:'invalid_request'},404,origin);
    return json({ok:true,id:data.id,screenshot:data.screenshot},200,origin);
@@ -138,6 +151,18 @@ async function handler(req:Request){
    const {data,error}=await admin.rpc('bq_finish_sound_match',{p_profile_id:profileId,p_game_id:gameId,p_tries:tries});if(error){console.error('Sound Match finish failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!data?.ok)return json({ok:false,code:['too_fast','already_finished','invalid_tries','game_expired','game_unavailable'].includes(data?.code)?data.code:'invalid_request'},409,origin);
    return json({ok:true,stars:data.stars,xp:data.xp,coins:data.coins,dailyLimit:data.dailyLimit,profile:{...publicProfile(auth.profile),...data.profile}},200,origin);
+  }
+  // Social (Migration 019+): one row per action = [database function, argument check (null = invalid), hourly limit per account, admin-only].
+  // The caller's profile id always comes from the session; other players are addressed by display name only.
+  const social=SOCIAL[body.action];
+  if(social){
+   const [fn,argsOf,limit,adminOnly]=social,args=argsOf(body);if(!args)return json({ok:false,code:'invalid_request'},400,origin);
+   if(adminOnly&&!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount(`social-${body.action}`,profileId,limit,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data,error}=await admin.rpc(fn,{[adminOnly?'p_admin_id':'p_profile_id']:profileId,...args});if(error){console.error('Social action failed',body.action,error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(Array.isArray(data))return json({ok:true,items:data},200,origin);
+   if(data?.ok===false)return json({ok:false,code:SOCIAL_CODES.includes(data.code)?data.code:'invalid_request'},data.code==='forbidden'?403:409,origin);
+   return json({...data,ok:true},200,origin);
   }
   if(body.action==='submit-report'){
    const questionId=clean(body.questionId,100),reason=clean(body.reason,20),details=clean(body.details,500);if(!questionId||!['incorrect','ambiguous','language','duplicate','inappropriate','other'].includes(reason))return json({ok:false,code:'invalid_request'},400,origin);if(!await permitAccount('report',profileId,20,86400))return json({ok:false,code:'rate_limited'},429,origin);const {error}=await admin.from('bq_question_reports').insert({profile_id:profileId,question_id:questionId,reason,details});if(error)return json({ok:false,code:error.code==='23503'?'invalid_request':'service_error'},error.code==='23503'?400:503,origin);return json({ok:true},201,origin);

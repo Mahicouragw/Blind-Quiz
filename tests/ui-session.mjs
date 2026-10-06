@@ -15,10 +15,11 @@ async function boot({session,fetchImpl,local}){
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
   for(const [k,v] of Object.entries(local||{}))w.localStorage.setItem(k,JSON.stringify(v));
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
-  const calls=[];globalThis.fetch=async(url,init)=>{if(init?.body)calls.push(JSON.parse(init.body).action);return fetchImpl(url,init)};
+  // Presence heartbeats (Task 19 'touch') are recorded separately so older tests keep checking their own calls.
+  const calls=[],beats=[];globalThis.fetch=async(url,init)=>{if(init?.body){const a=JSON.parse(init.body).action;(a==='touch'?beats:calls).push(a)}return fetchImpl(url,init)};
   await import(ROOT+'src/main.js?'+(++n));
   await new Promise(r=>setTimeout(r,200));
-  return {w,d:w.document,calls};
+  return {w,d:w.document,calls,beats};
 }
 const json=(status,body)=>({ok:status<300,status,json:async()=>body});
 const future=new Date(Date.now()+86400000).toISOString(), past=new Date(Date.now()-1000).toISOString();
@@ -341,7 +342,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 { // 18. Settings > Send feedback: name check, problem screenshot prompt, send; admin inbox for Goldfish only.
   const sent=[];const shot='data:image/jpeg;base64,/9j/AAAA';
   const items=[{id:7,name:'Asha',kind:'problem',message:'The timer froze.\nOn question 3.',hasScreenshot:true,createdAt:'2026-10-06T10:00:00Z',read:false},{id:6,name:'Ravi',kind:'idea',message:'More music please',hasScreenshot:false,createdAt:'2026-10-05T10:00:00Z',read:true}];
-  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});return json(400,{ok:false,code:'invalid_request'})};
+  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});if(b.action==='admin-feedback-reply')return json(200,{ok:true});if(b.action==='admin-announce')return json(200,{ok:true,sent:364});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});return json(400,{ok:false,code:'invalid_request'})};
   let s=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,80));
   assert.equal(s.d.querySelector('#feedback-signin').hidden,false);assert.equal(s.d.querySelector('#feedback-name-form').hidden,true);assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true);
@@ -367,10 +368,15 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   s.d.querySelector('#open-inbox').click();await new Promise(r=>setTimeout(r,120));
   assert.equal(s.d.querySelector('#view-inbox').hidden,false);const lis=s.d.querySelectorAll('#inbox-list li');assert.equal(lis.length,2);
   assert.equal(lis[0].querySelector('h2').textContent,'Problem report from Asha');assert.match(lis[0].querySelector('.inbox-meta').textContent,/New · Screenshot attached/);assert.equal(lis[0].querySelector('.inbox-message').textContent,'The timer froze.\nOn question 3.');
-  assert.equal(s.d.querySelector('#inbox-summary').textContent,'2 messages, 1 new.');assert(!lis[1].querySelector('button'),'read items without a screenshot need no button');
+  assert.equal(s.d.querySelector('#inbox-summary').textContent,'2 messages, 1 new.');assert(!lis[1].querySelector(':scope > button'),'read items without a screenshot need no Show/Mark button');assert(lis[1].querySelector('.inbox-reply textarea'),'every item has a reply box');
   lis[0].querySelector('button').click();await new Promise(r=>setTimeout(r,80));
   const img=lis[0].querySelector('img.inbox-shot');assert(img&&img.getAttribute('src')===shot&&img.alt==='Screenshot sent by Asha');assert.equal(s.d.querySelector('#inbox-summary').textContent,'2 messages, 0 new.');
   assert.deepEqual(sent.find(b=>b.action==='feedback-item'),{action:'feedback-item',id:7});
+  // Task 19: the admin replies (the player is notified) and sends an announcement.
+  {const rf=lis[1].querySelector('.inbox-reply form');rf.querySelector('textarea').value='Thanks, fixed now.';rf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+   const rep=sent.find(b=>b.action==='admin-feedback-reply');assert.equal(rep.reply,'Thanks, fixed now.');assert.match(lis[1].querySelector('.feedback-reply').textContent,/Your reply: Thanks, fixed now\./);
+   const af=s.d.querySelector('#announce-form');s.d.querySelector('#announce-text').value='A new game was added: Sound Match';af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+   assert.deepEqual(sent.find(b=>b.action==='admin-announce'),{action:'admin-announce',text:'A new game was added: Sound Match'});}
   console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
 }
 { // 19. Sound Match screen (Easy): numbers 1-10, press plays a sound, match/miss feedback, finish with stars and best score.
@@ -414,6 +420,42 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(!/profile XP|profile level/i.test(d.querySelector('#sm-finish-text').textContent));
   assert.equal(sess.profile.xp,105);assert.equal(profs.at(-1).level,2);assert(sfx.includes('coin'));
   console.log('ok 19 Sound Match: numbers 1-10 on Easy (16 Medium, 20 Hard), press plays its sound, match/miss spoken, found sounds named, stars and best score; signed-in players earn server-checked XP and coins');
+}
+// 20. Task 19: notifications bell, friend request Accept, Multiplayer online list, player card privacy and the friendship rule.
+{
+  const tick=()=>new Promise(r=>setTimeout(r,60));const sent=[];let rel='none';
+  const card=()=>({ok:true,player:{name:'Bob',level:3,xp:240,coins:12,questionsAnswered:120,questionsCorrect:90,quizzesCompleted:11,bestStreak:4,wordsFound:3,soundMatchGames:0,memberSince:'2026-10',online:true,self:false,relation:rel}});
+  const t20=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);
+    const r={profile:{ok:true,profile},touch:{ok:true,unread:2,notificationsEnabled:true},
+      notifications:{ok:true,items:[{id:7,kind:'friend_request',actor:'Bob',createdAt:future,read:false,relation:'incoming'},{id:6,kind:'feedback_reply',actor:'Goldfish',body:'Fixed, thanks!',createdAt:future,read:false}]},
+      'notifications-read':{ok:true,unread:0},'friend-respond':{ok:true,relation:'friends'},'online-players':{ok:true,items:[{name:'Bob',level:3,relation:'none'}]},
+      'player-card':()=>card(),'friend-request':()=>(rel='outgoing',{ok:true,relation:'outgoing'}),'my-feedback':{ok:true,items:[{id:1,message:'It breaks',createdAt:future,status:'replied',reply:'Fixed, thanks!'}]}}[b.action];
+    return json(200,(typeof r==='function'?r():r)||{ok:true});}});
+  const {d}=t20;await tick();
+  const bell=d.querySelector('#notif-open');assert.equal(bell.hidden,false);assert.equal(bell.getAttribute('aria-label'),'Notifications, 2 new');
+  bell.click();await tick();await tick();
+  assert.equal(d.querySelector('#view-notifications').hidden,false);
+  const items=[...d.querySelectorAll('#notif-list .notif-item')];assert.equal(items.length,2);
+  assert.match(items[0].textContent,/Bob sent you a friend request\./);assert.match(items[1].textContent,/replied to your feedback: Fixed, thanks!/);
+  assert(sent.some(b=>b.action==='notifications-read'&&b.ids===null),'opening marks all read');assert.equal(bell.getAttribute('aria-label'),'Notifications, none new');
+  [...items[0].querySelectorAll('button')].find(b=>b.textContent==='Accept Bob').click();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='friend-respond'),{action:'friend-respond',name:'Bob',accept:true});assert.match(items[0].textContent,/Accepted\./);
+  // Multiplayer: online players, then a card with stats and achievements but no Login ID; not friends -> Add friend.
+  rel='none';d.querySelector('#mp-open').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-multiplayer').hidden,false);const pb=d.querySelector('#mp-online-list .player-button');assert.match(pb.getAttribute('aria-label'),/^Bob, level 3/);
+  pb.click();await tick();await tick();
+  assert.equal(d.querySelector('#view-player').hidden,false);const pv=d.querySelector('#view-player').textContent;
+  assert.match(pv,/Questions answered, 120/);assert.match(pv,/Correct answers, 90, 75 percent/);assert.match(pv,/Century/);assert.match(pv,/Finisher/);
+  assert(!/Login ID|User ID|secret/i.test(d.querySelector('#player-stats').textContent),'no Login ID or secret on another player\'s card');
+  assert.match(pv,/To send Bob a match, you need to be friends first\./);
+  [...d.querySelectorAll('#player-actions button')].find(b=>/Add friend/.test(b.textContent)).click();await tick();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='friend-request'),{action:'friend-request',name:'Bob'});assert.match(d.querySelector('#player-actions').textContent,/Friend request sent/);
+  // Settings: notifications switch and My feedback with the developer's reply.
+  d.querySelector('#settings-open').click();await tick();await tick();
+  assert.equal(d.querySelector('#notif-settings').hidden,false);assert.match(d.querySelector('#my-feedback-list').textContent,/Replied.*It breaks.*Reply from the developer: Fixed, thanks!/s);
+  const sw=d.querySelector('#notif-on');sw.checked=false;sw.dispatchEvent(new t20.w.Event('change'));await tick();
+  assert.deepEqual(sent.find(b=>b.action==='set-notifications'),{action:'set-notifications',enabled:false});
+  console.log('ok 20 notifications bell, Accept/Reject friend requests, feedback replies, online players, private player card with achievements, friends-first matches, notification switch');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

@@ -60,7 +60,7 @@ const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8')
 assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
 const audioManifest=JSON.parse(await readFile(new URL('../assets/audio/manifest.json',import.meta.url),'utf8'));
 const stockSrc=JSON.parse(await readFile(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));
-const SFX_SLOTS=['correct','wrong','tick','go','timeup','applause','cheer','click','levelup','coin'];
+const SFX_SLOTS=['correct','wrong','tick','go','timeup','applause','cheer','click','levelup','coin','notify'];
 assert.deepEqual(Object.keys(stockSrc.sfx).sort(),[...SFX_SLOTS].sort(),'every sound effect is pinned to a Mixkit asset');
 for(const [slot,pin] of Object.entries(stockSrc.sfx))assert(Number.isInteger(pin.mixkitId)&&pin.title&&pin.category&&pin.max>0&&pin.max<=8,`${slot}: Mixkit pin is complete`);
 assert.deepEqual(Object.keys(stockSrc.music).filter(k=>!/\d$/.test(k)||/^game\d$/.test(k)),['menu','game1','game2','game3','results'],'five music slots');assert(Object.keys(stockSrc.music).filter(k=>/^menu\d$/.test(k)).length>=2,'home music is a playlist of several tracks');
@@ -69,7 +69,8 @@ const audioBuilder=await readFile(new URL('../scripts/audio/stock-audio.mjs',imp
 assert(audioBuilder.includes("const OGA_OK = l => /^CC0$/i.test(l);")&&/CC0 required/.test(audioBuilder),'OpenGameArt music must list CC0 on its live page or the build fails');
 assert(!/fetch\([^)]*pixabay/i.test(audioBuilder)&&audioBuilder.includes('assets.mixkit.co/active_storage/sfx/')&&!/mixkit\.co\/free-stock-music/.test(audioBuilder),'Mixkit sound effects only; Pixabay music is never fetched automatically; no Mixkit music');
 const MIXKIT=/^Mixkit Sound Effects Free License$/,PIXABAY=/^Pixabay Content License$/,COMMONS=/^(CC0|Public domain)$/i;
-for(const slot of [...SFX_SLOTS,'music_menu','music_game1','music_game2','music_game3','music_results',...Object.keys(audioManifest.assets).filter(k=>/^music_[a-z]+\d+$/.test(k))]){const a=audioManifest.assets[slot];
+// 'notify' (Task 19) is checked as soon as the audio workflow has committed it to the manifest.
+for(const slot of [...SFX_SLOTS.filter(k=>k!=='notify'||audioManifest.assets.notify),'music_menu','music_game1','music_game2','music_game3','music_results',...Object.keys(audioManifest.assets).filter(k=>/^music_[a-z]+\d+$/.test(k))]){const a=audioManifest.assets[slot];
   const ok=a&&((a.provider==='Mixkit'&&MIXKIT.test(a.licence)&&a.kind==='sfx'&&/^https:\/\/mixkit\.co\/free-sound-effects\//.test(a.source))
     ||(a.provider==='Pixabay'&&PIXABAY.test(a.licence)&&a.kind==='music'&&/^https:\/\/pixabay\.com\/music\//.test(a.source))
     ||(a.provider==='OpenGameArt'&&a.licence==='CC0'&&a.kind==='music'&&/^https:\/\/opengameart\.org\/content\//.test(a.source))
@@ -137,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v17'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v18'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -333,3 +334,20 @@ console.log('PASS: Task 16 word meanings for Letters to Words.');
   for(const p of ['privacy-policy.html','terms-and-conditions.html'])assert(readFileSync(new URL('../'+p,import.meta.url),'utf8').includes('mailto:numbersareplaying@gmail.com'),p+' contact email');
 }
 console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
+// Task 19 stage A/B: notifications, feedback replies, presence, player cards and friends (Migration 019).
+{
+  const { readFileSync } = await import('node:fs');
+  const r = f => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+  const m19 = r('supabase/migrations/202610060019_social_notifications.sql'), soc = r('src/social.js'), api = r('supabase/functions/blind-quiz-api/index.ts'), html = r('index.html'), fb = r('src/feedback.js');
+  assert(!/\b(drop|truncate)\b/i.test(m19.replace(/--[^\n]*/g, '')) && /create table if not exists public\.bq_friendships/.test(m19) && /create table if not exists public\.bq_notifications/.test(m19), 'Migration 019 is additive');
+  const card = m19.slice(m19.indexOf('function public.bq_player_card'), m19.indexOf('function public.bq_friend_request'));
+  assert(card.length > 100 && !/login_id|secret_question|answer_hash|answer_salt/.test(card), 'player cards never include the Login ID, secret question or hashes');
+  assert(!/loginId|login_id|secretQuestion/.test(soc), 'the social UI never reads Login IDs or secret questions');
+  for (const a of ['touch', 'notifications', 'notifications-read', 'set-notifications', 'my-feedback', 'online-players', 'player-card', 'friend-request', 'friend-respond', 'friend-remove', 'friends', 'admin-feedback-reply', 'admin-announce']) assert(api.includes(`'${a}':['bq_`), `API social action ${a}`);
+  assert(/'admin-feedback-reply':\['bq_feedback_reply',[^\n]*,true\]/.test(api) && /'admin-announce':\['bq_announce',[^\n]*,true\]/.test(api) && /if\(adminOnly&&!await isAdmin\(profileId\)\)/.test(api), 'admin social actions are admin only');
+  for (const id of ['notif-open', 'view-notifications', 'view-multiplayer', 'view-player', 'notif-on', 'my-feedback-box', 'announce-form', 'mp-open']) assert(html.includes(`id="${id}"`), `UI element ${id}`);
+  assert(fb.includes("callApi('admin-feedback-reply'") && fb.includes("callApi('admin-announce'"), 'admin inbox can reply and announce');
+  assert(soc.includes('To send ${p.name} a match, you need to be friends first.') && soc.includes("act('friend-request'"), 'matches need friendship; Add friend sends a request');
+  assert(JSON.parse(r('scripts/audio/sources.json')).sfx.notify?.mixkitId === 253, 'notification chime is a pinned Mixkit recording');
+  console.log('PASS: Task 19 notifications, feedback replies, player cards and friends (private by design).');
+}

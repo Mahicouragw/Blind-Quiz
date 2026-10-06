@@ -214,3 +214,32 @@ Owner decisions: Mixkit sound effects plus Pixabay music (human-made tracks only
   - Server-checked: `soundmatch-start` registers the board, and `soundmatch-finish` pays once per game.
   - The finish is refused if it is faster than 1.5 s per pair, if the number of tries is impossible, or if the game is older than 3 hours. Stars are computed on the server, and payouts stop after 40 paid games in 24 hours.
   - `bq_sound_match_games` has row level security; both functions are service_role only. The migration was pushed and applied before the API change, so the live checks never ran against a missing migration.
+
+## Task 19: Multiplayer and social (owner request, 6 Oct 2026)
+Built in stages, each pushed and verified live: **A** notifications and feedback replies, **B** online players, player cards and friends, **C** end-to-end encrypted private messages between friends, **D** rooms with live games and spectators, **E** exit confirmation, **F** device notifications on Android.
+- [x] **19.1 Migration 019** (additive, applied by `.github/workflows/apply-migration-019.yml`).
+  - New columns: `last_seen_at` and `notifications_enabled` on `bq_profiles`; `reply` and `replied_at` on `bq_feedback`.
+  - New tables with row level security, service_role only: `bq_notifications` and `bq_friendships`. Fourteen functions, all callable only by service_role.
+  - New shared guard `scripts/lib/guarded-migration.mjs`:
+    - Only additive statement shapes on declared tables and functions.
+    - No DDL or dynamic SQL inside function bodies.
+    - Function bodies may not change credentials.
+    - Before and after each apply it checks the locks and the row counts.
+  - New `tests/db-migrations.mjs` runs **every migration from 001 to 019 in an in-memory Postgres (PGlite)**, then 21 behavioural checks, before anything touches the live database.
+- [x] **19.2 Notifications.**
+  - A Notifications button in the top bar shows the unread count. A presence heartbeat runs every 20 seconds while the app is open (60 seconds in the background).
+  - Kinds: friend request (with Accept and Reject), friend accepted, feedback reply, announcement. Kinds for messages and room or match invites are reserved for later stages.
+  - New notifications play a recorded Mixkit chime (id 253) and are announced, but never during a running game.
+  - Settings has a Notifications switch, plus an optional "Also show them on this device" button (browser Notification API, shown while the game is open in the background).
+- [x] **19.3 Feedback replies.**
+  - In the Goldfish inbox, every item has a reply box. The player gets a notification.
+  - Settings > My feedback shows each message as "Sent, not read yet", "Read by the developer" or "Replied", with the reply text.
+  - Goldfish can also send an announcement to every player, for example "A new game was added".
+- [x] **19.4 Multiplayer tab, player cards, friends.**
+  - Home > Multiplayer has two tabs: Online (players seen in the last 2 minutes) and Friends (requests for you, your friends, requests you sent). A player can also be found by name.
+  - A player card shows level, XP, coins, questions answered and correct (with percent), quizzes, best streak, words found, Sound Match games, "playing since" and 10 achievements earned from those stats.
+  - **A card never contains the Login ID, the secret question or any hash.** This is checked in SQL, in smoke, in jsdom and in the live API.
+  - A match needs friendship first. If the players are not friends, the card says so and offers "Add friend: send a friend request". The other player sees "X sent you a friend request" with Accept and Reject.
+  - A request sent back to someone who already asked you accepts their request. At most 50 requests can be waiting at once.
+- API: social actions go through one table in `blind-quiz-api`. Each row is a database function, an argument check and a per-account hourly limit; admin-only rows are checked against `bq_admins`. Other players are addressed by display name only.
+- Tests: smoke (Task 19 block), jsdom test 20 (plus admin reply and announcement in test 18), and 7 new live API checks run with two real accounts. Offline cache v18.
