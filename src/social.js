@@ -2,7 +2,8 @@
 // the notifications setting, "My feedback" with read/replied status, and admin replies and announcements.
 // Other players are only ever addressed by display name; cards never contain a Login ID or secret question.
 
-const HEARTBEAT_MS = 20000, HIDDEN_HEARTBEAT_MS = 60000;
+// 10 s while visible, so a call or file from a friend rings quickly; 60 s in the background.
+const HEARTBEAT_MS = 10000, HIDDEN_HEARTBEAT_MS = 60000;
 const DEVICE_KEY = 'bq.deviceNotifications';
 
 // Achievements are earned from the public card stats, so every player sees the same badges.
@@ -35,7 +36,7 @@ export function notificationText(n) {
   }
 }
 
-export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {}, openRoom = () => {}, loadRooms = () => {} }) {
+export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {}, openRoom = () => {}, loadRooms = () => {}, onRing = () => {} }) {
   const bell = $('#notif-open');
   let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online';
   const signedIn = () => !!getSession()?.profile;
@@ -71,6 +72,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     try {
       const d = await callApi('touch');
       unread = Number(d.unread) || 0; enabled = d.notificationsEnabled !== false;
+      if (Number(d.ring) > 0) onRing();
       if (lastUnread !== null && unread > lastUnread && enabled) {
         // Never interrupt a running game with speech; the bell count still changes.
         if (!['game', 'soundmatch', 'letters'].includes(currentView())) { playSfx('notify'); announce(`You have ${unread} new notification${unread === 1 ? '' : 's'}.`); }

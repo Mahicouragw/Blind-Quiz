@@ -264,5 +264,11 @@ Built in stages, each pushed and verified live: **A** notifications and feedback
   - Send a match (friends only) opens a private two-player room and sends a game invite notification.
   - Leaving a room asks first; starting or watching a game in the room does not. Leaving a room game ends it for spectators.
   - Tests: PGlite dry run, a smoke block, jsdom test 22 and 5 new live API checks. Offline cache v20.
+- [x] **19.8 Voice messages in rooms, and calls and files between friends (Migration 023).** Owner decisions: no calls in rooms; free services only.
+  - Rooms: record a voice message of up to 60 seconds and press Stop and send; anyone in the room can play it. Voice messages are deleted after 24 hours.
+  - Friend chat: Audio call, Video call and Send a file. These need **both friends online**, with no size cap below 2 GB (well over 6 MB). Calls and files go directly between the devices (WebRTC, encrypted) and are never stored. Only small setup messages pass through the server; they are sealed end to end with the device keys from Migration 020 and deleted within 10 minutes.
+  - The flow is ring, then accept, then connect. There is an accessible incoming dialog (Accept or Decline), spoken progress every 25 percent, and Mute, Camera and Hang up during calls. Hang-up travels over the call connection, so it is instant.
+  - Free STUN only, with no paid relay, so a few strict mobile networks may fail to connect; the app says so clearly. The heartbeat is every 10 seconds while visible, so calls ring quickly.
+  - Tests: PGlite (signals friends-only, online-only, sealed for the friend's devices, 10-minute expiry; voice 60 s, audio only, 24-hour expiry), smoke (sealed signals open; forged, cross-use and replay rejected), jsdom test 23 (two players: file transfer with confirmation, video call, mute, hang up, decline; the relay never sees file names) and 2 new live API checks. Offline cache v21. Privacy Policy updated.
 - API: social actions go through one table in `blind-quiz-api`. Each row is a database function, an argument check and a per-account hourly limit; admin-only rows are checked against `bq_admins`. Other players are addressed by display name only.
 - Tests: smoke (Task 19 block), jsdom test 20 (plus admin reply and announcement in test 18), and 7 new live API checks run with two real accounts. Offline cache v18.

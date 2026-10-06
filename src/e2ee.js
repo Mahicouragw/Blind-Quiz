@@ -70,6 +70,35 @@ export async function open(box, me, senderDevice, senderKey) {
   return msg;
 }
 
+// Call and file-transfer setup (Migration 023): same per-device sealing, a separate key label so a signal can never be
+// replayed as a chat message (or the other way round), and room for a connection description (SDP).
+export const MAX_SIGNAL = 15000;
+const sigInfo = (from, to) => `bq-sig-v1|${from}|${to}`;
+export async function sealData(obj, me, targets) {
+  const t = JSON.stringify(obj);
+  if (t.length > MAX_SIGNAL) throw new Error('signal_too_large');
+  const plain = te.encode(JSON.stringify({ v: 1, t, at: Date.now() }));
+  const boxes = {};
+  for (const x of targets) {
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16)), iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    const info = sigInfo(me.deviceId, x.deviceId);
+    const key = await boxKey(me.privateKey, x.publicKey, salt, info, 'encrypt');
+    const ct = await subtle().encrypt({ name: 'AES-GCM', iv, additionalData: te.encode(info) }, key, plain);
+    boxes[x.deviceId] = { s: b64(salt), iv: b64(iv), ct: b64(ct) };
+  }
+  return boxes;
+}
+// Opens a signal; throws if it was altered, not sealed by that sender device, or older than five minutes.
+export async function openData(box, me, senderDevice, senderKey, now = Date.now()) {
+  if (!box || typeof box.ct !== 'string') throw new Error('no_box');
+  const info = sigInfo(senderDevice, me.deviceId);
+  const key = await boxKey(me.privateKey, senderKey, unb64(box.s), info, 'decrypt');
+  const plain = await subtle().decrypt({ name: 'AES-GCM', iv: unb64(box.iv), additionalData: te.encode(info) }, key, unb64(box.ct));
+  const msg = JSON.parse(td.decode(plain));
+  if (msg?.v !== 1 || typeof msg.t !== 'string' || !(Math.abs(now - msg.at) < 300000)) throw new Error('bad_signal');
+  return JSON.parse(msg.t);
+}
+
 // Safety code: the same 30 digits on both phones when both see the same keys (order-independent).
 export async function safetyCode(keysA, keysB) {
   const side = keys => [...keys].sort().join(',');

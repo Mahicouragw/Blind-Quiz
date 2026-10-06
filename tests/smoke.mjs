@@ -138,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v20'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v21'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -398,6 +398,28 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/Send \$\{p\.name\} a match/.test(social) && /callApi\('match-invite'/.test(social) && /'room_invite', 'game_invite'\].includes\(n\.kind\) && n\.ref/.test(social), 'friends can send a match; invites open the room');
   assert(!/loginId|login_id/.test(rooms), 'rooms never handle Login IDs');
   console.log('PASS: Task 19 rooms (public and private rooms, chat, room games, live spectators, comments, match invites).');
+}
+// Task 19: room voice messages (24 hours) and direct calls/files between online friends with sealed signals.
+{
+  const { readFileSync } = await import('node:fs');
+  const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const E = await import('../src/e2ee.js');
+  const st = E.memoryStore(), a = await E.deviceKey(st, 'a'), b = await E.deviceKey(st, 'b'), eve = await E.deviceKey(st, 'e');
+  const rejects = async f => { try { await f(); return false; } catch { return true; } };
+  const sdp = 'v=0\r\n' + 'a=fingerprint:sha-256 AB:CD\r\n'.repeat(200);
+  const boxes = await E.sealData({ t: 'offer', sdp }, a, [b]);
+  assert.equal((await E.openData(boxes[b.deviceId], b, a.deviceId, a.publicKey)).sdp, sdp, 'sealed connection description opens on the friend\'s device');
+  assert(await rejects(() => E.openData(boxes[b.deviceId], b, a.deviceId, eve.publicKey)), 'a forged sender is rejected');
+  assert(await rejects(() => E.open(boxes[b.deviceId], b, a.deviceId, a.publicKey)), 'a signal can never be read as a chat message');
+  assert(await rejects(() => E.openData(boxes[b.deviceId], b, a.deviceId, a.publicKey, Date.now() + 600000)), 'old signals cannot be replayed');
+  const html = read('../index.html'), main = read('../src/main.js'), rooms = read('../src/rooms.js'), direct = read('../src/direct.js'), api = read('../supabase/functions/blind-quiz-api/index.ts');
+  for (const id of ['room-voice-record', 'room-voice-cancel', 'direct-call-audio', 'direct-call-video', 'direct-send-file', 'direct-file-input', 'direct-panel', 'direct-progress', 'direct-remote', 'direct-local']) assert(html.includes(`id="${id}"`), `markup #${id}`);
+  assert(!/startCall|createDirect|RTCPeerConnection/.test(rooms), 'rooms have no calls, only voice messages');
+  assert(/'room-voice-send':\['bq_room_voice_send'/.test(api) && /'signal-send':\['bq_signal_send'/.test(api) && /'signals':\['bq_signals_poll'/.test(api), 'voice and signal API actions');
+  assert(/sealData\(\{ \.\.\.obj, s: sess\.id \}, me, targets\)/.test(direct) && !/callApi\('signal-send', \{[^}]*sdp/.test(direct), 'only sealed boxes carry connection details');
+  assert(!/turn:/i.test(direct), 'no paid relay server is used');
+  assert(/direct\.startFile\(chat\.friend,f\)/.test(main) && /onRing:\(\)=>direct\.poll\(\)/.test(main), 'files and calls start from the friend chat; heartbeat rings');
+  console.log('PASS: Task 19 room voice messages and direct calls/files between online friends (sealed signals: open, forged sender, cross-use and replay rejected).');
 }
 // Task 19 stage E: exit confirmation for games, modes and rooms (buttons, brand link and Android/browser Back).
 {

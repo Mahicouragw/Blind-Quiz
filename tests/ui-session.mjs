@@ -560,5 +560,85 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('#exit-leave').click();await tick();assert(sent.some(b=>b.action==='room-leave'&&b.roomId===ROOM));assert.equal(d.querySelector('#view-multiplayer').hidden,false);
   console.log('ok 22 rooms: list with game and player counts, room chat, watch live with sounds/announcements/comments, create game broadcasts, exit confirmation');
 }
+// 23. Direct file transfer and calls between two friends: real WebCrypto sealing through a relay that sees only boxes,
+//     an in-memory WebRTC stand-in, ring -> accept -> offer -> answer, chunked file with confirmation, call and hang up.
+{
+  const { createDirect, trimSdp, formatSize } = await import(ROOT + 'src/direct.js');
+  const { memoryStore } = await import(ROOT + 'src/e2ee.js');
+  assert.equal(formatSize(7 * 1024 * 1024), '7.0 MB'); assert.equal(formatSize(2048), '2 KB');
+  const big = 'v=0\r\n' + Array.from({ length: 400 }, (_, i) => `a=candidate:${i} 1 tcp 1 fe80::${i} 9 typ host`).join('\r\n');
+  assert(trimSdp(big).length < big.length && !/ tcp /.test(trimSdp(big)), 'oversized descriptions drop TCP/IPv6 candidates');
+  // Relay: stores what the API would; the test checks it never sees file names or descriptions in clear text.
+  const devices = {}, queues = { Asha: [], Bob: [] }, relayLog = []; let sid = 0;
+  const api = who => async (action, body = {}) => {
+    const other = who === 'Asha' ? 'Bob' : 'Asha';
+    if (action === 'register-device') { devices[who] = { deviceId: body.deviceId, publicKey: body.publicKey }; return { ok: true }; }
+    if (action === 'message-keys') return { ok: true, theirs: devices[other] ? [devices[other]] : [], mine: [devices[who]] };
+    if (action === 'signal-send') { relayLog.push(JSON.stringify(body)); for (const [dev, box] of Object.entries(body.boxes)) queues[other].push({ id: ++sid, from: who, session: body.session, kind: body.kind, senderDevice: body.deviceId, senderKey: devices[who].publicKey, box, to: dev }); return { ok: true, id: sid }; }
+    if (action === 'signals') return { ok: true, signals: queues[who].filter(x => x.to === body.deviceId && x.id > (body.afterId || 0)) };
+    throw new Error('unknown_action');
+  };
+  // In-memory WebRTC: the description carries a peer id; the answer connects both sides and pairs their data channels.
+  const peers = new Map(); let pid = 0;
+  class FakeDC { constructor(label = 'file') { this.label = label; this.bufferedAmount = 0; this.readyState = 'open'; } send(d) { const peer = this.peer; const data = typeof d === 'string' ? d : d.slice(0); setTimeout(() => peer.onmessage?.({ data }), 0); } close() { this.readyState = 'closed'; } }
+  class FakePC {
+    constructor() { this.id = ++pid; peers.set(this.id, this); this.connectionState = 'new'; this.iceGatheringState = 'complete'; this.localDescription = null; this.tracks = []; }
+    addEventListener() {} addTrack(t) { this.tracks.push(t); }
+    createDataChannel(label) { this.dc = new FakeDC(label); return this.dc; }
+    async createOffer() { return { type: 'offer', sdp: `v=0 fake-offer ${this.id}` }; }
+    async createAnswer() { return { type: 'answer', sdp: `v=0 fake-answer ${this.id}` }; }
+    async setLocalDescription(d) { this.localDescription = d; }
+    async setRemoteDescription(d) {
+      const other = peers.get(Number(d.sdp.split(' ').pop())); this.remote = other;
+      if (d.type === 'answer') setTimeout(() => {
+        for (const pc of [this, other]) { pc.connectionState = 'connected'; pc.onconnectionstatechange?.(); }
+        const stream = { getTracks: () => [] };
+        if (this.tracks.length) { this.ontrack?.({ streams: [stream] }); other.ontrack?.({ streams: [stream] }); }
+        if (this.dc) { const theirs = new FakeDC(this.dc.label); theirs.peer = this.dc; this.dc.peer = theirs; other.ondatachannel?.({ channel: theirs }); setTimeout(() => this.dc.onopen?.(), 5); }
+      }, 10);
+    }
+    close() { if (this.connectionState === 'closed') return; this.connectionState = 'closed'; const o = this.remote; if (o && o.connectionState === 'connected') { o.connectionState = 'disconnected'; o.onconnectionstatechange?.(); } }
+  }
+  const track = () => ({ enabled: true, stop() { this.stopped = true; } });
+  const media = () => ({ getUserMedia: async ({ video }) => { const a = [track()], v = video ? [track()] : []; return { getTracks: () => [...a, ...v], getAudioTracks: () => a, getVideoTracks: () => v }; } });
+  const party = who => {
+    const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/' }); const d = dom.window.document; const said = [];
+    const store = new Map(); const pinsStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+    const prevDoc = globalThis.document; globalThis.document = d;
+    const direct = createDirect({ $: sel => d.querySelector(sel), announce: t => said.push(t), callApi: api(who), getSession: () => ({ loginId: who.toUpperCase().padEnd(8, 'X'), profile: { name: who } }), store: memoryStore(), pinsStorage, RTC: FakePC, mediaDevices: media });
+    globalThis.document = prevDoc;
+    return { d, direct, said, text: () => d.querySelector('#direct-panel').textContent, btn: label => [...d.querySelectorAll('#direct-actions button, #direct-actions a')].find(b => b.textContent.startsWith(label)) };
+  };
+  const wait = async (cond, ms = 9000) => { const t = Date.now(); while (!cond()) { if (Date.now() - t > ms) throw new Error('timed out'); await new Promise(r => setTimeout(r, 50)); } };
+  const A = party('Asha'), B = party('Bob');
+  const withDoc = (p, fn) => { const prev = globalThis.document; globalThis.document = p.d; try { return fn(); } finally { globalThis.document = prev; } };
+  globalThis.document = B.d; await B.direct.poll(); // Bob's device registers its key (as opening chat does)
+  // File: 200 KB in 64 KB chunks.
+  const bytes = new Uint8Array(200 * 1024).map((_, i) => i % 251);
+  globalThis.document = A.d; await A.direct.startFile('Bob', new File([bytes], 'notes.pdf', { type: 'application/pdf' }));
+  assert.match(A.text(), /Waiting for Bob to accept notes\.pdf, 200 KB\./);
+  globalThis.document = B.d; await B.direct.poll();
+  assert.match(B.text(), /Asha wants to send you a file: notes\.pdf, 200 KB\./); assert.equal(B.d.querySelector('#direct-panel').getAttribute('role'), 'alertdialog');
+  B.btn('Accept file').click();
+  await wait(() => /File received/.test(B.text()) && /File sent/.test(A.text()));
+  assert.match(B.text(), /notes\.pdf, 200 KB, from Asha\. It is not stored anywhere else, so save it now\./); assert(B.btn('Save notes.pdf').href.startsWith('blob:'));
+  assert.match(A.text(), /Bob received notes\.pdf\./); assert(A.said.some(t => /percent/.test(t)), 'progress is spoken');
+  assert(!relayLog.join('\n').includes('notes.pdf') && !relayLog.join('\n').includes('fake-offer'), 'the relay never sees the file name or the connection description');
+  B.btn('Close').click(); A.btn('Close').click();
+  // Video call, then Bob hangs up.
+  globalThis.document = A.d; await A.direct.startCall('Bob', true); assert.match(A.text(), /Calling Bob…/);
+  globalThis.document = B.d; await B.direct.poll(); assert.match(B.text(), /Asha is calling you with video\./);
+  B.btn('Answer').click();
+  await wait(() => /In a call with Asha/.test(B.text()) && /In a call with Bob/.test(A.text()));
+  assert.equal(B.d.querySelector('#direct-videos').hidden, false, 'video shows for a video call');
+  B.btn('Mute').click(); assert.equal(B.btn('Unmute').getAttribute('aria-pressed'), 'true');
+  B.btn('Hang up').click();
+  await wait(() => /Bob hung up\./.test(A.text()), 1500); // instantly over the call connection, not after a timeout
+  assert.equal(A.direct.busy, false); assert.equal(B.direct.busy, false);
+  // Declining.
+  globalThis.document = A.d; await A.direct.startCall('Bob', false); globalThis.document = B.d; await B.direct.poll(); B.btn('Decline').click();
+  await wait(() => /Bob declined\./.test(A.text()));
+  console.log('ok 23 direct file transfer and calls: sealed ring/accept/offer/answer, chunked file with confirmation and spoken progress, relay sees no file names, video call with mute and hang up, decline');
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

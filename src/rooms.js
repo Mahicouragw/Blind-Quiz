@@ -32,6 +32,8 @@ export function eventText(e) {
 }
 
 export function createRooms({ $, announce, callApi, getSession, go, playSfx = () => {}, playMatchSound = () => {}, currentView = () => '', categories = [], startLive = () => {}, openSignIn = () => {} }) {
+  let rec = null, recChunks = [], recStart = 0, recTimer = null, recStream = null, recCancelled = false;
+  const seenVoices = new Set(), voiceCache = new Map();
   let roomId = null, room = null, chatAfter = null, roomTimer = null, watchId = null, watchAfter = null, watchTimer = null, watchFirst = true, lastPeople = '';
   const signedIn = () => !!getSession()?.profile;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -81,7 +83,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   // ---- Inside a room -------------------------------------------------------------------------
   function openRoom(id) {
     if (!signedIn()) { openSignIn(); return; }
-    if (roomId !== id) { roomId = id; room = null; chatAfter = null; lastPeople = ''; $('#room-chat').replaceChildren(); $('#room-games').replaceChildren(); $('#room-people').replaceChildren(); $('#room-title').textContent = 'Room'; }
+    if (roomId !== id) { roomId = id; room = null; chatAfter = null; lastPeople = ''; $('#room-chat').replaceChildren(); seenVoices.clear(); $('#room-games').replaceChildren(); $('#room-people').replaceChildren(); $('#room-title').textContent = 'Room'; }
     if (currentView() !== 'room') go('room', { focus: '#room-title' });
     $('#room-status').textContent = 'Entering the room…';
     pollRoom(true);
@@ -120,8 +122,68 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
       const li = el('li', 'room-chat-line'); li.append(el('strong', '', `${c.name}: `), document.createTextNode(c.body)); log.append(li);
       if (!first && c.name !== getSession()?.profile?.name) { announce(`${c.name} says: ${c.body}`); playSfx('notify'); }
     }
+    for (const v of d.voices || []) {
+      if (seenVoices.has(v.id)) continue; seenVoices.add(v.id);
+      log.append(voiceLine(v));
+      if (!first && v.name !== getSession()?.profile?.name) { announce(`${v.name} sent a voice message, ${Math.max(1, Math.round(v.durationMs / 1000))} seconds.`); playSfx('notify'); }
+    }
     while (log.children.length > 80) log.firstElementChild.remove();
   }
+  // ---- Voice messages (kept 24 hours on the server) ----------------------------------------
+  function voiceLine(v) {
+    const secs = Math.max(1, Math.round(v.durationMs / 1000));
+    const li = el('li', 'room-chat-line room-voice'); li.append(el('strong', '', `${v.name}: `), document.createTextNode(`voice message, ${secs} second${secs === 1 ? '' : 's'}. `));
+    const b = button(`Play voice message from ${v.name}`, () => playVoice(v, b), 'text-button'); li.append(b);
+    return li;
+  }
+  async function playVoice(v, b) {
+    try {
+      let src = voiceCache.get(v.id);
+      if (!src) { b.textContent = 'Loading…'; src = (await callApi('room-voice', { id: v.id })).audio; voiceCache.set(v.id, src); }
+      const a = new Audio(src); b.textContent = 'Playing…';
+      a.onended = a.onerror = () => { b.textContent = `Play voice message from ${v.name}`; };
+      await a.play();
+    } catch (err) { b.textContent = `Play voice message from ${v.name}`; say($('#room-voice-status'), err.message === 'room_unavailable' ? 'This voice message has expired. Voice messages are deleted after 24 hours.' : errorText(err.message), true); }
+  }
+  const recMime = () => { const R = globalThis.MediaRecorder; for (const m of ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm']) if (R?.isTypeSupported?.(m)) return m; return ''; };
+  async function toggleRecord() {
+    const btn = $('#room-voice-record'), status = $('#room-voice-status');
+    if (rec) { rec.stop(); return; }
+    if (!roomId) return;
+    if (!globalThis.MediaRecorder || !navigator.mediaDevices?.getUserMedia) { say(status, 'Voice messages cannot be recorded on this device or app version. Please update the browser or the app.', true); return; }
+    try { recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch { say(status, 'The microphone could not be used. Please allow it and try again.', true); return; }
+    announce('Recording starts after this message. Press Stop and send when you finish. Up to 60 seconds.', true);
+    await new Promise(r => setTimeout(r, 2600));
+    const mime = recMime();
+    rec = new MediaRecorder(recStream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+    recChunks = []; recCancelled = false; recStart = Date.now();
+    rec.ondataavailable = e => { if (e.data?.size) recChunks.push(e.data); };
+    rec.onstop = () => sendRecording(mime);
+    rec.start(1000);
+    btn.textContent = 'Stop and send'; $('#room-voice-cancel').hidden = false; status.textContent = 'Recording…';
+    recTimer = setTimeout(() => rec?.stop(), 60000);
+  }
+  function resetRecorder() {
+    clearTimeout(recTimer); for (const t of recStream?.getTracks() || []) t.stop();
+    rec = null; recStream = null; $('#room-voice-record').textContent = 'Record a voice message'; $('#room-voice-cancel').hidden = true;
+  }
+  async function sendRecording(mime) {
+    const durationMs = Math.min(60000, Date.now() - recStart), status = $('#room-voice-status'), chunks = recChunks, cancelled = recCancelled;
+    resetRecorder();
+    if (cancelled) { say(status, 'Recording cancelled.'); return; }
+    if (durationMs < 500 || !chunks.length) { say(status, 'That recording was too short. Please try again.', true); return; }
+    const blob = new Blob(chunks, { type: (chunks[0].type || mime || 'audio/webm') });
+    const type = (blob.type || 'audio/webm').replace(/\s+/g, '').toLowerCase();
+    const bytes = new Uint8Array(await blob.arrayBuffer()); let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const audio = `data:${type};base64,${btoa(bin)}`;
+    if (audio.length > 400000) { say(status, 'That voice message is too long. Please record a shorter one.', true); return; }
+    status.textContent = 'Sending voice message…';
+    try { await callApi('room-voice-send', { roomId, audio, durationMs: Math.max(500, durationMs) }); say(status, 'Voice message sent.'); playSfx('click'); pollRoom(false); }
+    catch (err) { say(status, errorText(err.message), true); }
+  }
+  function cancelRecording() { if (rec) { recCancelled = true; rec.stop(); } }
   function renderGames(games) {
     const host = $('#room-games');
     const focusedId = document.activeElement?.closest?.('[data-game-id]')?.dataset.gameId, focusedText = document.activeElement?.textContent;
@@ -177,7 +239,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
     catch (err) { say($('#room-status'), errorText(err.message), true); }
   }
   /** Called when the player leaves the room screen for good (not to watch or play in it). */
-  function leaveRoom() { clearTimeout(roomTimer); if (roomId) callApi('room-leave', { roomId }).catch(() => {}); }
+  function leaveRoom() { cancelRecording(); clearTimeout(roomTimer); if (roomId) callApi('room-leave', { roomId }).catch(() => {}); }
 
   // ---- Watching a game live ------------------------------------------------------------------
   function openWatch(gameId) {
@@ -241,6 +303,8 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   $('#room-chat-form')?.addEventListener('submit', sendChat);
   $('#room-invite-form')?.addEventListener('submit', invite);
   $('#room-remove')?.addEventListener('click', removeRoom);
+  $('#room-voice-record')?.addEventListener('click', toggleRecord);
+  $('#room-voice-cancel')?.addEventListener('click', cancelRecording);
   $('#room-refresh')?.addEventListener('click', () => pollRoom(true));
   $('#watch-comment-form')?.addEventListener('submit', comment);
   $('#watch-back')?.addEventListener('click', () => roomId ? openRoom(roomId) : go('multiplayer'));
