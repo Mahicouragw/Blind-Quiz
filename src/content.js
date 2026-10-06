@@ -1,4 +1,5 @@
 import { EXPANSION_ROWS, MIGRATION_010_ROWS, MIGRATION_011_ROWS, MIGRATION_015_ROWS, CATEGORY_SOURCES } from './expansion-questions.js';
+import { MIGRATION_016_ROWS } from './questions-016.js';
 
 // The original 73-question pack remains in its historical order so its stable IDs do not change.
 const starterRows = [
@@ -84,7 +85,9 @@ export const MIGRATION_010_COUNT = MIGRATION_010_ROWS.length;
 export const MIGRATION_011_COUNT = MIGRATION_011_ROWS.length;
 // Migration 015 rows follow as bq-en-1067..1166 (Medical, Math, Physics, Chemistry, Biology).
 export const MIGRATION_015_COUNT = MIGRATION_015_ROWS.length;
-const rows = [...starterRows, ...EXPANSION_ROWS, ...MIGRATION_010_ROWS, ...MIGRATION_011_ROWS, ...MIGRATION_015_ROWS];
+// Migration 016 rows follow as bq-en-1167..1416 (10 in each of the 25 categories).
+export const MIGRATION_016_COUNT = MIGRATION_016_ROWS.length;
+const rows = [...starterRows, ...EXPANSION_ROWS, ...MIGRATION_010_ROWS, ...MIGRATION_011_ROWS, ...MIGRATION_015_ROWS, ...MIGRATION_016_ROWS];
 const CATEGORIES = [
   ['animals','Animals','Wildlife and animal life'],['birds','Birds','Flight, habitats, and species'],['nature','Nature','Living systems and our planet'],['instruments','Musical instruments','Sounds, families, and traditions'],['science','Science','Physics, chemistry, biology, and space'],['geography','Geography','Places, landforms, and rivers'],['india','India','People, places, and civic life'],['history','History','Events, people, and the past'],['technology','Technology','Computers and the connected world'],['sports','Sports','Rules, play, and equipment'],['civics','Civics','Institutions and public life'],['economics','Economics','Choices, markets, and money'],['music','Music','Rhythm, sound, and ideas'],['abbreviations','Abbreviations','Decode the short form'],['vocabulary','Vocabulary','Meaning, usage, and spelling'],['braille','Braille','Read six-dot patterns'],['management','Management','Planning, teams, quality, and leadership'],['business','Business','Customers, operations, strategy, and enterprise'],['accounting','Accounting','Records, statements, and financial concepts'],['commerce','Commerce','Trade, payments, logistics, and retail'],['medical','Medical','Body, health, and medicine'],['math','Math','Numbers, shapes, and algebra'],['physics','Physics','Forces, energy, light, and electricity'],['chemistry','Chemistry','Elements, compounds, and reactions'],['biology','Biology','Cells, plants, genetics, and ecosystems']
 ].map(([id,name,description])=>({id,name,description,count:rows.filter(r=>r[0]===id).length}));

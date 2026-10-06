@@ -6,12 +6,12 @@ import { shuffled } from '../src/random.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
-assert.equal(QUESTION_BANK.length,825,'73 starter plus 752 expansion questions (252 in Migration 009, 200 in Migration 010, 200 in Migration 011, 100 in Migration 015)');
+assert.equal(QUESTION_BANK.length,1075,'73 starter plus 1002 expansion questions (252 in Migration 009, 200 in Migration 010, 200 in Migration 011, 100 in Migration 015, 250 in Migration 016)');
 assert.equal(MIGRATION_009_COUNT,252,'Migration 009 keeps its 252 rows');
 assert.equal(CATEGORY_LIST.length,25,'20 established categories plus Medical, Math, Physics, Chemistry and Biology');
 const NEW_CATS=['medical','math','physics','chemistry','biology'];
 assert.deepEqual(CATEGORY_LIST.slice(20).map(c=>c.id),NEW_CATS,'five new categories');
-for(const c of CATEGORY_LIST.slice(20))assert.equal(c.count,20,`${c.id} has 20 questions`);
+for(const c of CATEGORY_LIST.slice(20))assert.equal(c.count,30,`${c.id} has 30 questions (20 from Migration 015, 10 from Migration 016)`);
 for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(STARTER_QUESTION_COUNT,STARTER_QUESTION_COUNT+252).filter(q=>q.category===category.id);
   const expected=category.id==='braille'?24:12;
@@ -24,8 +24,8 @@ assert.equal(QUESTION_BANK[524].id,'bq-en-0866','final Migration 010 ID');
 assert.equal(QUESTION_BANK[525].id,'bq-en-0867','first Migration 011 ID');
 assert.equal(QUESTION_BANK[724].id,'bq-en-1066','final Migration 011 ID');
 assert.equal(QUESTION_BANK[725].id,'bq-en-1067','first Migration 015 ID');
-assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1166','final expansion ID');
-assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,752,'752 expansion questions');
+assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1416','final expansion ID (end of Migration 016)');
+assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,1002,'1002 expansion questions');
 for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(325,525).filter(q=>q.category===category.id);
   assert.equal(added.length,10,`${category.id} has 10 Migration 010 questions`);
@@ -33,7 +33,7 @@ for(const category of CATEGORY_LIST.slice(0,20)){
   assert.equal(added011.length,10,`${category.id} has 10 Migration 011 questions`);
 }
 const normPrompt=s=>s.toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 825 questions');
+assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 1075 questions');
 const ids=new Set(QUESTION_BANK.map(q=>q.id));
 assert.equal(ids.size,QUESTION_BANK.length,'unique stable question ids');
 for(const q of QUESTION_BANK.slice(STARTER_QUESTION_COUNT))assert.match(q.sourceNote,/https:\/\//,`${q.id} source note`);
@@ -90,7 +90,7 @@ assert(!/BOOT_ERROR|backend_not_ready|service_error|invalid_request|unknown_acti
 assert(/Something went wrong\. Please try again\./.test(main)&&/The name, Login ID, or secret answer is incorrect\. Please try again\./.test(main),'failures fall back to generic, human wording');
 const categoryRender=main.slice(main.indexOf('function renderCategories'),main.indexOf('function renderModes'));
 assert(categoryRender.includes('<strong>${esc(c.name)}</strong>'),'category buttons contain the category name');
-assert(!/category-mark|category-count|c\.description|c\.count/.test(categoryRender),'category buttons show names only');
+assert(!/category-mark|category-count|c\.count/.test(categoryRender)&&categoryRender.includes('<small class=\"category-desc\">${esc(c.description)}</small>'),'category buttons show the name and a short description, never a question count');
 assert(html.includes('id=\"game-start\"')&&main.includes('Get ready!')&&main.includes("['3','2','1']")&&main.includes("'GO!'"),'ready screen and spoken countdown remain available');
 assert(main.includes('Something went wrong. Please try again.')&&main.includes('Too many attempts. Please wait and try again.'),'client errors remain generic and rate limits are explained');
 const migration=await readFile(new URL('../supabase/migrations/202609260001_core.sql',import.meta.url),'utf8');
@@ -137,7 +137,19 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v14'"),'service worker cache is v14');
+assert(sw.includes("const CACHE='blind-quiz-shell-v15'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v15 and caches the Migration 016 questions');
+{ // Task 17: Migration 016 - 250 questions (10 per category) and the 5 XP + 1 coin word reward.
+  const { readFileSync } = await import('node:fs');
+  const { MIGRATION_016_ROWS } = await import('../src/questions-016.js');
+  assert.equal(MIGRATION_016_ROWS.length,250,'Migration 016 has 250 questions');
+  const per={};for(const r of MIGRATION_016_ROWS)per[r[0]]=(per[r[0]]||0)+1;
+  assert(Object.keys(per).length===25&&Object.values(per).every(n=>n===10),'Migration 016 has 10 questions in each of the 25 categories');
+  assert.equal(QUESTION_BANK.at(-250).id,'bq-en-1167');assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1416');
+  const m16=readFileSync(new URL('../supabase/migrations/202610060016_questions_and_word_reward.sql',import.meta.url),'utf8');
+  assert.equal((m16.match(/^insert into public\.bq_questions/gm)||[]).length,250,'Migration 016 inserts 250 rows');
+  assert(/on conflict \(id\) do nothing;\ncreate or replace function public\.bq_record_word/.test(m16)&&m16.includes('earned_xp := 5;\n  earned_coins := 1;')&&/grant execute on function public\.bq_record_word\(uuid, text\) to service_role;\ncommit;\n$/.test(m16),'Migration 016 pays 5 XP + 1 coin per first word find and stays service-role only');
+  assert(!/to (anon|authenticated|public);/.test(m16),'Migration 016 grants nothing to clients');
+}
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
 const swCatch=sw.slice(sw.indexOf('.catch('));

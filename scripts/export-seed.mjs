@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
-import { QUESTION_BANK, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, validateQuestionBank } from '../src/content.js';
+import { readFileSync } from 'node:fs';
+import { QUESTION_BANK, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, validateQuestionBank } from '../src/content.js';
 
 const errors=validateQuestionBank();
 if(errors.length)throw new Error(errors.join('\n'));
@@ -27,4 +28,11 @@ await writeFile(new URL('../supabase/migrations/202610050011_add_200_more_questi
 const added015=QUESTION_BANK.slice(start011+MIGRATION_011_COUNT,start011+MIGRATION_011_COUNT+MIGRATION_015_COUNT);
 const migration015=added015.map(q=>insert(q)+' on conflict (id) do nothing;').join('\n');
 await writeFile(new URL('../supabase/migrations/202610050015_add_five_categories.sql',import.meta.url),`-- Migration 015: add ${added015.length} reviewed questions in five new categories (${added015[0]?.id} to ${added015.at(-1)?.id}).\n-- Medical, Math, Physics, Chemistry and Biology, 20 each. Additive only; approved by the owner on 5 Oct 2026.\n-- Requires migrations 001-014, which are already applied and must not be rerun.\n-- Applied only by .github/workflows/apply-migration-015.yml through the Supabase Management API query endpoint.\nbegin;\n${migration015}\ncommit;\n`);
+// Migration 016: 250 additive questions (10 per category) plus the owner-approved word reward (5 XP + 1 coin on a first find).
+const start016=start011+MIGRATION_011_COUNT+MIGRATION_015_COUNT;
+const added016=QUESTION_BANK.slice(start016,start016+MIGRATION_016_COUNT);
+const migration016=added016.map(q=>insert(q)+' on conflict (id) do nothing;').join('\n');
+const function016=readFileSync(new URL('./migration-016-function.sql',import.meta.url),'utf8');
+await writeFile(new URL('../supabase/migrations/202610060016_questions_and_word_reward.sql',import.meta.url),`-- Migration 016: add ${added016.length} reviewed questions (${added016[0]?.id} to ${added016.at(-1)?.id}), 10 in each of the 25 categories,\n-- and change the Letters to Words reward to 5 XP + 1 coin the first time a player finds a word (repeats pay nothing).\n-- Additive questions plus one create-or-replace of bq_record_word; approved by the owner on 6 Oct 2026.\n-- Requires migrations 001-015, which are already applied and must not be rerun.\n-- Applied only by .github/workflows/apply-migration-016.yml through the Supabase Management API query endpoint.\nbegin;\n${migration016}\n${function016}commit;\n`);
+console.log(`Migration 016: ${added016.length} questions and the word reward function.`);
 console.log(`Wrote ${QUESTION_BANK.length} validated seed questions, Migration 009 with ${added.length} rows (unchanged), Migration 010 with ${added010.length} rows (unchanged), Migration 011 with ${added011.length} rows (unchanged), and Migration 015 with ${added015.length} new rows.`);
