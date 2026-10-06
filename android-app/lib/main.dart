@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -124,8 +125,22 @@ class _QuizWebViewState extends State<QuizWebView> {
     if (platform is AndroidWebViewController) {
       AndroidWebViewController.enableDebugging(kDebugMode);
       platform.setAllowFileAccess(false);
+      // Settings > Send feedback can attach a screenshot: the page's <input type="file" accept="image/*">
+      // opens the system photo picker (no storage permission). Only the chosen image is handed to the page.
+      platform.setOnShowFileSelector(_pickImageForPage);
     }
     _controller.loadRequest(Uri.parse(kLiveUrl));
+  }
+
+  Future<List<String>> _pickImageForPage(FileSelectorParams params) async {
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 2000, maxHeight: 2000, imageQuality: 85);
+      if (picked == null) return <String>[];
+      return <String>[Uri.file(picked.path).toString()];
+    } catch (_) {
+      _say('The screenshot could not be opened. Please try again.');
+      return <String>[];
+    }
   }
 
   Future<NavigationDecision> _onNavigationRequest(NavigationRequest request) async {

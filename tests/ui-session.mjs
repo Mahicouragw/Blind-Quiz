@@ -338,5 +338,40 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   console.log('ok 16 options labelled A-D ("Option B: …"), progress spoken once, repeat reads the options, A-D keys choose');
 }
 // Legal pages
+{ // 18. Settings > Send feedback: name check, problem screenshot prompt, send; admin inbox for Goldfish only.
+  const sent=[];const shot='data:image/jpeg;base64,/9j/AAAA';
+  const items=[{id:7,name:'Asha',kind:'problem',message:'The timer froze.\nOn question 3.',hasScreenshot:true,createdAt:'2026-10-06T10:00:00Z',read:false},{id:6,name:'Ravi',kind:'idea',message:'More music please',hasScreenshot:false,createdAt:'2026-10-05T10:00:00Z',read:true}];
+  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});return json(400,{ok:false,code:'invalid_request'})};
+  let s=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,80));
+  assert.equal(s.d.querySelector('#feedback-signin').hidden,false);assert.equal(s.d.querySelector('#feedback-name-form').hidden,true);assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true);
+  s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,loginId:'ABCDEFGH'}},fetchImpl:api(false)});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,120));
+  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true,'players never see the inbox');
+  const nf=s.d.querySelector('#feedback-name-form'),ff=s.d.querySelector('#feedback-form'),st=s.d.querySelector('#feedback-status');
+  assert.equal(nf.hidden,false);assert.equal(ff.hidden,true);
+  s.d.querySelector('#feedback-name').value='Someone Else';nf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));
+  assert.match(st.textContent,/does not match your account/);assert.equal(ff.hidden,true,'a wrong name cannot continue');
+  s.d.querySelector('#feedback-name').value='  asha ';nf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));
+  assert.equal(ff.hidden,false);assert.equal(nf.hidden,true);assert.match(st.textContent,/Name checked/);
+  const prob=ff.querySelector('input[value="problem"]');prob.checked=true;prob.dispatchEvent(new s.w.Event('change',{bubbles:true}));
+  assert.equal(s.d.querySelector('#feedback-shot-box').hidden,false);assert.match(s.d.querySelector('.feedback-shot-ask').textContent,/add a screenshot/);
+  s.d.querySelector('#feedback-message').value='hi';ff.dispatchEvent(new s.w.Event('submit',{cancelable:true}));assert.match(st.textContent,/at least 5/);
+  s.d.querySelector('#feedback-message').value='The timer froze on question 3.';ff.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+  const fb=sent.find(b=>b.action==='submit-feedback');assert.deepEqual({name:fb.name,kind:fb.kind,message:fb.message,shot:'screenshot' in fb},{name:'asha',kind:'problem',message:'The timer froze on question 3.',shot:false});
+  assert.match(st.textContent,/Thank you! Your feedback was sent/);assert.equal(ff.hidden,true);assert.equal(nf.hidden,false);assert.equal(s.d.querySelector('#feedback-name').value,'','the name is asked again next time');
+  // Admin (Goldfish) sees the inbox, opens it, and views a screenshot.
+  sent.length=0;s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:api(true)});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,120));
+  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,false,'the admin sees the inbox entry');
+  s.d.querySelector('#open-inbox').click();await new Promise(r=>setTimeout(r,120));
+  assert.equal(s.d.querySelector('#view-inbox').hidden,false);const lis=s.d.querySelectorAll('#inbox-list li');assert.equal(lis.length,2);
+  assert.equal(lis[0].querySelector('h2').textContent,'Problem report from Asha');assert.match(lis[0].querySelector('.inbox-meta').textContent,/New · Screenshot attached/);assert.equal(lis[0].querySelector('.inbox-message').textContent,'The timer froze.\nOn question 3.');
+  assert.equal(s.d.querySelector('#inbox-summary').textContent,'2 messages, 1 new.');assert(!lis[1].querySelector('button'),'read items without a screenshot need no button');
+  lis[0].querySelector('button').click();await new Promise(r=>setTimeout(r,80));
+  const img=lis[0].querySelector('img.inbox-shot');assert(img&&img.getAttribute('src')===shot&&img.alt==='Screenshot sent by Asha');assert.equal(s.d.querySelector('#inbox-summary').textContent,'2 messages, 0 new.');
+  assert.deepEqual(sent.find(b=>b.action==='feedback-item'),{action:'feedback-item',id:7});
+  console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

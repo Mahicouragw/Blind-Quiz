@@ -36,6 +36,9 @@ const PROFILE_COLS='id,display_name,login_id,secret_question,name_change_count,n
 const cooldownDays=(n:number)=>n<=0?0:n===1?7:n===2?14:n===3?30:60;
 async function session(req:Request){const token=(req.headers.get('authorization')??'').replace(/^Bearer\s+/i,'').trim();if(token.length<35)return null;const tokenHash=await digest(token);const {data,error}=await admin.from('bq_sessions').select(`id,profile_id,expires_at,revoked_at,bq_profiles(${PROFILE_COLS})`).eq('token_hash',tokenHash).gt('expires_at',new Date().toISOString()).is('revoked_at',null).maybeSingle();if(error||!data)return null;return {row:data,profile:Array.isArray(data.bq_profiles)?data.bq_profiles[0]:data.bq_profiles}}
 function publicProfile(p:any){const changes=p.name_change_count??0;return {name:p.display_name,loginId:p.login_id,secretQuestion:p.secret_question,nameChangeCount:changes,nextNameChangeAt:p.name_changed_at?new Date(Date.parse(p.name_changed_at)+cooldownDays(changes)*86400000).toISOString():null,xp:p.xp,coins:p.coins,level:p.level,currentStreak:p.current_streak,bestStreak:p.best_streak,questionsAnswered:p.questions_answered,questionsCorrect:p.questions_correct,quizzesCompleted:p.quizzes_completed}}
+// Admin = a row in bq_admins (Migration 017: the owner's Goldfish account). Missing table or row means not an admin.
+async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
+const SCREENSHOT=/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 async function handler(req:Request){
  const origin=req.headers.get('origin');if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors(origin)});if(req.method!=='POST')return json({ok:false,code:'method_not_allowed'},405,origin);if(origin&&!ALLOWED_ORIGINS.has(origin))return json({ok:false,code:'origin_not_allowed'},403,origin);
  const key=req.headers.get('apikey')??'';if(!key.startsWith('sb_publishable_'))return json({ok:false,code:'unauthorized'},401,origin);
@@ -75,11 +78,11 @@ async function handler(req:Request){
    if(!await permit(req,'login',`${normalized}:${loginId}`,7,900)||!await permitAccount('login',`${normalized}:${loginId}`,20,3600))return json({ok:false,code:'rate_limited'},429,origin);
    const {data:p}=await admin.from('bq_profiles').select(`${PROFILE_COLS},last_login_at,answer_salt,answer_hash`).eq('name_normalized',normalized).eq('login_id',loginId).maybeSingle();
    const candidate=await answerHash(answer,p?.answer_salt??'00000000000000000000000000000000');if(!p||!constantTimeEqual(candidate,p.answer_hash))return json({ok:false,code:'invalid_credentials'},401,origin);
-   const firstLogin=!p.last_login_at,nowIso=new Date().toISOString();await admin.from('bq_sessions').delete().eq('profile_id',p.id).or(`expires_at.lt.${nowIso},revoked_at.not.is.null`);await admin.from('bq_profiles').update({last_login_at:new Date().toISOString()}).eq('id',p.id);const raw=tokenText(randomBytes(32)),tokenHash=await digest(raw),expiresAt=new Date(Date.now()+7*86400000).toISOString();const {error}=await admin.from('bq_sessions').insert({profile_id:p.id,token_hash:tokenHash,expires_at:expiresAt});if(error){console.error('Session create failed',error.code);return json({ok:false,code:'service_error'},500,origin)}return json({ok:true,firstLogin,token:raw,expiresAt,profile:publicProfile(p)},200,origin);
+   const firstLogin=!p.last_login_at,nowIso=new Date().toISOString();await admin.from('bq_sessions').delete().eq('profile_id',p.id).or(`expires_at.lt.${nowIso},revoked_at.not.is.null`);await admin.from('bq_profiles').update({last_login_at:new Date().toISOString()}).eq('id',p.id);const raw=tokenText(randomBytes(32)),tokenHash=await digest(raw),expiresAt=new Date(Date.now()+7*86400000).toISOString();const {error}=await admin.from('bq_sessions').insert({profile_id:p.id,token_hash:tokenHash,expires_at:expiresAt});if(error){console.error('Session create failed',error.code);return json({ok:false,code:'service_error'},500,origin)}return json({ok:true,firstLogin,token:raw,expiresAt,profile:{...publicProfile(p),isAdmin:await isAdmin(p.id)}},200,origin);
   }
   const auth=await session(req);if(!auth)return json({ok:false,code:'session_expired'},401,origin);const profileId=auth.profile.id;
   if(body.action==='logout'){await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('id',auth.row.id);return json({ok:true},200,origin)}
-  if(body.action==='profile')return json({ok:true,profile:publicProfile(auth.profile)},200,origin);
+  if(body.action==='profile')return json({ok:true,profile:{...publicProfile(auth.profile),isAdmin:await isAdmin(profileId)}},200,origin);
   if(body.action==='record-answer'){
    const questionId=clean(body.questionId,100),choice=clean(body.choice,250);if(!questionId||!choice)return json({ok:false,code:'invalid_request'},400,origin);if(!await permit(req,'answer',profileId,180,86400))return json({ok:false,code:'rate_limited'},429,origin);
    const {data,error}=await admin.rpc('bq_record_answer',{p_profile_id:profileId,p_question_id:questionId,p_choice:choice});if(error){console.error('Answer record failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return json({ok:true,...data},200,origin);
@@ -105,6 +108,23 @@ async function handler(req:Request){
    if(!await permitAccount('word',profileId,400,86400))return json({ok:false,code:'rate_limited'},429,origin);
    const {data,error}=await admin.rpc('bq_record_word',{p_profile_id:profileId,p_word:word});if(error){console.error('Word record failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!data?.valid)return json({ok:true,valid:false,xp:0,coins:0},200,origin);return json({ok:true,valid:true,alreadyFound:data.alreadyFound,xp:data.xp,coins:data.coins,profile:{...publicProfile(auth.profile),...data.profile}},200,origin);
+  }
+  // Settings > Send feedback: the typed name must be the signed-in account's own name; the screenshot is an optional image data URL.
+  if(body.action==='submit-feedback'){
+   const name=clean(body.name,40),kind=clean(body.kind,10),message=typeof body.message==='string'?body.message.normalize('NFKC').trim().slice(0,2000):'',shot=typeof body.screenshot==='string'&&body.screenshot?body.screenshot:null;
+   if(!['feedback','problem','idea'].includes(kind)||message.length<5||(shot&&(shot.length>900000||!SCREENSHOT.test(shot))))return json({ok:false,code:'invalid_request'},400,origin);
+   if(normalize(name)!==normalize(auth.profile.display_name))return json({ok:false,code:'name_mismatch'},403,origin);
+   if(!await permitAccount('feedback',profileId,8,86400))return json({ok:false,code:'rate_limited'},429,origin);
+   const {error}=await admin.from('bq_feedback').insert({profile_id:profileId,name:auth.profile.display_name,kind,message,screenshot:shot});if(error){console.error('Feedback save failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return json({ok:true},201,origin);
+  }
+  // Admin feedback inbox: list without screenshots; opening one item returns its screenshot and marks it read.
+  if(body.action==='feedback-inbox'||body.action==='feedback-item'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(body.action==='feedback-inbox'){const {data,error}=await admin.from('bq_feedback').select('id,name,kind,message,has_screenshot,created_at,read_at').order('created_at',{ascending:false}).limit(200);if(error){console.error('Feedback inbox failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+    return json({ok:true,unread:data.filter((f:any)=>!f.read_at).length,items:data.map((f:any)=>({id:f.id,name:f.name,kind:f.kind,message:f.message,hasScreenshot:f.has_screenshot,createdAt:f.created_at,read:!!f.read_at}))},200,origin)}
+   const id=Number(body.id);if(!Number.isSafeInteger(id)||id<1)return json({ok:false,code:'invalid_request'},400,origin);
+   const {data,error}=await admin.from('bq_feedback').update({read_at:new Date().toISOString()}).eq('id',id).select('id,screenshot').maybeSingle();if(error){console.error('Feedback item failed',error.code);return json({ok:false,code:'service_error'},503,origin)}if(!data)return json({ok:false,code:'invalid_request'},404,origin);
+   return json({ok:true,id:data.id,screenshot:data.screenshot},200,origin);
   }
   if(body.action==='submit-report'){
    const questionId=clean(body.questionId,100),reason=clean(body.reason,20),details=clean(body.details,500);if(!questionId||!['incorrect','ambiguous','language','duplicate','inappropriate','other'].includes(reason))return json({ok:false,code:'invalid_request'},400,origin);if(!await permitAccount('report',profileId,20,86400))return json({ok:false,code:'rate_limited'},429,origin);const {error}=await admin.from('bq_question_reports').insert({profile_id:profileId,question_id:questionId,reason,details});if(error)return json({ok:false,code:error.code==='23503'?'invalid_request':'service_error'},error.code==='23503'?400:503,origin);return json({ok:true},201,origin);

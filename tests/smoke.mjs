@@ -137,7 +137,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v15'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v15 and caches the Migration 016 questions');
+assert(sw.includes("const CACHE='blind-quiz-shell-v16'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Migration 016 - 250 questions (10 per category) and the 5 XP + 1 coin word reward.
   const { readFileSync } = await import('node:fs');
   const { MIGRATION_016_ROWS } = await import('../src/questions-016.js');
