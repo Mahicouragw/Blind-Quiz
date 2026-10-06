@@ -258,7 +258,7 @@ Built in stages, each pushed and verified live: **A** notifications and feedback
   - This covers back buttons, the logo and the Android or browser Back button. Finishing a round never asks.
   - Tests: jsdom tests 10 and 15 (Stay and Exit), plus a smoke check.
 - [x] **19.7 Rooms (stage D, Migration 021).** Multiplayer has a Rooms tab. Three public rooms are always there: Blind Quiz, Word Lovers and Sound Lounge. The list shows each room's name, number of games and number of players inside.
-  - Anyone can make up to five rooms of their own, public or private. Private rooms are hidden and open only to the owner and friends they invite. Invitations arrive as notifications that open the room.
+  - Anyone can make rooms of their own, public or private, with no limit on how many (Migration 022; at most 10 new rooms an hour against spam, and rooms nobody has entered for 30 days are removed; the three default rooms always stay). Private rooms are hidden and open only to the owner and friends they invite. Invitations arrive as notifications that open the room.
   - Inside a room: who is there, room chat, the game list (Join and play, Watch) and Create a game: Quiz (any category and mode), Letters to Words, or Sound Match (Easy, Medium, Hard). Up to six players per game.
   - Watching live: each player's game sends what it announces (questions with options, verdicts, Letters and Sound Match messages), its recorded sound effects, Sound Match sounds and the score. Spectators hear them through their own speech and sound settings, read a live log and scoreboard, and can comment.
   - Send a match (friends only) opens a private two-player room and sends a game invite notification.

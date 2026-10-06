@@ -45,7 +45,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
     : code === 'game_finished' ? 'This game has already finished.'
     : code === 'not_friends' ? 'You can only invite friends. Send a friend request first.'
     : code === 'player_unavailable' ? 'No player with that name was found.'
-    : code === 'too_many_requests' ? 'You have reached the limit. You can have up to five rooms of your own.'
+    : code === 'too_many_requests' ? 'You have created a lot in the last hour. Please wait a little and try again.'
     : code === 'session_expired' ? 'Your session has ended. Please sign in again.'
     : code === 'unknown_action' ? 'Rooms are still being switched on for everyone. Please try again a little later.'
     : 'Something went wrong. Please try again.';

@@ -96,5 +96,20 @@ if (await j(`select to_regclass('public.bq_rooms') is not null`)) {
   ok(m1.ok && m1.roomId === m2.roomId && (await j(`select bq_room_state($1,$2,null)`, [b, m1.roomId])).ok && (await j(`select bq_match_invite($1,'carol')`, [a])).code === 'not_friends', 'match invite: friends only, one private room reused');
   ok((await j(`select bq_room_remove($1,$2)`, [dd, pub])).code === 'forbidden' && (await j(`select bq_room_remove($1,$2)`, [a, priv])).ok, 'only owners remove their own rooms; defaults stay');
 }
+// Migration 022: no five-room cap; 10 per hour against spam; rooms unused for 30 days are removed, default rooms never.
+if (await j(`select to_regclass('public.bq_rooms') is not null`)) {
+  const ee = await mk('Erin');
+  const made = [];
+  for (let i = 0; i < 10; i++) made.push(await j(`select bq_room_create($1,$2,true)`, [ee, `Erin room ${i}`]));
+  ok(made.every(r => r.ok), 'more than five rooms per player');
+  ok((await j(`select bq_room_create($1,'One too many',true)`, [ee])).code === 'too_many_requests', 'at most 10 new rooms per hour');
+  await q(`update public.bq_rooms set created_at = now() - interval '40 days' where owner_id = $1 and name in ('Erin room 0','Erin room 1')`, [ee]);
+  await q(`update public.bq_rooms set created_at = now() - interval '40 days' where is_default`);
+  await q(`insert into public.bq_room_members (room_id, profile_id, last_seen_at) select id, $1, now() - interval '2 days' from public.bq_rooms where name = 'Erin room 1'`, [ee]);
+  await q(`update public.bq_rooms set created_at = now() - interval '2 hours' where owner_id = $1 and name not in ('Erin room 0','Erin room 1')`, [ee]);
+  ok((await j(`select bq_room_create($1,'Fresh room',true)`, [ee])).ok, 'creating works again after an hour');
+  const left = (await q(`select name from public.bq_rooms where owner_id = $1 or is_default`, [ee])).map(r => r.name);
+  ok(!left.includes('Erin room 0') && left.includes('Erin room 1') && ['Blind Quiz', 'Word Lovers', 'Sound Lounge'].every(n => left.includes(n)), 'unused rooms are removed after 30 days; used and default rooms stay');
+}
 if (failed) process.exit(1);
 console.log('PASS database dry run');
