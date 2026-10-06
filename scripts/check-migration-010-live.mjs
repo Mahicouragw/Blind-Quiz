@@ -26,11 +26,14 @@ if (!login.body?.token) { console.error(`::error::login failed: status ${login.s
 const sample = ['bq-en-0667', 'bq-en-0766', 'bq-en-0866'].map(id => QUESTION_BANK.find(q => q.id === id));
 let failed = 0;
 for (const q of sample) {
-  const r = await post({ action: 'record-answer', questionId: q.id, choice: q.correctAnswer }, login.body.token);
+  // A transient network blip must read as a failed attempt, not crash the check.
+  let r; try { r = await post({ action: 'record-answer', questionId: q.id, choice: q.correctAnswer }, login.body.token); }
+  catch { r = { status: 0, body: { code: 'network' } }; }
   const ok = r.body?.ok === true && r.body.correct === true && Number(r.body.xp) > 0 && Number(r.body.coins) > 0 && r.body.answer === q.correctAnswer;
   if (!ok) failed++;
   out(`${ok ? 'PASS' : 'FAIL'} ${q.id} (${q.category}): status ${r.status}, code ${r.body?.code ?? 'ok'}, correct=${r.body?.correct}, xp=${r.body?.xp}, coins=${r.body?.coins}`);
 }
-await post({ action: 'logout' }, login.body.token);
+// The result is already decided; a failed logout must never crash the script after a PASS.
+await post({ action: 'logout' }, login.body.token).catch(() => {});
 out(`${failed ? 'FAIL' : 'PASS'}: ${sample.length - failed}/${sample.length} Migration 010 questions award XP and coins.`);
 process.exit(failed ? 1 : 0);

@@ -31,7 +31,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 for (const q of sample) {
   let r;
   for (let attempt = 1; attempt <= 16; attempt++) {
-    r = await post({ action: 'record-answer', questionId: q.id, choice: q.correctAnswer }, login.body.token);
+    // A transient network blip must read as a failed attempt, not crash the check.
+    try { r = await post({ action: 'record-answer', questionId: q.id, choice: q.correctAnswer }, login.body.token); }
+    catch { r = { status: 0, body: { code: 'network' } }; }
     if (r.body?.ok === true || attempt === 16) break;
     console.log(`  ${q.id} not available yet (status ${r.status}, code ${r.body?.code}); retry ${attempt} in 15s`);
     await sleep(15000);
@@ -40,6 +42,7 @@ for (const q of sample) {
   if (!ok) failed++;
   out(`${ok ? 'PASS' : 'FAIL'} ${q.id} (${q.category}): status ${r.status}, code ${r.body?.code ?? 'ok'}, correct=${r.body?.correct}, xp=${r.body?.xp}, coins=${r.body?.coins}`);
 }
-await post({ action: 'logout' }, login.body.token);
+// The result is already decided; a failed logout must never crash the script after a PASS.
+await post({ action: 'logout' }, login.body.token).catch(() => {});
 out(`${failed ? 'FAIL' : 'PASS'}: ${sample.length - failed}/${sample.length} Migration 011 questions award XP and coins.`);
 process.exit(failed ? 1 : 0);
