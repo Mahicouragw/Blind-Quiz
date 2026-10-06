@@ -205,3 +205,12 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .inbox-reply .button,.announce-box .button{margin-top:10px}.announce-box,.notif-settings,.my-feedback{margin-top:34px;padding-top:18px;border-top:1px solid var(--line)}
 .mp-glyph{font-size:2.6rem}
 @media(max-width:560px){.notif-button{padding-inline:10px;font-size:.85rem}}
+/* Task 19 stage C: encrypted chat. */
+.chat-e2ee{font-size:.9rem}.chat-safety-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:6px 0 14px}
+.chat-safety{margin:0;font:700 .95rem/1.4 ui-monospace,monospace;letter-spacing:.06em;color:var(--blue)}
+.chat-warning{padding:14px;border-left:4px solid var(--coral);background:#ff8c7218;border-radius:4px 12px 12px 4px;margin:10px 0}
+.chat-log{list-style:none;padding:0;margin:16px 0;display:flex;flex-direction:column;gap:8px;max-height:min(60vh,520px);overflow-y:auto}
+.chat-msg{max-width:85%;padding:10px 14px;border-radius:16px 16px 16px 4px;background:var(--panel2);border:1px solid var(--line);overflow-wrap:anywhere;white-space:pre-wrap}
+.chat-msg.mine{align-self:flex-end;border-radius:16px 16px 4px 16px;background:#d6ff5f1a;border-color:#d6ff5f66}
+.chat-who{display:block;font-size:.78rem;color:var(--muted);font-weight:700}.chat-locked{font-style:italic;color:var(--muted)}.chat-read{font-size:.75rem;color:var(--muted)}
+#chat-form textarea{width:100%;color:var(--ink);background:#111e28;border:1px solid #667985;border-radius:12px;padding:12px 14px;font:inherit}#chat-form .button{margin-top:10px}

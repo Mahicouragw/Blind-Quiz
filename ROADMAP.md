@@ -241,5 +241,18 @@ Built in stages, each pushed and verified live: **A** notifications and feedback
   - **A card never contains the Login ID, the secret question or any hash.** This is checked in SQL, in smoke, in jsdom and in the live API.
   - A match needs friendship first. If the players are not friends, the card says so and offers "Add friend: send a friend request". The other player sees "X sent you a friend request" with Accept and Reject.
   - A request sent back to someone who already asked you accepts their request. At most 50 requests can be waiting at once.
+- [x] **19.5 End-to-end encrypted private messages between friends (Migration 020).** Friends can open a chat from a player card, from the Friends list, or from a message notification. Messages are encrypted on the device before sending, with WebCrypto and no libraries.
+  - Each device makes its own ECDH P-256 key pair. The private key is non-extractable and kept in IndexedDB; only the public key goes to the server. Up to 4 devices per account are active.
+  - Each message is sealed separately for every active device of both friends, using ECDH, then HKDF-SHA-256 with a random salt, then AES-256-GCM. The sender and recipient device IDs are bound into the key derivation and the authenticated data.
+  - **The server stores only public keys and ciphertext.** The messages table has no text column. The API accepts only sealed boxes and refuses plain text. The apply workflow checks that there is no plaintext column.
+  - Tampering is detected: a changed message fails AES-GCM verification and is hidden with "could not be verified", never shown altered.
+  - The chat shows a 30-digit safety code for friends to compare, and a "Read the safety code slowly" button. Keys are pinned on first use, both the friend's and your own other devices. A new or changed key shows a warning, and nothing can be sent until the player confirms.
+  - Honest limit: a new device cannot read messages that arrived before it was set up; the chat says so. Only friends can message, and new messages notify the friend once per sender.
+  - Tests:
+    - PGlite: 15 database checks.
+    - Smoke: real WebCrypto seal and open; rejection of tampering, a swapped key and the wrong device; the safety code; key pinning.
+    - jsdom test 21: the full chat against a relay that sees only ciphertext.
+    - Live API: 4 checks with two accounts.
+  - Offline cache v19.
 - API: social actions go through one table in `blind-quiz-api`. Each row is a database function, an argument check and a per-account hourly limit; admin-only rows are checked against `bq_admins`. Other players are addressed by display name only.
 - Tests: smoke (Task 19 block), jsdom test 20 (plus admin reply and announcement in test 18), and 7 new live API checks run with two real accounts. Offline cache v18.

@@ -138,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v18'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v19'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -350,4 +350,34 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(soc.includes('To send ${p.name} a match, you need to be friends first.') && soc.includes("act('friend-request'"), 'matches need friendship; Add friend sends a request');
   assert(JSON.parse(r('scripts/audio/sources.json')).sfx.notify?.mixkitId === 253, 'notification chime is a pinned Mixkit recording');
   console.log('PASS: Task 19 notifications, feedback replies, player cards and friends (private by design).');
+}
+// Task 19 stage C: end-to-end encryption with real WebCrypto (Node has the same API as browsers).
+{
+  const { readFileSync } = await import('node:fs');
+  const E = await import('../src/e2ee.js');
+  const alice = await E.deviceKey(E.memoryStore(), 'A'), bob = await E.deviceKey(E.memoryStore(), 'B'), bob2 = await E.deviceKey(E.memoryStore(), 'B2'), eve = await E.deviceKey(E.memoryStore(), 'E');
+  assert(/^[A-Za-z0-9+/]{87}=$/.test(alice.publicKey) && alice.privateKey.extractable === false, 'device public key is raw P-256 base64; the private key is non-extractable');
+  const store = E.memoryStore(); const k1 = await E.deviceKey(store, 'X'), k2 = await E.deviceKey(store, 'X'); assert(k1.deviceId === k2.deviceId, 'the device key is kept');
+  const boxes = await E.seal('Meet in room Blind Quiz at 7?', alice, [bob, bob2, alice]);
+  assert.deepEqual(Object.keys(boxes).sort(), [bob.deviceId, bob2.deviceId, alice.deviceId].sort(), 'one sealed box per device');
+  assert(!JSON.stringify(boxes).includes('Meet'), 'ciphertext only');
+  assert.equal((await E.open(boxes[bob.deviceId], bob, alice.deviceId, alice.publicKey)).t, 'Meet in room Blind Quiz at 7?');
+  assert.equal((await E.open(boxes[bob2.deviceId], bob2, alice.deviceId, alice.publicKey)).t, 'Meet in room Blind Quiz at 7?');
+  assert.equal((await E.open(boxes[alice.deviceId], alice, alice.deviceId, alice.publicKey)).t, 'Meet in room Blind Quiz at 7?', 'the sender can read its own copy');
+  const rejects = async f => { try { await f(); return false; } catch { return true; } };
+  assert(await rejects(() => E.open(boxes[bob.deviceId], eve, alice.deviceId, alice.publicKey)), 'another device cannot open the box');
+  const flipped = { ...boxes[bob.deviceId], ct: (() => { const b = E.unb64(boxes[bob.deviceId].ct); b[3] ^= 1; return E.b64(b); })() };
+  assert(await rejects(() => E.open(flipped, bob, alice.deviceId, alice.publicKey)), 'a changed message fails verification');
+  assert(await rejects(() => E.open(boxes[bob.deviceId], bob, alice.deviceId, eve.publicKey)), 'a swapped sender key fails');
+  assert(await rejects(() => E.open(boxes[bob.deviceId], bob, bob2.deviceId, alice.publicKey)), 'the box is bound to its sender device id');
+  const c1 = await E.safetyCode([alice.publicKey], [bob.publicKey, bob2.publicKey]), c2 = await E.safetyCode([bob2.publicKey, bob.publicKey], [alice.publicKey]);
+  assert(c1 === c2 && /^(\d{5} ){5}\d{5}$/.test(c1) && c1 !== await E.safetyCode([alice.publicKey], [bob.publicKey, eve.publicKey]), 'safety code is the same on both sides and changes with the keys');
+  const ls = { m: {}, getItem(k) { return this.m[k] ?? null; }, setItem(k, v) { this.m[k] = v; } }; const pins = E.keyPins(ls, 'acct');
+  assert(pins.check('Bob', ['k1']).firstTime); pins.accept('Bob', ['k1']); assert(!pins.check('bob', ['k1']).changed && pins.check('Bob', ['k1', 'k2']).changed, 'key pinning warns about new keys');
+  const chat = readFileSync(new URL('../src/chat.js', import.meta.url), 'utf8'), api = readFileSync(new URL('../supabase/functions/blind-quiz-api/index.ts', import.meta.url), 'utf8'), m20 = readFileSync(new URL('../supabase/migrations/202610060020_private_messages.sql', import.meta.url), 'utf8');
+  assert(!/callApi\('send-message',\s*\{[^}]*\btext\b/.test(chat) && /callApi\('send-message', \{ name: friend, deviceId: me\.deviceId, boxes \}\)/.test(chat), 'only sealed boxes are sent, never the text');
+  assert(!/\b(body|plaintext|message)\s+text\b/i.test(m20.slice(m20.indexOf('create table if not exists public.bq_messages'), m20.indexOf('create index if not exists bq_messages_pair_idx'))), 'the messages table has no plaintext column');
+  assert(/'send-message':\['bq_send_message',boxesArg,300\]/.test(api) && /'message-keys':\['bq_message_keys',nameArg,600\]/.test(api), 'message API actions');
+  assert(/Send \$\{p\.name\} a private message/.test(readFileSync(new URL('../src/social.js', import.meta.url), 'utf8')), 'friends can open a private chat from the card');
+  console.log('PASS: Task 19 end-to-end encrypted private messages (real WebCrypto: seal, open, tamper and key-swap rejection, safety code, key pinning).');
 }

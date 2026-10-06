@@ -457,5 +457,45 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.deepEqual(sent.find(b=>b.action==='set-notifications'),{action:'set-notifications',enabled:false});
   console.log('ok 20 notifications bell, Accept/Reject friend requests, feedback replies, online players, private player card with achievements, friends-first matches, notification switch');
 }
+// 21. Task 19 stage C: encrypted chat UI with real WebCrypto against a relay that only stores sealed boxes.
+{
+  const tick=()=>new Promise(r=>setTimeout(r,80));
+  const E=await import(ROOT+'src/e2ee.js');const {createChat}=await import(ROOT+'src/chat.js');
+  const t21=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(200,{ok:true,profile})});const {d}=t21;
+  const bob=await E.deviceKey(E.memoryStore(),'bob');let mine=null;const relay=[];let nextId=1;const said=[];let bobKeys=[bob];
+  const callApi=async(action,b)=>{
+    if(action==='register-device'){mine={deviceId:b.deviceId,publicKey:b.publicKey};return {ok:true}}
+    if(action==='message-keys')return {ok:true,theirs:bobKeys.map(k=>({deviceId:k.deviceId,publicKey:k.publicKey})),mine:[mine]};
+    if(action==='send-message'){assert(!JSON.stringify(b).includes('Hello Bob'),'the relay never sees the text');relay.push({id:nextId++,fromMe:true,createdAt:future,read:false,senderDevice:b.deviceId,senderKey:mine.publicKey,boxes:b.boxes});return {ok:true,id:nextId-1}}
+    if(action==='messages')return {ok:true,relation:'friends',messages:relay.filter(m=>m.id>(b.afterId||0)).map(m=>({...m,box:m.boxes[b.deviceId]||null}))};
+    throw new Error('unexpected '+action)};
+  const views=[];const chat=createChat({$:s=>d.querySelector(s),announce:x=>said.push(x),callApi,getSession:()=>({loginId:'ABCDEFGH',profile}),go:v=>{views.push(v);d.querySelectorAll('.view').forEach(x=>x.hidden=x.id!==`view-${v}`)},currentView:()=>views.at(-1),store:E.memoryStore(),pinsStorage:t21.w.localStorage});
+  // Bob already sent one message sealed for a device this browser does not have yet -> honest "other device" text.
+  relay.push({id:nextId++,fromMe:false,createdAt:future,read:true,senderDevice:bob.deviceId,senderKey:bob.publicKey,boxes:{}});
+  await chat.openChat('Bob');await tick();
+  assert.equal(d.querySelector('#view-chat').hidden,false);assert.equal(d.querySelector('#chat-title').textContent,'Chat with Bob');
+  assert.match(d.querySelector('#chat-safety').textContent,/^Safety code: (\d{5} ){5}\d{5}$/);
+  assert.match(d.querySelector('#chat-log').textContent,/only be read on the other device/);
+  d.querySelector('#chat-text').value='Hello Bob, ready for a match?';d.querySelector('#chat-form').dispatchEvent(new t21.w.Event('submit',{cancelable:true}));await tick();await tick();
+  const sent=relay.at(-1);assert.deepEqual(Object.keys(sent.boxes).sort(),[bob.deviceId,mine.deviceId].sort(),'sealed for Bob and for this device');
+  assert.equal((await E.open(sent.boxes[bob.deviceId],bob,mine.deviceId,mine.publicKey)).t,'Hello Bob, ready for a match?','Bob can open it');
+  assert.match(d.querySelector('#chat-log').textContent,/You, .*Hello Bob, ready for a match\?/);
+  // Bob replies; a second reply is tampered with on the server.
+  const reply=await E.seal('Yes! Room Blind Quiz.',bob,[mine]);relay.push({id:nextId++,fromMe:false,createdAt:future,read:false,senderDevice:bob.deviceId,senderKey:bob.publicKey,boxes:reply});
+  const bad=await E.seal('Send me your secret answer',bob,[mine]);const ct=E.unb64(bad[mine.deviceId].ct);ct[0]^=1;bad[mine.deviceId].ct=E.b64(ct);
+  relay.push({id:nextId++,fromMe:false,createdAt:future,read:false,senderDevice:bob.deviceId,senderKey:bob.publicKey,boxes:bad});
+  await new Promise(r=>setTimeout(r,4300));
+  const logText=d.querySelector('#chat-log').textContent;assert.match(logText,/Bob, .*Yes! Room Blind Quiz\./);assert.match(logText,/could not be verified, so it is hidden/);assert(!logText.includes('Send me your secret answer'),'tampered text is never shown');
+  assert(said.some(x=>x==='Bob says: Yes! Room Blind Quiz.'),'incoming messages are announced');
+  // Bob reinstalls: a new key -> warning, sending blocked until the player confirms the safety code.
+  const bobNew=await E.deviceKey(E.memoryStore(),'bob-new');bobKeys=[bobNew];await chat.openChat('Bob');await tick();
+  assert.equal(d.querySelector('#chat-warning').hidden,false);assert.match(d.querySelector('#chat-warning-text').textContent,/security key changed/);
+  const before=relay.length;d.querySelector('#chat-text').value='Is this really you?';d.querySelector('#chat-form').dispatchEvent(new t21.w.Event('submit',{cancelable:true}));await tick();
+  assert.equal(relay.length,before,'nothing is sent before the new key is confirmed');
+  d.querySelector('#chat-trust').click();d.querySelector('#chat-form').dispatchEvent(new t21.w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.equal(relay.length,before+1);assert(relay.at(-1).boxes[bobNew.deviceId]&&!relay.at(-1).boxes[bob.deviceId],'sealed for the new key only');
+  chat.stop();
+  console.log('ok 21 encrypted chat: safety code, honest other-device notice, sealed for both devices, tampered message hidden, incoming announced, key change blocks sending until confirmed');
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

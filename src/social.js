@@ -35,7 +35,7 @@ export function notificationText(n) {
   }
 }
 
-export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '' }) {
+export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {} }) {
   const bell = $('#notif-open');
   let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online';
   const signedIn = () => !!getSession()?.profile;
@@ -49,6 +49,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     : code === 'too_many_requests' ? 'You have many friend requests waiting for an answer. Please wait until some are answered.'
     : code === 'request_unavailable' ? 'That friend request is no longer waiting.'
     : code === 'session_expired' ? 'Your session has ended. Please sign in again.'
+    : code === 'unknown_action' ? 'Multiplayer is still being switched on for everyone. Please try again a little later.'
     : 'Something went wrong. Please try again.';
 
   // ---- Bell and heartbeat ----------------------------------------------------------------------
@@ -94,6 +95,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       row.append(button(`Accept ${n.actor}`, () => respond(n.actor, true, row), 'button button-hot'), button(`Reject ${n.actor}`, () => respond(n.actor, false, row)));
       li.append(row);
     } else if (n.kind === 'friend_request' && n.relation === 'friends') li.append(el('p', 'muted', 'Accepted.'));
+    if (n.kind === 'message' && n.actor) li.append(button(`Open chat with ${n.actor}`, () => openChat(n.actor), 'button button-outline'));
     if (n.actor && ['friend_request', 'friend_accepted'].includes(n.kind)) li.append(button(`Open ${n.actor}'s player card`, () => openCard(n.actor), 'text-button'));
     return li;
   }
@@ -150,7 +152,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       const incoming = d.incoming || [], friends = d.friends || [], outgoing = d.outgoing || [];
       $('#mp-incoming-title').hidden = !incoming.length; $('#mp-outgoing-title').hidden = !outgoing.length;
       $('#mp-incoming-list').replaceChildren(...incoming.map(p => { const row = el('div', 'notif-actions'); row.append(button(`Accept ${p.name}`, () => respond(p.name, true, row), 'button button-hot'), button(`Reject ${p.name}`, () => respond(p.name, false, row))); return playerItem({ ...p, relation: 'incoming' }, [row]); }));
-      $('#mp-friend-list').replaceChildren(...(friends.length ? friends.map(p => playerItem({ ...p, relation: 'friends' })) : [el('li', 'muted', 'No friends yet. Open a player card and choose Add friend.')]));
+      $('#mp-friend-list').replaceChildren(...(friends.length ? friends.map(p => playerItem({ ...p, relation: 'friends' }, [button(`Message ${p.name}`, () => openChat(p.name), 'button button-outline')])) : [el('li', 'muted', 'No friends yet. Open a player card and choose Add friend.')]));
       $('#mp-outgoing-list').replaceChildren(...outgoing.map(p => playerItem({ ...p, relation: 'outgoing' })));
       say(status, `${friends.length} friend${friends.length === 1 ? '' : 's'}${incoming.length ? `, ${incoming.length} friend request${incoming.length === 1 ? '' : 's'} waiting for you` : ''}.`);
     } catch (err) { say(status, errorText(err.message), true); }
@@ -198,7 +200,8 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       catch (err) { actions.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
     };
     if (p.relation === 'friends') {
-      actions.append(el('p', 'muted', `You and ${p.name} are friends. Matches and private messages with friends are coming in the next update.`));
+      actions.append(el('p', 'muted', `You and ${p.name} are friends.`));
+      actions.append(button(`Send ${p.name} a private message`, () => openChat(p.name), 'button button-hot'));
       actions.append(button(`Remove ${p.name} from friends`, act('friend-remove', () => `${p.name} was removed from your friends.`)));
     } else if (p.relation === 'incoming') {
       const row = el('div', 'notif-actions');

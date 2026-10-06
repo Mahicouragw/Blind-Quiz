@@ -329,7 +329,28 @@ const fAccept = await post({ action: 'friend-respond', name: NEW_NAME, accept: t
 const fList = await post({ action: 'friends' }, { token: wtok });
 const aNotes = await post({ action: 'notifications' }, { token: wtok });
 check('Friend request accepted: both are friends and the sender is notified', fAccept.body?.relation === 'friends' && (fList.body?.friends || []).some(f => f.name === OTHER_NAME) && (aNotes.body?.items || []).some(n => n.kind === 'friend_accepted' && n.actor === OTHER_NAME), `${codeOf(fAccept)}/${codeOf(fList)}`);
+// End-to-end encrypted messages (Migration 020): real WebCrypto keys; the server only relays sealed boxes.
+const E2 = await import('../src/e2ee.js');
+const devA = await E2.deviceKey(E2.memoryStore(), 'live-a'), devB = await E2.deviceKey(E2.memoryStore(), 'live-b');
+const regA = await post({ action: 'register-device', deviceId: devA.deviceId, publicKey: devA.publicKey }, { token: wtok });
+const regB = await post({ action: 'register-device', deviceId: devB.deviceId, publicKey: devB.publicKey }, { token: otok });
+const regSteal = await post({ action: 'register-device', deviceId: devA.deviceId, publicKey: devB.publicKey }, { token: otok });
+const mKeys = await post({ action: 'message-keys', name: OTHER_NAME }, { token: wtok });
+const SECRET_TEXT = `Live encrypted hello ${tokenish()}`;
+const sealed = await E2.seal(SECRET_TEXT, devA, [...(mKeys.body?.theirs || []), devA]);
+const mSend = await post({ action: 'send-message', name: OTHER_NAME, deviceId: devA.deviceId, boxes: sealed }, { token: wtok });
+const mForged = await post({ action: 'send-message', name: OTHER_NAME, deviceId: devB.deviceId, boxes: sealed }, { token: wtok });
+const mPlain = await post({ action: 'send-message', name: OTHER_NAME, deviceId: devA.deviceId, text: 'plain text' }, { token: wtok });
+const mInbox = await post({ action: 'messages', name: NEW_NAME, deviceId: devB.deviceId, afterId: null }, { token: otok });
+const got = (mInbox.body?.messages || []).at(-1);
+let opened = '';
+try { opened = (await E2.open(got.box, devB, got.senderDevice, got.senderKey)).t; } catch {}
+check('Encrypted messages: device keys register; a device id cannot be taken over', regA.body?.ok === true && regB.body?.ok === true && regSteal.status === 409 && (mKeys.body?.theirs || []).some(k => k.deviceId === devB.deviceId), `${codeOf(regA)}/${codeOf(regB)}/${codeOf(regSteal)}/${codeOf(mKeys)}`);
+check('Encrypted messages: the friend opens the sealed message; the server never received the text', mSend.body?.ok === true && opened === SECRET_TEXT && !mSend.text.includes(SECRET_TEXT) && !mInbox.text.includes(SECRET_TEXT) && got?.fromMe === false, `${codeOf(mSend)}/${codeOf(mInbox)}, opened=${opened === SECRET_TEXT}`);
+check('Encrypted messages: another person\'s device id and plain-text bodies are refused', mForged.status === 409 && mForged.body?.code === 'device_unknown' && mPlain.status === 400, `${codeOf(mForged)}/${codeOf(mPlain)}`);
 const fRemove = await post({ action: 'friend-remove', name: OTHER_NAME }, { token: wtok });
+const mAfter = await post({ action: 'send-message', name: OTHER_NAME, deviceId: devA.deviceId, boxes: sealed }, { token: wtok });
+check('Encrypted messages: only friends can message each other', mAfter.status === 409 && mAfter.body?.code === 'not_friends', `${codeOf(mAfter)}`);
 const cardAfter = await post({ action: 'player-card', name: OTHER_NAME }, { token: wtok });
 const readAll = await post({ action: 'notifications-read', ids: null }, { token: otok });
 check('Friends can be removed; notifications can be marked read', fRemove.body?.relation === 'none' && cardAfter.body?.player?.relation === 'none' && readAll.body?.unread === 0, `${codeOf(fRemove)}/${codeOf(readAll)}`);
@@ -341,7 +362,7 @@ const annNo = await post({ action: 'admin-announce', text: 'Live check announcem
 const replyNo = await post({ action: 'admin-feedback-reply', id: 1, reply: 'Live check reply' }, { token: wtok });
 const socialNoAuth = await post({ action: 'friends' });
 check('Announcements and feedback replies are admin only; social actions need a session', annNo.status === 403 && annNo.body?.code === 'forbidden' && replyNo.status === 403 && socialNoAuth.status === 401, `${codeOf(annNo)}/${codeOf(replyNo)}/${codeOf(socialNoAuth)}`);
-const socialResponses = [otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, fRemove, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
+const socialResponses = [otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
 for (const t of [tok, wtok, otok]) if (t) await post({ action: 'logout' }, { token: t });
 const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain, ...socialResponses.filter(r => r !== otherLogin)];
 check('Profile and word responses never contain hashes, salts, or the secret answers',
