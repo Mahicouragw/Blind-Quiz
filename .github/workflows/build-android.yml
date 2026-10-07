@@ -120,7 +120,8 @@ jobs:
           set -euo pipefail
           KS="$RUNNER_TEMP/release.jks"
           if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PASSWORD:-}" ]; then
-            printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+            printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > "$KS" 2>/dev/null \
+              || { echo "::error::ANDROID_KEYSTORE_BASE64 is set but is not valid base64 text. Select all and paste the value again, exactly as copied."; exit 1; }
             KEY_ALIAS="${KEY_ALIAS:-blindquiz}"
             KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
             echo "SIGNING_MODE=repository keystore (ANDROID_KEYSTORE_BASE64 secret)" >> "$GITHUB_ENV"
@@ -129,13 +130,22 @@ jobs:
             # needed is the short ANDROID_KEYSTORE_PASSWORD. The keystore itself is committed
             # encrypted (signing/release-keystore.b64, AES-256-CBC with PBKDF2, 200000 iterations),
             # so the public repository never contains the private key. The password is never printed.
-            base64 -d signing/release-keystore.b64 \
-              | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "pass:$KEYSTORE_PASSWORD" -out "$KS"
+            # Screen-reader copies often carry a trailing space or line break, so whitespace is ignored.
+            CLEAN_PW=$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '[:space:]')
+            if ! printf '%s' "$CLEAN_PW" | grep -qE '^[0-9a-f]{48}$'; then
+              echo "::error::ANDROID_KEYSTORE_PASSWORD is set but does not look right. It must be one line of exactly 48 characters (numbers 0-9 and letters a-f), with no spaces, quotes or line breaks. Open Settings, Secrets and variables, Actions, choose ANDROID_KEYSTORE_PASSWORD, press the pencil to update it, select all and paste the value again."
+              exit 1
+            fi
+            if ! base64 -d signing/release-keystore.b64 | openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass "pass:$CLEAN_PW" -out "$KS" 2>/dev/null; then
+              echo "::error::ANDROID_KEYSTORE_PASSWORD does not open this keystore. Paste the secret value again: one line, 48 characters, no spaces or quotes. If you typed it by hand, check every character."
+              exit 1
+            fi
+            KEYSTORE_PASSWORD="$CLEAN_PW"
             KEY_ALIAS=blindquiz
-            KEY_PASSWORD="$KEYSTORE_PASSWORD"
+            KEY_PASSWORD="$CLEAN_PW"
             echo "SIGNING_MODE=repository keystore (committed, encrypted; opened by ANDROID_KEYSTORE_PASSWORD)" >> "$GITHUB_ENV"
           else
-            echo "::warning title=Temporary signing key::ANDROID_KEYSTORE_PASSWORD is not set, so this APK is signed with a key generated for this run. It installs normally, but later builds cannot update it in place. See android-app/README.md. One short secret is enough: no base64 blob, no key alias, no key password."
+            echo "::warning title=Temporary signing key::ANDROID_KEYSTORE_PASSWORD is not set, so this APK is signed with a key generated for this run. It installs normally, but later builds cannot update it in place. If you already added it, check that it is a repository secret (not an environment secret), named exactly ANDROID_KEYSTORE_PASSWORD, with the 48-character value."
             KEYSTORE_PASSWORD=$(openssl rand -hex 24); KEY_PASSWORD="$KEYSTORE_PASSWORD"; KEY_ALIAS=blindquiz
             keytool -genkeypair -keystore "$KS" -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -dname "CN=Blind Quiz, O=Blind Quiz, C=IN" >/dev/null
@@ -192,8 +202,10 @@ jobs:
           The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; microphone and camera, asked only when you start or answer a call between friends or record a room voice message; notifications, asked the first time you turn them on in Settings. No storage or contacts access: files you send are picked with the Android file picker, and files friends send are offered to save or open. Notifications (friend requests, developer replies, announcements, game invites) are delivered by the game itself while it runs in the background: no push service, no Firebase, no third party.
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
-          gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Blind Quiz for Android $VERSION_NAME" --notes "$NOTES" --latest
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 \
+            && gh release upload "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --clobber \
+            || gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Blind Quiz for Android $VERSION_NAME" --notes "$NOTES" --latest
           # Publish the new APK on the website download link too.
           gh workflow run deploy-pages.yml --ref "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" || echo "::warning::Could not trigger the Pages deploy"
           {
