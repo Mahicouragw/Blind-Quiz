@@ -145,5 +145,31 @@ if (await j(`select to_regclass('public.bq_signals') is not null`)) {
   await j(`select bq_room_state($1,$2,null)`, [c, room]);
   ok(Number((await q(`select count(*) n from public.bq_room_voices`))[0].n) === 0, 'expired voice messages are deleted');
 }
+// Migration 024: background notifications for the Android app (per-phone key, own notifications only).
+{
+  const h1 = 'a'.repeat(64), h2 = 'b'.repeat(64);
+  ok((await j(`select bq_notify_register($1,'not-a-hash')`, [a])).code === 'invalid_request', 'phone keys must be SHA-256 hashes');
+  ok((await j(`select bq_notify_register($1,$2)`, [a, h1])).ok, 'register a phone for background notifications');
+  ok((await j(`select bq_notify_check($1,0,false)`, [h2])).code === 'session_expired', 'an unknown phone key reads nothing');
+  await q(`update public.bq_notifications set read_at = now() where profile_id = $1`, [a]);
+  await q(`update public.bq_profiles set notifications_enabled = true where id = $1`, [a]);
+  await q(`insert into public.bq_notifications (profile_id, kind, actor_id) values ($1,'friend_request',$2)`, [a, b]);
+  await q(`insert into public.bq_notifications (profile_id, kind, actor_id, body) values ($1,'announcement',$2,'New game: Sound Match')`, [a, g]);
+  await q(`insert into public.bq_notifications (profile_id, kind, actor_id, body) values ($1,'message',$2,'secret?')`, [a, b]);
+  await q(`insert into public.bq_notifications (profile_id, kind, actor_id) values ($1,'friend_request',$2)`, [b, a]);
+  const c1 = await j(`select bq_notify_check($1,0,false)`, [h1]);
+  ok(c1.ok && c1.enabled && c1.items.length === 3 && c1.items[0].kind === 'friend_request' && c1.items[0].actor === 'Bob', 'the phone gets the player\'s own new notifications ' + JSON.stringify(c1.items));
+  ok(c1.items.some(x => x.kind === 'announcement' && x.body === 'New game: Sound Match') && c1.items.find(x => x.kind === 'message').body === '', 'announcements show their text; message notifications carry no text');
+  ok(!JSON.stringify(c1).match(/login|secret_question|hash|salt/i), 'no private fields in background checks');
+  ok((await j(`select bq_notify_check($1,$2,false)`, [h1, c1.latest])).items.length === 0, 'already shown notifications are not repeated');
+  await q(`update public.bq_profiles set notifications_enabled = false where id = $1`, [a]);
+  ok((await j(`select bq_notify_check($1,0,false)`, [h1])).items.length === 0, 'the notification switch also silences the phone');
+  await q(`update public.bq_profiles set notifications_enabled = true where id = $1`, [a]);
+  for (let i = 0; i < 6; i++) await q(`select bq_notify_register($1,$2)`, [a, String(i).repeat(64)]);
+  ok(Number((await q(`select count(*) n from public.bq_notify_tokens where profile_id = $1`, [a]))[0].n) === 5, 'at most 5 phones per player');
+  await q(`select bq_notify_register($1,$2)`, [a, h1]);
+  ok((await j(`select bq_notify_check($1,0,true)`, [h1])).stopped && (await j(`select bq_notify_check($1,0,false)`, [h1])).code === 'session_expired', 'signing out on the phone removes its key');
+  ok((await j(`select bq_notify_forget($1)`, [a])).ok && Number((await q(`select count(*) n from public.bq_notify_tokens where profile_id = $1`, [a]))[0].n) === 0, 'forget all phones');
+}
 if (failed) process.exit(1);
 console.log('PASS database dry run');

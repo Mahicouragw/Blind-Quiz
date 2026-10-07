@@ -402,6 +402,12 @@ const notifOff = await post({ action: 'set-notifications', enabled: false }, { t
 const notifBad = await post({ action: 'set-notifications', enabled: 'yes' }, { token: otok });
 const myFb = await post({ action: 'my-feedback' }, { token: wtok });
 check('Notification switch and My feedback work; bad input is refused', notifOff.body?.notificationsEnabled === false && notifBad.status === 400 && Array.isArray(myFb.body?.items), `${codeOf(notifOff)}/${codeOf(notifBad)}/${codeOf(myFb)}`);
+const nReg = await post({ action: 'notify-register' }, { token: wtok });
+const nChk = await post({ action: 'notify-check', token: nReg.body?.token, afterId: 0 });
+const nBad = await post({ action: 'notify-check', token: 'x'.repeat(43), afterId: 0 });
+const nStop = await post({ action: 'notify-check', token: nReg.body?.token, afterId: 0, stop: true });
+const nAfter = await post({ action: 'notify-check', token: nReg.body?.token, afterId: 0 });
+check('Android background notifications: a phone key reads only new notifications and can be removed', typeof nReg.body?.token === 'string' && nReg.body.token.length >= 40 && nChk.body?.ok === true && Array.isArray(nChk.body.items) && !/"(loginId|login_id|secret_question|answer_hash|answer_salt|token_hash|profile_id)"/.test(nChk.text) && nBad.status === 401 && nStop.body?.stopped === true && nAfter.status === 401, `${codeOf(nReg)}/${codeOf(nChk)}/${codeOf(nBad)}/${codeOf(nStop)}/${codeOf(nAfter)}`);
 const annNo = await post({ action: 'admin-announce', text: 'Live check announcement' }, { token: wtok });
 const replyNo = await post({ action: 'admin-feedback-reply', id: 1, reply: 'Live check reply' }, { token: wtok });
 const socialNoAuth = await post({ action: 'friends' });
