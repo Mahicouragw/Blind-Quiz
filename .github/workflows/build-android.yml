@@ -163,7 +163,7 @@ jobs:
           if echo "$MAN" | grep -qE 'debuggable\([^)]*\)=(true|\(type 0x12\)0xffffffff)'; then echo "::error title=APK::APK is debuggable"; exit 1; fi
           echo "$MAN" | grep -qE 'usesCleartextTraffic\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::usesCleartextTraffic=false missing"; exit 1; }
           echo "$MAN" | grep -qE 'allowBackup\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::allowBackup=false missing"; exit 1; }
-          SDKS=$("$BT/aapt2" dump badging "$APK_PATH" | grep -oE "(sdkVersion|targetSdkVersion):'[0-9]+'" | tr '\n' ' ')
+          SDKS=$("$BT/aapt2" dump badging "$APK_PATH" | grep -oiE "(minSdkVersion|sdkVersion|targetSdkVersion):'[0-9]+'" | sort -u | tr '\n' ' ')
           echo "SDK_INFO=$SDKS" >> "$GITHUB_ENV"
           echo "::notice title=APK audit::$SDKS Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
 
