@@ -47,6 +47,12 @@ String safeReceivedName(String name) {
 /// Microphone and camera requests handled by android-app/native/MainActivity.kt.
 const MethodChannel kPermissions = MethodChannel('blind_quiz/permissions');
 
+/// Background notifications and phone sound settings handled by android-app/native/NotifyWorker.kt and MainActivity.kt.
+const MethodChannel kNotify = MethodChannel('blind_quiz/notify');
+
+/// The page's notification requests the app accepts (src/social.js).
+const Set<String> kNotifyOps = <String>{'enable', 'disable', 'logout', 'sounds'};
+
 /// Largest file a friend can send directly (matches src/direct.js).
 const int kMaxReceivedBytes = 2 * 1024 * 1024 * 1024;
 
@@ -154,6 +160,8 @@ class _QuizWebViewState extends State<QuizWebView> {
     }
     // Files a friend sends directly arrive in pieces from the page and are offered to save or open.
     _controller.addJavaScriptChannel('BQFiles', onMessageReceived: (m) => _onFileMessage(m.message));
+    // Phone notifications while the app is closed, and each kind's own sound in Android settings.
+    _controller.addJavaScriptChannel('BQNotify', onMessageReceived: (m) => _onNotifyMessage(m.message));
     _cleanReceived();
     _controller.loadRequest(Uri.parse(kLiveUrl));
   }
@@ -192,6 +200,22 @@ class _QuizWebViewState extends State<QuizWebView> {
       _say('The file could not be opened. Please try again.');
       return <String>[];
     }
+  }
+
+  Future<void> _onNotifyMessage(String raw) async {
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final op = (m['op'] ?? '').toString();
+      if (!kNotifyOps.contains(op)) return;
+      if (op == 'enable') {
+        final token = (m['token'] ?? '').toString();
+        if (!RegExp(r'^[A-Za-z0-9_-]{35,64}$').hasMatch(token)) return;
+        final granted = await kNotify.invokeMethod<bool>('enable', token) ?? false;
+        await _controller.runJavaScript('globalThis.bqAppNotify && globalThis.bqAppNotify({op: "enabled", granted: ${granted ? 'true' : 'false'}})');
+      } else {
+        await kNotify.invokeMethod<bool>(op);
+      }
+    } catch (_) {}
   }
 
   Future<Directory> _receivedDir() async {

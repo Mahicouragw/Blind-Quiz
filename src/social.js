@@ -2,6 +2,8 @@
 // the notifications setting, "My feedback" with read/replied status, and admin replies and announcements.
 // Other players are only ever addressed by display name; cards never contain a Login ID or secret question.
 
+import { alertSound, appBridge, APP_NOTIFY_KEY } from './alerts.js';
+
 // 10 s while visible, so a call or file from a friend rings quickly; 60 s in the background.
 const HEARTBEAT_MS = 10000, HIDDEN_HEARTBEAT_MS = 60000;
 const DEVICE_KEY = 'bq.deviceNotifications';
@@ -75,7 +77,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       if (Number(d.ring) > 0) onRing();
       if (lastUnread !== null && unread > lastUnread && enabled) {
         // Never interrupt a running game with speech; the bell count still changes.
-        if (!['game', 'soundmatch', 'letters'].includes(currentView())) { playSfx('notify'); announce(`You have ${unread} new notification${unread === 1 ? '' : 's'}.`); }
+        if (!['game', 'soundmatch', 'letters'].includes(currentView())) { playSfx(alertSound('alert')); announce(`You have ${unread} new notification${unread === 1 ? '' : 's'}.`); }
         deviceAlert(`You have ${unread} new notification${unread === 1 ? '' : 's'}.`);
       }
       lastUnread = unread; renderBell();
@@ -83,8 +85,21 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     } catch {}
   }
   function schedule() { clearTimeout(timer); if (!signedIn()) return; timer = setTimeout(async () => { await touch(); schedule(); }, document.hidden ? HIDDEN_HEARTBEAT_MS : HEARTBEAT_MS); }
-  function start() { lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); }
-  function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); }
+  function start() { lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); appNotify(); }
+  function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
+
+  // ---- Android app: notifications while Blind Quiz is closed (checked about every 15 minutes, no Firebase) ----
+  const appWanted = () => { try { return localStorage.getItem(APP_NOTIFY_KEY) !== 'off'; } catch { return true; } };
+  async function appNotify() {
+    const bridge = appBridge(); if (!bridge || !signedIn() || !appWanted()) return;
+    try { const d = await callApi('notify-register'); bridge.postMessage(JSON.stringify({ op: 'enable', token: d.token })); }
+    catch {}
+  }
+  // The app answers with { op: 'enabled', granted } after Android's notification permission question.
+  globalThis.bqAppNotify = msg => {
+    const status = $('#notif-settings-status'); if (!status || !msg) return;
+    if (msg.op === 'enabled') say(status, msg.granted ? 'Phone notifications are on. Blind Quiz checks about every 15 minutes, even when it is closed.' : 'Notifications are blocked for Blind Quiz. You can allow them in your phone settings.', !msg.granted);
+  };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && signedIn()) { touch(); schedule(); } });
 
   // ---- Notifications view ----------------------------------------------------------------------
@@ -231,8 +246,11 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     const box = $('#notif-settings'), mine = $('#my-feedback-box');
     if (box) box.hidden = !ok; if (mine) mine.hidden = !ok;
     if (!ok) return;
+    const appBox = $('#app-notify-box'), inApp = !!appBridge();
+    if (appBox) { appBox.hidden = !inApp; $('#app-notify-on').checked = appWanted(); }
     const deviceBtn = $('#notif-device');
-    if (deviceBtn) { const on = localStorage.getItem(DEVICE_KEY) === 'on' && typeof Notification !== 'undefined' && Notification.permission === 'granted'; deviceBtn.textContent = on ? 'Stop showing them on this device' : 'Also show them on this device'; deviceBtn.hidden = typeof Notification === 'undefined'; }
+    if (deviceBtn && inApp) deviceBtn.hidden = true;
+    else if (deviceBtn) { const on = localStorage.getItem(DEVICE_KEY) === 'on' && typeof Notification !== 'undefined' && Notification.permission === 'granted'; deviceBtn.textContent = on ? 'Stop showing them on this device' : 'Also show them on this device'; deviceBtn.hidden = typeof Notification === 'undefined'; }
     try { const d = await callApi('touch'); enabled = d.notificationsEnabled !== false; $('#notif-on').checked = enabled; unread = Number(d.unread) || 0; renderBell(); } catch {}
     loadMyFeedback();
   }
@@ -264,6 +282,17 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       else say(status, 'Notifications are blocked for this site. You can allow them in your browser settings.', true);
     } catch { say(status, 'This device does not support notifications here.', true); }
     refreshSettings();
+  });
+
+  $('#app-notify-on')?.addEventListener('change', async e => {
+    const want = e.target.checked, status = $('#notif-settings-status');
+    try { localStorage.setItem(APP_NOTIFY_KEY, want ? 'on' : 'off'); } catch {}
+    if (want) { say(status, 'Turning on phone notifications.'); await appNotify(); }
+    else { appBridge()?.postMessage(JSON.stringify({ op: 'disable' })); say(status, 'Phone notifications are off. You still see them in Notifications when Blind Quiz is open.'); }
+  });
+  $('#app-notify-sounds')?.addEventListener('click', () => {
+    appBridge()?.postMessage(JSON.stringify({ op: 'sounds' }));
+    say($('#notif-settings-status'), 'Opening your phone settings. Choose a sound for each kind of notification.');
   });
 
   // ---- Wiring ----------------------------------------------------------------------------------

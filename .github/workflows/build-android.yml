@@ -75,13 +75,22 @@ jobs:
           # files are picked with the system picker and received files are handed to the share sheet.
           grep -q 'xmlns:tools' "$MANIFEST" || sed -i 's#<manifest #<manifest xmlns:tools="http://schemas.android.com/tools" #' "$MANIFEST"
           grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST" || \
-            sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <uses-feature android:name="android.hardware.microphone" android:required="false"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>\n    <application#' "$MANIFEST"
+            sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <uses-feature android:name="android.hardware.microphone" android:required="false"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>\n    <application#' "$MANIFEST"
           grep -n 'INTERNET\|RECORD_AUDIO\|CAMERA\|MODIFY_AUDIO\|tools:node\|android:label\|usesCleartextTraffic\|allowBackup\|SENDTO' "$MANIFEST"
           # Native microphone/camera permission request for calls and voice messages (no extra plugin).
           ACT_DIR=android/app/src/main/kotlin/io/github/mahicouragw/blind_quiz
-          mkdir -p "$ACT_DIR" && cp native/MainActivity.kt "$ACT_DIR/MainActivity.kt"
+          mkdir -p "$ACT_DIR" && cp native/MainActivity.kt native/NotifyWorker.kt "$ACT_DIR/"
           find android/app/src/main -name 'MainActivity.*' ! -path "$ACT_DIR/MainActivity.kt" -delete
           find android/app/src/main -name 'MainActivity.*'
+          # Background notifications (android-app/native/NotifyWorker.kt): WorkManager and AndroidX notifications.
+          GRADLE=android/app/build.gradle.kts
+          if [ -f "$GRADLE" ]; then
+            grep -q 'androidx.work:work-runtime' "$GRADLE" || printf '\ndependencies {\n    implementation("androidx.work:work-runtime:2.9.1")\n    implementation("androidx.core:core:1.13.1")\n}\n' >> "$GRADLE"
+          else
+            GRADLE=android/app/build.gradle
+            grep -q 'androidx.work:work-runtime' "$GRADLE" || printf "\ndependencies {\n    implementation 'androidx.work:work-runtime:2.9.1'\n    implementation 'androidx.core:core:1.13.1'\n}\n" >> "$GRADLE"
+          fi
+          tail -5 "$GRADLE"; grep -n 'minSdk' "$GRADLE" || true
           # Blind Quiz launcher icon (braille "?" cell with sound waves) instead of the Flutter default.
           for d in icons/mipmap-*; do cp "$d/ic_launcher.png" "android/app/src/main/res/$(basename "$d")/ic_launcher.png"; done
           ls -la android/app/src/main/res/mipmap-*/ic_launcher.png
@@ -148,13 +157,15 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           PERMS=$("$BT/aapt2" dump permissions "$APK_PATH" | grep -oE "name='[^']+'" | sed "s/name='//;s/'//" | sort -u)
           echo "Permissions:"; echo "$PERMS"
-          EXTRA=$(echo "$PERMS" | grep -vE '^(android\.permission\.(INTERNET|RECORD_AUDIO|CAMERA|MODIFY_AUDIO_SETTINGS)|io\.github\.mahicouragw\.blind_quiz\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)$' || true)
+          EXTRA=$(echo "$PERMS" | grep -vE '^(android\.permission\.(INTERNET|RECORD_AUDIO|CAMERA|MODIFY_AUDIO_SETTINGS|POST_NOTIFICATIONS|WAKE_LOCK|RECEIVE_BOOT_COMPLETED|FOREGROUND_SERVICE|ACCESS_NETWORK_STATE)|io\.github\.mahicouragw\.blind_quiz\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)$' || true)
           if [ -n "$EXTRA" ]; then echo "::error title=APK permissions::Unexpected permissions: $(echo $EXTRA)"; exit 1; fi
           MAN=$("$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK_PATH")
           if echo "$MAN" | grep -qE 'debuggable\([^)]*\)=(true|\(type 0x12\)0xffffffff)'; then echo "::error title=APK::APK is debuggable"; exit 1; fi
           echo "$MAN" | grep -qE 'usesCleartextTraffic\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::usesCleartextTraffic=false missing"; exit 1; }
           echo "$MAN" | grep -qE 'allowBackup\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::allowBackup=false missing"; exit 1; }
-          echo "::notice title=APK audit::Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
+          SDKS=$("$BT/aapt2" dump badging "$APK_PATH" | grep -oE "(sdkVersion|targetSdkVersion):'[0-9]+'" | tr '\n' ' ')
+          echo "SDK_INFO=$SDKS" >> "$GITHUB_ENV"
+          echo "::notice title=APK audit::$SDKS Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -175,7 +186,7 @@ jobs:
           cp "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk"
           NOTES="Blind Quiz for Android $VERSION_NAME, built from ${GITHUB_SHA::7} on $GITHUB_REF_NAME.
 
-          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; microphone and camera, asked only when you start or answer a call between friends or record a room voice message. No storage or contacts access: files you send are picked with the Android file picker, and files friends send are offered to save or open.
+          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; notifications (friend requests, messages, feedback replies, game invites, announcements and game updates, each with its own sound you can change in Android settings; checked about every 15 minutes, no Firebase); microphone and camera, asked only when you start or answer a call between friends or record a room voice message. Works on Android phones and tablets ($SDK_INFO). No storage or contacts access: files you send are picked with the Android file picker, and files friends send are offered to save or open.
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
           gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

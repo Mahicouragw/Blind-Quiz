@@ -2,6 +2,7 @@
 // The server only relays sealed boxes. Each device has its own key, so messages sent before a device was set up
 // cannot be read on it; the chat says so honestly instead of pretending.
 import { deviceKey, idbStore, seal, open, safetyCode, keyPins, MAX_MESSAGE } from './e2ee.js';
+import { alertSound } from './alerts.js';
 
 const POLL_MS = 4000;
 
@@ -66,7 +67,7 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
       for (const m of items) {
         const r = await render(m);
         log.append(r.li); lastId = Math.max(lastId, m.id);
-        if (!first && !m.fromMe) { playSfx('notify'); announce(`${friend} says: ${r.text}`); }
+        if (!first && !m.fromMe) { playSfx(alertSound('message')); announce(`${friend} says: ${r.text}`); }
       }
       if (first) {
         if (!items.length) log.append(el('li', 'muted chat-empty', `No messages yet. Say hello to ${friend}.`));

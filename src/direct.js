@@ -4,6 +4,7 @@
 // The connection fingerprints travel inside the sealed signals, so a server in the middle cannot hijack them.
 // Flow: ring (to all the friend's devices) -> accept (from one device) -> offer -> answer -> connected.
 import { deviceKey, idbStore, sealData, openData, keyPins, MAX_SIGNAL } from './e2ee.js';
+import { alertSound } from './alerts.js';
 
 const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 const CHUNK = 64 * 1024, HIGH_WATER = 8 * 1024 * 1024, MAX_FILE = 2 * 1024 * 1024 * 1024;
@@ -144,7 +145,8 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
       const inc = active = { id: s.session, friend: s.from, role: 'callee', kind: obj.t, video: !!obj.video, meta: obj, peerDevice: s.senderDevice, peerKey: s.senderKey };
       if (obj.t === 'file') obj.name = safeName(obj.name);
       const what = obj.t === 'file' ? `${s.from} wants to send you a file: ${obj.name}, ${formatSize(Number(obj.size) || 0)}.` : `${s.from} is calling you${obj.video ? ' with video' : ''}.`;
-      playSfx('notify');
+      const ring = () => playSfx(alertSound(obj.t === 'call' ? 'call' : 'alert'));
+      ring(); if (obj.t === 'call') inc.ringLoop = setInterval(ring, 4000);
       show(obj.t === 'file' ? 'Incoming file' : obj.video ? 'Incoming video call' : 'Incoming call', what,
         [button(obj.t === 'file' ? 'Accept file' : 'Answer', () => accept(inc), 'button button-hot'), button('Decline', () => decline(inc), 'button button-quiet')], { alert: true, urgent: true });
       inc.ringTimer = setTimeout(() => { if (active === inc && !inc.accepted) finish(inc, 'Missed', `You missed ${obj.t === 'file' ? 'a file' : 'a call'} from ${s.from}.`); }, RING_MS);
@@ -171,7 +173,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   }
   async function accept(sess) {
     if (sess.accepted) return;
-    sess.accepted = true; clearTimeout(sess.ringTimer);
+    sess.accepted = true; clearTimeout(sess.ringTimer); clearInterval(sess.ringLoop);
     show(sess.kind === 'file' ? 'Receiving a file' : 'Connecting', 'Connecting directly…', [button(sess.kind === 'file' ? 'Stop' : 'Hang up', () => hangUp(sess), 'button button-quiet')], { focus: false });
     try { if (sess.kind === 'call') sess.stream = await getMedia(sess.video); }
     catch { toPeer(sess, { t: 'decline' }); finish(sess, 'Call not answered', errorText('media', sess.friend)); return; }
@@ -325,7 +327,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
 
   // ---- Ending --------------------------------------------------------------------------------
   function end(sess) {
-    clearTimeout(sess.ringTimer); clearTimeout(sess.connectTimer); clearTimeout(sess.dropTimer); clearInterval(sess.clock);
+    clearTimeout(sess.ringTimer); clearInterval(sess.ringLoop); clearTimeout(sess.connectTimer); clearTimeout(sess.dropTimer); clearInterval(sess.clock);
     try { sess.dc?.close(); } catch { /* ignore */ }
     try { sess.pc?.close(); } catch { /* ignore */ }
     for (const t of sess.stream?.getTracks() || []) t.stop();

@@ -244,3 +244,9 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .direct-videos{position:relative;margin-bottom:10px}.direct-videos video{width:100%;max-height:46vh;border-radius:14px;background:#000}
 #direct-local{position:absolute;right:8px;bottom:8px;width:30%;max-height:none;border:2px solid var(--acid)}
 .room-voice-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.room-voice .text-button{min-height:44px;font-weight:700}
+
+/* Ringtones and alert sounds; Android app phone notifications */
+.sound-choices{margin-top:1.75rem}
+.sound-choices .muted{margin:.25rem 0 .75rem}
+#app-notify-box{margin-top:.75rem}
+#app-notify-box .muted{margin:.5rem 0}

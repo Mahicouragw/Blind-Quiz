@@ -138,7 +138,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v21'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v22'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -398,6 +398,33 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/Send \$\{p\.name\} a match/.test(social) && /callApi\('match-invite'/.test(social) && /'room_invite', 'game_invite'\].includes\(n\.kind\) && n\.ref/.test(social), 'friends can send a match; invites open the room');
   assert(!/loginId|login_id/.test(rooms), 'rooms never handle Login IDs');
   console.log('PASS: Task 19 rooms (public and private rooms, chat, room games, live spectators, comments, match invites).');
+}
+// Ringtones and alert sounds; Android app background notifications; automatic update news.
+{
+  const { readFileSync } = await import('node:fs');
+  const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const store = new Map();
+  globalThis.localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  const A = await import('../src/alerts.js');
+  const manifest = JSON.parse(read('../assets/audio/manifest.json')).assets;
+  assert(A.ALERT_SOUNDS.every(([id]) => manifest[id] && manifest[id].file.endsWith('.mp3')), 'every alert sound is a real recording in the manifest');
+  assert.equal(A.alertSound('call'), 'match_doorbell', 'default call ringtone');
+  assert(A.setAlertSound('message', 'match_songbird') && A.alertSound('message') === 'match_songbird', 'a chosen sound is kept');
+  assert(!A.setAlertSound('message', 'music_menu') && !A.setAlertSound('nope', 'notify'), 'only listed sounds and kinds');
+  store.set('bq-sound-alert', 'bogus'); assert.equal(A.alertSound('alert'), 'match_crystal_chime', 'a broken stored value falls back');
+  assert.equal(A.appBridge(), null, 'no app bridge on the website');
+  delete globalThis.localStorage;
+  const html = read('../index.html'), social = read('../src/social.js'), direct = read('../src/direct.js'), chat = read('../src/chat.js');
+  for (const id of ['sound-choice-rows', 'app-notify-box', 'app-notify-on', 'app-notify-sounds']) assert(html.includes(`id="${id}"`), `markup #${id}`);
+  assert(/playSfx\(alertSound\(obj\.t === 'call' \? 'call' : 'alert'\)\)/.test(direct) && /setInterval\(ring, 4000\)/.test(direct) && (direct.match(/clearInterval\(sess\.ringLoop\)/g) || []).length === 2, 'incoming calls ring with the chosen ringtone until answered or ended');
+  assert(chat.includes("playSfx(alertSound('message'))") && social.includes("playSfx(alertSound('alert'))"), 'messages and alerts use the chosen sounds');
+  assert(/callApi\('notify-register'\)/.test(social) && /op: 'logout'/.test(social) && /op: 'disable'/.test(social) && /op: 'sounds'/.test(social), 'the app bridge enables, disables, signs out and opens phone sound settings');
+  const news = JSON.parse(read('../news.json'));
+  assert(typeof news.id === 'string' && news.id && /^\d{4}-\d{2}-\d{2}$/.test(news.date) && news.title && news.text && news.text.length <= 240, 'news.json drives the automatic update notification');
+  assert(read('../scripts/build.mjs').includes("'news.json'"), 'news.json is published with the site');
+  const kt = read('../android-app/native/NotifyWorker.kt');
+  assert(kt.includes('notify-check') && kt.includes('news.json') && !/import [^\n]*firebase/i.test(kt) && !/firebase/i.test(read('../.github/workflows/build-android.yml').replace(/no Firebase/g, '')), 'the app checks without Firebase');
+  console.log('PASS: ringtones and alert sounds (real recordings), Android background notifications bridge, and automatic update news.');
 }
 // Applied migrations never re-run: only Migration 023's own files trigger it; 019-022 are manual only.
 {
