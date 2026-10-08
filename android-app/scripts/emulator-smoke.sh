@@ -21,9 +21,11 @@ fail_with_logs() {
   local logfile="$log_dir/${phase}-failure.log"
   {
     printf 'Android emulator smoke test failed during: %s\nReason: %s\n' "$phase" "$reason"
-    printf '\n=== Device ===\n'
+    printf '\n=== Connected emulator ===\n'
+    timeout 15 adb devices -l 2>&1 || true
     timeout 15 adb shell getprop ro.build.version.release 2>&1 || true
     timeout 15 adb shell getprop ro.build.version.sdk 2>&1 || true
+    timeout 15 adb shell df -h /data 2>&1 || true
     printf '\n=== Activity state ===\n'
     timeout 15 adb shell dumpsys activity activities 2>&1 | tail -n 160 || true
     printf '\n=== Crash buffer ===\n'
@@ -48,10 +50,11 @@ if [[ ! -s "$apk_path" ]]; then
   fail_with_logs install "Signed APK is missing or empty: $apk_path"
 fi
 
-printf 'Installing signed APK: %s\n' "$apk_path"
-if ! install_output="$(timeout 180 adb install -r "$apk_path" 2>&1)"; then
+printf 'Installing signed APK without ADB streaming: %s\n' "$apk_path"
+printf 'APK size: %s bytes\n' "$(wc -c < "$apk_path")"
+if ! install_output="$(timeout 180 adb install --no-streaming -r "$apk_path" 2>&1)"; then
   printf '%s\n' "$install_output"
-  fail_with_logs install "adb install failed: $install_output"
+  fail_with_logs install "adb install --no-streaming failed: $install_output"
 fi
 printf '%s\n' "$install_output"
 
