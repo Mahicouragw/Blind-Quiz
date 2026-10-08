@@ -89,6 +89,31 @@ jobs:
             exit 1
           fi
           grep -n 'android:name=' "$MANIFEST"
+          # We initialize WorkManager in BlindQuizApplication. Remove only its AndroidX Startup
+          # metadata (not the provider), so Lint and runtime agree on on-demand initialization.
+          python3 - "$MANIFEST" <<'PY'
+          from pathlib import Path
+          import sys
+
+          manifest = Path(sys.argv[1])
+          text = manifest.read_text()
+          metadata = 'android:name="androidx.work.WorkManagerInitializer"'
+          if metadata not in text:
+              closing = '</application>'
+              snippet = '''
+                  <provider
+                      android:name="androidx.startup.InitializationProvider"
+                      android:authorities="${applicationId}.androidx-startup"
+                      android:exported="false"
+                      tools:node="merge">
+                      <meta-data android:name="androidx.work.WorkManagerInitializer" tools:node="remove" />
+                  </provider>
+              '''
+              if text.count(closing) != 1:
+                  raise SystemExit('Expected exactly one </application> in generated manifest')
+              manifest.write_text(text.replace(closing, snippet + '\n' + closing, 1))
+          PY
+          grep -n 'WorkManagerInitializer\|android:name=' "$MANIFEST"
           find android/app/src/main -name 'MainActivity.*' ! -path "$ACT_DIR/MainActivity.kt" -delete
           find android/app/src/main -name 'MainActivity.*'
           # Background notifications (android-app/native/NotifyWorker.kt): WorkManager and AndroidX notifications.

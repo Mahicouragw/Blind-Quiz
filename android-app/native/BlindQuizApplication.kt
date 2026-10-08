@@ -6,8 +6,8 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 
 /**
- * Provides WorkManager's configuration through AndroidX Startup. Notification work is
- * optional; an unavailable worker must never prevent Flutter's main activity from opening.
+ * Initializes WorkManager on demand with the app configuration. Notification work is
+ * optional; a scheduler error must never prevent Flutter's main activity from opening.
  */
 class BlindQuizApplication : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
@@ -18,10 +18,16 @@ class BlindQuizApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         try {
-            // AndroidX Startup has already run providers before Application.onCreate().
-            WorkManager.getInstance(this)
-        } catch (e: IllegalStateException) {
-            Log.e(TAG, "WorkManager auto-initializer unavailable; notifications are disabled", e)
+            WorkManager.initialize(this, workManagerConfiguration)
+        } catch (alreadyInitialized: IllegalStateException) {
+            // Keep startup resilient if another initializer initialized WorkManager first.
+            try {
+                WorkManager.getInstance(this)
+                Log.i(TAG, "WorkManager was already initialized")
+            } catch (notAvailable: IllegalStateException) {
+                notAvailable.addSuppressed(alreadyInitialized)
+                Log.e(TAG, "WorkManager unavailable; continuing without notifications", notAvailable)
+            }
         }
     }
 
