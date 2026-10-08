@@ -1,0 +1,17 @@
+# Platform folders are generated in CI by `flutter create --platforms android .`
+/android/
+/ios/
+/web/
+/linux/
+/macos/
+/windows/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.metadata
+pubspec.lock
+/build/
+*.jks
+*.keystore
+key.properties

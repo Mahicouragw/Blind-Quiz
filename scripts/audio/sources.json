@@ -1,0 +1,469 @@
+{
+  "sfx": {
+    "correct": {
+      "mixkitId": 2870,
+      "title": "Correct answer tone",
+      "category": "game-show",
+      "use": "Correct answer",
+      "max": 1.5
+    },
+    "wrong": {
+      "mixkitId": 948,
+      "title": "Wrong answer bass buzzer",
+      "category": "wrong",
+      "use": "Wrong answer",
+      "max": 1.2
+    },
+    "tick": {
+      "mixkitId": 1061,
+      "title": "Clock ticker single",
+      "category": "clock",
+      "use": "Countdown 3-2-1",
+      "max": 0.4
+    },
+    "go": {
+      "mixkitId": 615,
+      "title": "Police short whistle",
+      "category": "whistle",
+      "use": "GO! after the countdown",
+      "max": 1.6
+    },
+    "timeup": {
+      "mixkitId": 1791,
+      "title": "Cooking bell ding",
+      "category": "bell",
+      "use": "Time is up",
+      "max": 2.5
+    },
+    "applause": {
+      "mixkitId": 518,
+      "title": "Small group cheer and applause",
+      "category": "applause",
+      "use": "Round complete",
+      "max": 6
+    },
+    "cheer": {
+      "mixkitId": 462,
+      "title": "Huge crowd cheering victory",
+      "category": "win",
+      "use": "Perfect round",
+      "max": 7
+    },
+    "click": {
+      "mixkitId": 1109,
+      "title": "Select click",
+      "category": "click",
+      "use": "Get ready / start",
+      "max": 0.5
+    },
+    "levelup": {
+      "mixkitId": 226,
+      "title": "Medieval show fanfare announcement",
+      "category": "win",
+      "use": "Level up",
+      "max": 4.7
+    },
+    "coin": {
+      "mixkitId": 1993,
+      "title": "Clinking coins",
+      "category": "coin",
+      "use": "XP and coins earned",
+      "max": 1.4
+    },
+    "notify": {
+      "mixkitId": 253,
+      "title": "Unlock game notification",
+      "category": "video-game",
+      "use": "New notification (friend request, reply, announcement)",
+      "max": 1.2
+    }
+  },
+  "music": {
+    "menu": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/fantasy-orchestral-theme",
+        "file": "FantasyOrchestralTheme_1.mp3"
+      }
+    },
+    "menu2": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/happy-adventure-loop",
+        "file": "happy_adveture.mp3"
+      }
+    },
+    "menu3": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/medieval-the-bards-tale",
+        "file": "The_Bards_Tale.mp3"
+      }
+    },
+    "menu4": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/battle-theme-a",
+        "file": "battleThemeA.mp3"
+      }
+    },
+    "menu5": {
+      "use": "Home, sign in, settings, profile (playlist: tracks take turns)",
+      "max": 120,
+      "oga": {
+        "page": "https://opengameart.org/content/happy-lullaby-song17",
+        "file": "song17.mp3"
+      }
+    },
+    "game1": {
+      "use": "Game music: nature, animals, vocabulary, commerce, geography, birds, general, biology, medical",
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/town-theme-rpg",
+        "file": "TownTheme.mp3"
+      }
+    },
+    "game2": {
+      "use": "Game music: music, instruments, India, history, civics, braille, accounting, chemistry, random, Letters to Words",
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/crystal-cave-song18",
+        "file": "song18.mp3"
+      }
+    },
+    "game3": {
+      "use": "Game music: science, technology, sports, economics, business, management, abbreviations, rapid fire, math, physics",
+      "max": 80,
+      "oga": {
+        "page": "https://opengameart.org/content/feel-good-island",
+        "file": "island_0.flac"
+      }
+    },
+    "results": {
+      "use": "Results screen",
+      "max": 60,
+      "oga": {
+        "page": "https://opengameart.org/content/childrens-march-theme",
+        "file": "Children's March Theme.mp3"
+      }
+    }
+  },
+  "ogaCandidates": [
+    "https://opengameart.org/content/medieval-the-bards-tale",
+    "https://opengameart.org/content/happy-tune",
+    "https://opengameart.org/content/battle-theme-a",
+    "https://opengameart.org/content/orchestral-battle-music",
+    "https://opengameart.org/content/orchestral-epic-fantasy-music",
+    "https://opengameart.org/content/the-fall-of-arcana-epic-game-theme-music",
+    "https://opengameart.org/content/grassy-world-overture-8bitorchestral",
+    "https://opengameart.org/content/rise-of-spirit",
+    "https://opengameart.org/content/dream-raid-cinematic-action-soundtrack",
+    "https://opengameart.org/content/boss-battle-music",
+    "https://opengameart.org/content/imminent-threat",
+    "https://opengameart.org/content/heroic-demise-updated-version",
+    "https://opengameart.org/content/spring-thing-0",
+    "https://opengameart.org/content/fantasy-orchestral-theme",
+    "https://opengameart.org/content/epic-orchestra-music",
+    "https://opengameart.org/content/victory-theme",
+    "https://opengameart.org/content/winter-is-coming-epic-orchestral",
+    "https://opengameart.org/content/sky-loop",
+    "https://opengameart.org/content/cheerful-1-choro-bavario-happy-loop",
+    "https://opengameart.org/content/happy-adventure-loop",
+    "https://opengameart.org/content/sunny-day-0",
+    "https://opengameart.org/content/overworld-theme"
+  ],
+  "match": {
+    "toy_whistle": {
+      "mixkitId": 616,
+      "title": "Cartoon toy whistle",
+      "name": "Toy whistle",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "clown_horn": {
+      "mixkitId": 715,
+      "title": "Clown horn at circus",
+      "name": "Clown horn",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "sad_trombone": {
+      "mixkitId": 744,
+      "title": "Trombone disappoint",
+      "name": "Sad trombone",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "sneeze": {
+      "mixkitId": 2209,
+      "title": "Cartoon character sneeze",
+      "name": "Cartoon sneeze",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "duck_squeeze": {
+      "mixkitId": 1882,
+      "title": "Bath duck squeeze",
+      "name": "Rubber duck squeak",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "hyena_laugh": {
+      "mixkitId": 419,
+      "title": "Hyena cartoon laugh",
+      "name": "Hyena laugh",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "spring": {
+      "mixkitId": 736,
+      "title": "Cartoon spring sound",
+      "name": "Spring boing",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "falling_whistle": {
+      "mixkitId": 395,
+      "title": "Cartoon falling whistle",
+      "name": "Falling whistle",
+      "mood": "funny",
+      "category": "funny",
+      "use": "Sound Match (funny)",
+      "max": 3
+    },
+    "heartbeat_drum": {
+      "mixkitId": 559,
+      "title": "Horror deep drum heartbeat",
+      "name": "Heartbeat drum",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "mystery_harp": {
+      "mixkitId": 2489,
+      "title": "Arabian mystery harp notification",
+      "name": "Mystery harp",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "zombie_growl": {
+      "mixkitId": 1973,
+      "title": "Zombie monster growl",
+      "name": "Zombie growl",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "ghost_whoosh": {
+      "mixkitId": 2623,
+      "title": "Ghostly whoosh passing",
+      "name": "Ghostly whoosh",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "fairy_teleport": {
+      "mixkitId": 868,
+      "title": "Fairy teleport",
+      "name": "Fairy teleport",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "magic_key": {
+      "mixkitId": 2840,
+      "title": "Magic key",
+      "name": "Magic key",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "crystal_chime": {
+      "mixkitId": 3108,
+      "title": "Crystal chime",
+      "name": "Crystal chime",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "mystery_alert": {
+      "mixkitId": 234,
+      "title": "Video game mystery alert",
+      "name": "Mystery alert",
+      "mood": "mysterious",
+      "category": "mystery",
+      "use": "Sound Match (mysterious)",
+      "max": 3
+    },
+    "trailer_riser": {
+      "mixkitId": 790,
+      "title": "Cinematic trailer riser",
+      "name": "Trailer riser",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "epic_impact": {
+      "mixkitId": 2908,
+      "title": "Movie trailer epic impact",
+      "name": "Epic impact",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "laser_thunder": {
+      "mixkitId": 1287,
+      "title": "Cinematic laser gun thunder",
+      "name": "Laser thunder",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "deep_explosion": {
+      "mixkitId": 1686,
+      "title": "Underground explosion impact echo",
+      "name": "Deep explosion",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "meteor": {
+      "mixkitId": 3024,
+      "title": "Meteor whoosh",
+      "name": "Meteor whoosh",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "war_horn": {
+      "mixkitId": 2289,
+      "title": "Warfare horn",
+      "name": "War horn",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "space_door": {
+      "mixkitId": 183,
+      "title": "Futuristic door open",
+      "name": "Space door",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "robot_voice": {
+      "mixkitId": 289,
+      "title": "Sci Fi robot speaking",
+      "name": "Robot voice",
+      "mood": "cinematic",
+      "category": "cinematic",
+      "use": "Sound Match (cinematic)",
+      "max": 3
+    },
+    "dog_bark": {
+      "mixkitId": 1,
+      "title": "Dog barking twice",
+      "name": "Dog barking",
+      "mood": "interesting",
+      "category": "animals",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "lion_roar": {
+      "mixkitId": 6,
+      "title": "Wild lion animal roar",
+      "name": "Lion roar",
+      "mood": "interesting",
+      "category": "animals",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "horse_neigh": {
+      "mixkitId": 76,
+      "title": "Intense horse stallion neigh",
+      "name": "Horse neigh",
+      "mood": "interesting",
+      "category": "animals",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "songbird": {
+      "mixkitId": 67,
+      "title": "Melodic songbird chirp",
+      "name": "Songbird",
+      "mood": "interesting",
+      "category": "animals",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "monkey": {
+      "mixkitId": 105,
+      "title": "Monkey excited screech",
+      "name": "Monkey screech",
+      "mood": "interesting",
+      "category": "animals",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "doorbell": {
+      "mixkitId": 109,
+      "title": "Home standard ding dong",
+      "name": "Doorbell",
+      "mood": "interesting",
+      "category": "bell",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "tribal_drum": {
+      "mixkitId": 562,
+      "title": "Hand tribal drum",
+      "name": "Tribal drum",
+      "mood": "interesting",
+      "category": "drum",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    },
+    "bee": {
+      "mixkitId": 42,
+      "title": "Big bee hard flying sound",
+      "name": "Buzzing bee",
+      "mood": "interesting",
+      "category": "animals",
+      "use": "Sound Match (interesting)",
+      "max": 3
+    }
+  }
+}

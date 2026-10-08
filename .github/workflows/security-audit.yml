@@ -1,0 +1,39 @@
+name: Security audit (read-only)
+
+# Read-only production audit: catalog review (RLS, policies, grants, SECURITY DEFINER functions,
+# storage, advisor lints) through the Management API, plus attacker probes that use only the
+# public publishable key. Never writes to the database; never prints secrets or user rows.
+# Fails when a HIGH or CRITICAL finding is present.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'scripts/security-audit.mjs'
+      - '.github/workflows/security-audit.yml'
+      - 'supabase/migrations/**'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Audit database catalog and probe as an anonymous attacker
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+        run: node --no-warnings scripts/security-audit.mjs

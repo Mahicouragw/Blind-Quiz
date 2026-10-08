@@ -1,0 +1,71 @@
+name: Apply Migration 011 (guarded)
+
+# Applies ONLY supabase/migrations/202610050011_add_200_more_questions.sql (200 new questions,
+# bq-en-0867..bq-en-1066) through the Supabase Management API query endpoint.
+#
+# Migrations 001-010 are already applied remotely and are never recreated, rerun, or pushed.
+# The Supabase CLI migration commands are deliberately NOT used, because the remote migration
+# history does not match this repository and the CLI would try to replay 001-009.
+#
+# Without Migration 011 the new questions still play, but bq_record_answer raises
+# question_unavailable for them, so they award no XP or coins.
+#
+# Idempotent: the script skips the apply step when the 200 rows are already present with
+# identical content, and refuses if anything unexpected occupies the 011 ID range.
+#
+# Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
+
+# Migration 011 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migration-011
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+  MIGRATION_FILE: supabase/migrations/202610050011_add_200_more_questions.sql
+
+jobs:
+  apply:
+    name: Apply Migration 011 only and verify row counts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard - this workflow never replays migrations 001-010
+        run: |
+          set -euo pipefail
+          SELF=.github/workflows/apply-migration-011.yml
+          EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
+          # Character classes keep these patterns from matching this guard itself.
+          if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
+            echo "::error::Only the Management API query endpoint may be used. Supabase CLI database tooling, direct Postgres clients, and seed files are not allowed."
+            exit 1
+          fi
+          if [ "$MIGRATION_FILE" != "supabase/migrations/202610050011_add_200_more_questions.sql" ]; then
+            echo "::error::This workflow applies Migration 011 only."
+            exit 1
+          fi
+          echo "Confirmed: no CLI migration tooling; target is Migration 011 only."
+
+      - name: Guard - validate content and Migration 011 statically
+        run: |
+          npm test
+          node --no-warnings scripts/apply-migration-011.mjs --check
+
+      - name: Apply Migration 011 and verify row counts
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node --no-warnings scripts/apply-migration-011.mjs --apply

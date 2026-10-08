@@ -33,3 +33,24 @@ Category-level sources support broad review but do not prove each sentence indep
 ## Audio
 
 See `AUDIO_LICENSES.md`. No third-party recordings, generated effects, or music are bundled.
+
+## Migration 010 (bq-en-0667 to bq-en-0866)
+
+200 additional questions, 10 in each of the 20 categories, authored in the same row format and checked against the same category references listed above (each row's `sourceNote` is the category reference with an https URL). Every prompt was checked against the existing 325 prompts (normalized, case- and punctuation-insensitive) for duplicates; `tests/smoke.mjs` enforces no duplicate prompts across all 525 questions.
+
+## Migration 011 (bq-en-0867 to bq-en-1066)
+
+200 more questions, 10 in each of the 20 categories, in the same row format with the same category references (https URLs). Every prompt was checked against all 525 earlier prompts for duplicates; `tests/smoke.mjs` enforces no duplicate prompts across all 725 questions.
+
+## Migration 015 (bq-en-1067 to bq-en-1166)
+
+100 questions in five new categories, 20 each: Medical, Math, Physics, Chemistry and Biology. Same row format; every row's `sourceNote` names its reference (MedlinePlus and WHO fact sheets; OpenStax Prealgebra, Elementary Algebra, College Physics, Chemistry 2e and Biology 2e; NIST SI units; IUPAC periodic table). Every prompt was checked against all 725 earlier questions: no repeated prompts, and questions that would repeat a fact already asked in Science or Nature were replaced. Each question has 4 unique options including exactly one correct answer, and the game shuffles option positions every round.
+
+## Word meanings (Letters to Words)
+After a word is found, the game says and shows a short meaning. The meanings come from **Princeton WordNet 3.1** (WordNet License: free to use, copy and redistribute with its notice, which ships in `assets/meanings/LICENSE.txt`). They are extracted by `scripts/build-meanings.mjs` (`npm run meanings`):
+- the most-used sense is chosen
+- proper-noun and abbreviation senses are skipped
+- forms like SEES or RAN use the base word's meaning
+- common little words (IS, THE, HE…) have hand-written meanings
+
+The meanings are bundled with the game in files split by first letter, so they work offline and no word or player data is sent to any dictionary service.
