@@ -6,9 +6,8 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 
 /**
- * Supplies WorkManager's configuration at process startup. The notification worker is
- * optional; a WorkManager initialization failure must never keep Flutter's main activity
- * from opening.
+ * Provides WorkManager's configuration through AndroidX Startup. Notification work is
+ * optional; an unavailable worker must never prevent Flutter's main activity from opening.
  */
 class BlindQuizApplication : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
@@ -19,24 +18,10 @@ class BlindQuizApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         try {
+            // AndroidX Startup has already run providers before Application.onCreate().
             WorkManager.getInstance(this)
-        } catch (notInitialized: IllegalStateException) {
-            // Defensive fallback in case AndroidX Startup's provider was omitted by manifest merging.
-            try {
-                WorkManager.initialize(this, workManagerConfiguration)
-                Log.i(TAG, "Initialized WorkManager using the app configuration provider")
-            } catch (initializationFailure: IllegalStateException) {
-                // It may have initialized between getInstance() and initialize(). Verify once;
-                // rethrow only when WorkManager is genuinely still unavailable.
-                try {
-                    WorkManager.getInstance(this)
-                    Log.i(TAG, "WorkManager initialized concurrently")
-                } catch (stillUnavailable: IllegalStateException) {
-                    stillUnavailable.addSuppressed(notInitialized)
-                    stillUnavailable.addSuppressed(initializationFailure)
-                    Log.e(TAG, "WorkManager is unavailable; notifications will be disabled", stillUnavailable)
-                }
-            }
+        } catch (e: IllegalStateException) {
+            Log.e(TAG, "WorkManager auto-initializer unavailable; notifications are disabled", e)
         }
     }
 
