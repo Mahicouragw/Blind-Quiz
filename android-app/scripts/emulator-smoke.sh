@@ -22,14 +22,14 @@ fail_with_logs() {
   {
     printf 'Android emulator smoke test failed during: %s\nReason: %s\n' "$phase" "$reason"
     printf '\n=== Device ===\n'
-    adb shell getprop ro.build.version.release 2>&1 || true
-    adb shell getprop ro.build.version.sdk 2>&1 || true
+    timeout 15 adb shell getprop ro.build.version.release 2>&1 || true
+    timeout 15 adb shell getprop ro.build.version.sdk 2>&1 || true
     printf '\n=== Activity state ===\n'
-    adb shell dumpsys activity activities 2>&1 | tail -n 160 || true
+    timeout 15 adb shell dumpsys activity activities 2>&1 | tail -n 160 || true
     printf '\n=== Crash buffer ===\n'
-    adb logcat -b crash -d -v threadtime 2>&1 || true
+    timeout 15 adb logcat -b crash -d -v threadtime 2>&1 || true
     printf '\n=== Recent logcat (all buffers) ===\n'
-    adb logcat -b all -d -v threadtime -t 2000 2>&1 || true
+    timeout 15 adb logcat -b all -d -v threadtime -t 2000 2>&1 || true
   } | tee "$logfile"
   echo "::error title=Android emulator launch failed::$reason (full log: $logfile)"
   exit 1
@@ -40,7 +40,7 @@ if [[ ! -s "$apk_path" ]]; then
 fi
 
 printf 'Installing signed APK: %s\n' "$apk_path"
-if ! install_output="$(adb install -r "$apk_path" 2>&1)"; then
+if ! install_output="$(timeout 180 adb install -r "$apk_path" 2>&1)"; then
   printf '%s\n' "$install_output"
   fail_with_logs install "adb install failed: $install_output"
 fi
@@ -52,8 +52,8 @@ launch_and_watch() {
   local start_log="$log_dir/${phase}-launch.log"
 
   adb logcat -c
-  adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
-  if ! launch_output="$(adb shell am start -W -n "$activity_component" 2>&1)"; then
+  timeout 15 adb shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  if ! launch_output="$(timeout 60 adb shell am start -W -n "$activity_component" 2>&1)"; then
     printf '%s\n' "$launch_output"
     fail_with_logs "$phase" "ActivityManager could not start $activity_component"
   fi
@@ -96,13 +96,24 @@ launch_and_watch() {
 launch_and_watch cold-launch
 
 printf 'Rebooting emulator to verify a post-reboot launch...\n'
-adb shell reboot >/dev/null 2>&1 || true
+timeout 20 adb reboot >/dev/null 2>&1 || true
+reboot_observed=false
+for _ in $(seq 1 60); do
+  device_state="$(adb get-state 2>/dev/null || true)"
+  boot_completed="$(timeout 10 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  if [[ "$device_state" != 'device' || "$boot_completed" != '1' ]]; then
+    reboot_observed=true
+    break
+  fi
+  sleep 1
+done
+[[ "$reboot_observed" == 'true' ]] || fail_with_logs post-reboot "Emulator did not enter reboot after adb reboot"
 if ! timeout 180 adb wait-for-device; then
   fail_with_logs post-reboot "Emulator did not reconnect after reboot"
 fi
 boot_completed=''
 for _ in $(seq 1 180); do
-  boot_completed="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  boot_completed="$(timeout 10 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
   [[ "$boot_completed" == '1' ]] && break
   sleep 1
 done
