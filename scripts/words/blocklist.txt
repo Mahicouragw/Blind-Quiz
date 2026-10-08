@@ -1,0 +1,8 @@
+# Words removed from the Letters to Words dictionary (one per line; # starts a comment).
+# Offensive, sexual, slur, drug, violent, or upsetting words:
+anal anus arse arses ass asses bastard bastards bitch bitches bitchy bloody bomb bombed bomber bombers bombs bra bras breast breasts bum bums butt butts
+cocaine cock cocks condom condoms corpse corpses crap crappy cunt damn damned dick dicks dildo drunk drunks dyke erotic fag fags fart farts fatso fuck fucked fucker fucking gay gays gun guns gunman gunmen
+heroin hooker horny incest jerk jerks kill killed killer killers killing kills lesbian lust lusty massacre molest murder murders murdered naked nazi nazis nigger nude nudes nudity opium orgasm orgy penis penises pimp pimps piss pissed porn porno prick pricks pube pubic queer racist rape raped rapes rapist sadist screw screwed semen sex sexes sexist sexual sexy slave slaves slay slut sluts sperm spunk stab stabbed suicide tit tits titty turd twat urine vagina vomit whore whores wank weed
+# Contractions written without the apostrophe, letter plurals, and abbreviation-like entries:
+hes shes ive youd youll youre theyre theyd theyll weve hed itll thats whats wheres theres heres whos whod dont isnt arent wasnt werent didnt doesnt hasnt havent hadnt couldnt wouldnt shouldnt mustnt aint
+mas mes mys dos pis ohs ins ifs wot qua pap cox chi ova sup non cad cur gob hag rev sac mod etc

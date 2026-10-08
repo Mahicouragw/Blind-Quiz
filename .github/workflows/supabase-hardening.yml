@@ -1,0 +1,31 @@
+name: Supabase project hardening (owner-approved)
+
+# Owner-approved in Task 9: disable unused Supabase Auth signups and delete the unused
+# "smooth-processor" Edge Function. Idempotent; never touches blind-quiz-api or the database.
+# Secret: SUPABASE_ACCESS_TOKEN (environment variable only, never printed).
+
+# One-time hardening, already done. Manual run only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-hardening
+  cancel-in-progress: false
+
+jobs:
+  harden:
+    name: Disable Auth signups and remove unused function
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply and verify
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+        run: node --no-warnings scripts/supabase-hardening.mjs

@@ -4,11 +4,14 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 
 ## Current content and gameplay
 
-- **825 validated multiple-choice questions in 25 categories**: 73 historical questions, 252 questions from applied Migration 009, and 500 new Migration 010 questions (20 new questions in each of the 25 categories).
-- Historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`; Migration 009 retains its applied IDs `bq-en-0415`–`bq-en-0666`. The new, prepared Migration 010 uses `bq-en-0667`–`bq-en-1166` and does not reuse the previously verified ID gaps.
-- Eight playable modes: balanced Classic, Rapid Fire, Time Attack, Survival, Random Mix, Vocabulary, Abbreviations, and Braille. Category rounds remain available from the category picker.
+- **1575 validated multiple-choice questions across 30 combined categories**: the preserved 1075-question PR #5 bank plus 500 new questions prepared in Migration 025. Migration 025 adds exactly 20 questions in each of its 25 categories (20 shared categories plus Mathematics, Health, Literature, Food, and Arts); the new rows use IDs `bq-en-1417`–`bq-en-1916` and have not been applied remotely.
+- The historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`. A live database check on 3 October 2026 found 114 rows with a highest existing ID of `bq-en-0414`, so the expansion safely uses `bq-en-0415`–`bq-en-0666` without filling or overwriting ID gaps.
+- Eight quiz modes: balanced Classic, Rapid Fire, Time Attack, Survival, Random Mix, Vocabulary, Abbreviations, and Braille. Category rounds remain available in the category picker. Letters to Words and Sound Match are separate games; rooms add live multiplayer rounds.
 - Four answer buttons are independently shuffled with Fisher–Yates while correctness remains tied to answer text. Buttons expose only the answer itself, not radio/checkbox or “Option A” semantics.
-- Essential content is text. No recorded music/audio is bundled, and synthetic Web Audio effects are not used.
+- **Letters to Words** (new game): build words from letter buttons; no typing and no drag and drop. Every letter is a real button ("Letter D"), selections are announced ("D selected"), and words are recognised automatically ("Word found: FOR"). Real words only, from SCOWL (see `WORDS_LICENSE.md`) plus a short curated list of common two-letter words (`src/short-words.js`); words of two or more letters count. Pressing a letter again (TalkBack keeps focus on it) uses its other copy, so F T O O makes TOO. Each puzzle is a round; words plus a round bonus fill the level XP bar, and when it is full the game levels up automatically (about 4–5 rounds per level) with a recorded bugle call and a "Level up!" announcement. Seven levels (Beginner to Master) grow from 4 to 7 letters with harder words and bigger goals, and every puzzle is generated from a real word, so it always has answers. The server checks each word and pays XP and coins the first time you find it.
+- **Profile**: stats read as "Level, 1" or "Coins, 18". **Change** lets you edit your username, secret question and secret answer after confirming your current answer. Your User ID never changes. Username changes have a server-side cooldown of 7, 14, 30, then 60 days, and usernames are unique regardless of capital letters.
+- **TalkBack**: after each answer, focus moves to the result (correct or incorrect, the correct answer, XP, coins, streak) and then to Next question. Hidden screens are inert, and the header is not a live region.
+- Essential content is text. Recorded, royalty-free sound effects (bell for correct, buzzer for wrong, watch ticks and a referee whistle for the countdown, school bell when time runs out, applause and cheering at the end) and background music (Bach, Joplin, Grieg and Mozart recordings, a different track per screen and category group) are bundled from Wikimedia Commons under CC0 / Public domain. See `AUDIO_LICENSES.md`. Nothing is synthesised, and sound effects, music and music volume can be changed in Settings.
 - Custom account fields remain Name + Secret Question + Secret Answer for signup, and Name + Login ID + Secret Answer for login.
 
 ## Run and validate
@@ -25,7 +28,7 @@ npm run build
 python3 -m http.server 4173
 ```
 
-`npm run validate:content` validates the bank, regenerates `supabase/seed.sql`, and generates prepared Migration 010. It deliberately leaves already-applied Migration 009 untouched. `npm run build` creates the static production output in the ignored `dist/` directory.
+`npm run validate:content` validates the combined bank, regenerates `supabase/seed.sql`, and prepares Migration 025 without changing the already-applied PR #5 migrations. `npm run build` creates the static production output in the ignored `dist/` directory.
 
 `npm run test:live` exercises the deployed Edge Function with the public publishable key only. It creates a throwaway verification identity per run, and never prints secret answers, session tokens, apikeys, or Authorization headers — only HTTP status codes and non-sensitive response codes.
 
@@ -35,7 +38,7 @@ Automated accessibility checks are source-level checks, not a substitute for man
 
 The browser contains only the public project URL and publishable key in `src/config.js`. Never add a service-role key, database password, Supabase access token, or rate-limit pepper to client code or Git.
 
-The repository snapshot includes the historical core migration `202609260001_core.sql`, seed output, the `blind-quiz-api` Edge Function source, applied migration `202610030009_expand_question_bank.sql`, and prepared migration `202610070010_expand_question_bank.sql`. Migrations 001–008 are reported by the owner as already applied remotely. The owner confirmed Migration 009 was applied on 4 October 2026; verification returned 366 total questions, 20 categories, 252 Migration 009 rows, and 12 Telugu/Bharati Braille rows. Migration 010 adds 500 rows with IDs `bq-en-0667`–`bq-en-1166`; it is prepared in this repository and has **not** been applied or live-verified. Apply it once only after reviewing the content and confirming the deployment plan. Do not rerun or alter applied migrations 001–009.
+The repository includes the historical core migration, seed output, the `blind-quiz-api` function, and PR #5 migrations 009–024. Preserve those existing migration files; do not rerun or rewrite already-applied migrations. PR #6's additional 500 questions are isolated in the new prepared migration `supabase/migrations/202610080025_expand_question_bank.sql`, IDs `bq-en-1417`–`bq-en-1916`, 20 in each of the 25 categories. Migration 025 is not applied or live-verified. It must be reviewed and approved before any separate migration apply; never use `supabase db push` for it.
 
 The Edge Function performs custom authentication, stores salted PBKDF2 secret-answer hashes, rate-limits attempts, uses opaque expiring sessions, and calls a database function that validates answers and awards XP/coins server-side. Its source in this repository has no `DAILY_BANK_SIZE` or daily-question selection feature. Deployment of the source cannot be inferred from a Git push.
 
@@ -79,10 +82,10 @@ If the editor does not expose its full text to a screen reader, delete the funct
 
 ## Known limits
 
-- Achievements, combo rewards, daily question selection, complete quiz counters, and a full profile/progression UI are not implemented as playable features and are not presented as game modes.
+- Achievements, combo rewards, and daily question selection are not implemented as playable features. The app does include a player profile, account changes, Letters to Words, Sound Match, and multiplayer rooms.
 - Existing schema tracks XP, coins, level, answer streak, and answer counts. `npm run test:live` exercises the deployed function directly; it requires outbound network access to the project and cannot run in a sandbox that blocks `*.supabase.co`.
-- Migration 009’s 252 questions and Migration 010’s 500 questions include category-level source notes and passed structural/duplicate checks. This is not independent expert review of every item; changeable facts and specialized claims should be rechecked before a production content release.
-- No genuine recorded audio has yet passed the licensing and clue-matching review, so no audio clue or music asset is shipped.
+- The question bank passed structural and duplicate checks and includes category-level source notes; this is not an independent expert review of every item. Changeable facts and specialized claims should be rechecked.
+- Recorded audio and music are bundled under the licenses documented in `AUDIO_LICENSES.md`; no synthetic Web Audio effects are used.
 
 ## Deployment
 

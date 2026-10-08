@@ -1,0 +1,63 @@
+name: Apply Migration 014 (guarded)
+
+# Applies ONLY supabase/migrations/202610050014_two_letter_words.sql (two-letter words for Letters to Words:
+# bq_words length check 3-7 -> 2-7, 32 words, bq_record_word pays 1 XP for them) through the Supabase Management
+# API query endpoint. Approved by the owner on 5 Oct 2026. Migrations 001-013 are never recreated, rerun, or
+# pushed, and the Supabase CLI migration commands are not used. Idempotent, with static guards and verification.
+#
+# Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
+
+# Migration 014 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migration-014
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+  MIGRATION_FILE: supabase/migrations/202610050014_two_letter_words.sql
+
+jobs:
+  apply:
+    name: Apply Migration 014 only and verify privileges
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard - this workflow never replays migrations 001-013
+        run: |
+          set -euo pipefail
+          SELF=.github/workflows/apply-migration-014.yml
+          EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
+          # Character classes keep these patterns from matching this guard itself.
+          if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
+            echo "::error::Only the Management API query endpoint may be used. Supabase CLI database tooling, direct Postgres clients, and seed files are not allowed."
+            exit 1
+          fi
+          if [ "$MIGRATION_FILE" != "supabase/migrations/202610050014_two_letter_words.sql" ]; then
+            echo "::error::This workflow applies Migration 014 only."
+            exit 1
+          fi
+          echo "Confirmed: no CLI migration tooling; target is Migration 014 only."
+
+      - name: Guard - validate content and Migration 014 statically
+        run: |
+          npm test
+          node --no-warnings scripts/apply-migration-014.mjs --check
+
+      - name: Apply Migration 014 and verify privileges
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node --no-warnings scripts/apply-migration-014.mjs --apply

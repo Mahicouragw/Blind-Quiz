@@ -1,0 +1,69 @@
+name: Apply Migration 012 (guarded)
+
+# Applies ONLY supabase/migrations/202610050012_privilege_hardening.sql (REVOKE-only privilege
+# hardening from the Task 9 security audit) through the Supabase Management API query endpoint.
+#
+# Migrations 001-011 are already applied remotely and are never recreated, rerun, or pushed.
+# The Supabase CLI migration commands are deliberately NOT used, because the remote migration
+# history does not match this repository and the CLI would try to replay 001-009.
+#
+# Idempotent: the script skips the apply step when the privileges are already revoked, and
+# refuses if the migration contains anything other than REVOKE / ALTER DEFAULT PRIVILEGES /
+# a service_role GRANT, or if any row count changes.
+#
+# Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
+
+# Migration 012 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migration-012
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+  MIGRATION_FILE: supabase/migrations/202610050012_privilege_hardening.sql
+
+jobs:
+  apply:
+    name: Apply Migration 012 only and verify privileges
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard - this workflow never replays migrations 001-011
+        run: |
+          set -euo pipefail
+          SELF=.github/workflows/apply-migration-012.yml
+          EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
+          # Character classes keep these patterns from matching this guard itself.
+          if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
+            echo "::error::Only the Management API query endpoint may be used. Supabase CLI database tooling, direct Postgres clients, and seed files are not allowed."
+            exit 1
+          fi
+          if [ "$MIGRATION_FILE" != "supabase/migrations/202610050012_privilege_hardening.sql" ]; then
+            echo "::error::This workflow applies Migration 012 only."
+            exit 1
+          fi
+          echo "Confirmed: no CLI migration tooling; target is Migration 012 only."
+
+      - name: Guard - validate content and Migration 012 statically
+        run: |
+          npm test
+          node --no-warnings scripts/apply-migration-012.mjs --check
+
+      - name: Apply Migration 012 and verify privileges
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node --no-warnings scripts/apply-migration-012.mjs --apply
