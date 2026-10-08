@@ -42,6 +42,12 @@ fail_with_logs() {
       printf '\n```\n\nFull logs are also attached as the emulator log artifact.\n'
     } >> "$GITHUB_STEP_SUMMARY"
   fi
+  local crash_excerpt
+  crash_excerpt="$(timeout 15 adb logcat -b crash -d -v threadtime 2>&1 | tail -n 40 | tr '\r\n' ' ' | cut -c1-3500 || true)"
+  if [[ -n "$crash_excerpt" ]]; then
+    reason="$reason | crash log: $crash_excerpt"
+  fi
+  reason="$(printf '%s' "$reason" | tr '\r\n' ' ' | cut -c1-4500)"
   echo "::error title=Android emulator launch failed::$reason (full log: $logfile)"
   exit 1
 }

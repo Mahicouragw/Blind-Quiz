@@ -78,9 +78,17 @@ jobs:
           grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <uses-feature android:name="android.hardware.microphone" android:required="false"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>\n    <application#' "$MANIFEST"
           grep -n 'INTERNET\|RECORD_AUDIO\|CAMERA\|MODIFY_AUDIO\|tools:node\|android:label\|usesCleartextTraffic\|allowBackup\|SENDTO' "$MANIFEST"
-          # Native microphone/camera permission request for calls and voice messages (no extra plugin).
+          # Native microphone/camera and notification helpers, plus explicit WorkManager initialization.
           ACT_DIR=android/app/src/main/kotlin/io/github/mahicouragw/blind_quiz
-          mkdir -p "$ACT_DIR" && cp native/MainActivity.kt native/NotifyWorker.kt "$ACT_DIR/"
+          mkdir -p "$ACT_DIR" && cp native/MainActivity.kt native/NotifyWorker.kt native/BlindQuizApplication.kt "$ACT_DIR/"
+          APP_CLASS='io.github.mahicouragw.blind_quiz.BlindQuizApplication'
+          if grep -Fq 'android:name="${applicationName}"' "$MANIFEST"; then
+            sed -i 's#android:name="${applicationName}"#android:name="io.github.mahicouragw.blind_quiz.BlindQuizApplication"#' "$MANIFEST"
+          elif ! grep -Fq "android:name=\"$APP_CLASS\"" "$MANIFEST"; then
+            echo "::error::Generated manifest does not declare the expected application placeholder; refusing to build without BlindQuizApplication."
+            exit 1
+          fi
+          grep -n 'android:name=' "$MANIFEST"
           find android/app/src/main -name 'MainActivity.*' ! -path "$ACT_DIR/MainActivity.kt" -delete
           find android/app/src/main -name 'MainActivity.*'
           # Background notifications (android-app/native/NotifyWorker.kt): WorkManager and AndroidX notifications.
