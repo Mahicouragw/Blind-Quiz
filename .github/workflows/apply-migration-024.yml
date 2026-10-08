@@ -15,13 +15,9 @@ name: Apply Migration 024 (guarded)
 
 # Runs only when Migration 024's own files change, never on shared test or library changes, so older
 # migrations are not re-run alongside it.
+# Migration 024 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'supabase/migrations/202610070024_app_notifications.sql'
-      - 'scripts/apply-migration-024.mjs'
-      - '.github/workflows/apply-migration-024.yml'
   workflow_dispatch:
 
 permissions:

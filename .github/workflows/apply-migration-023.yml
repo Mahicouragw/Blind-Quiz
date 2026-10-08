@@ -15,13 +15,9 @@ name: Apply Migration 023 (guarded)
 
 # Runs only when Migration 023's own files change, never on shared test or library changes, so older
 # migrations are not re-run alongside it.
+# Migration 023 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'supabase/migrations/202610060023_voice_signals.sql'
-      - 'scripts/apply-migration-023.mjs'
-      - '.github/workflows/apply-migration-023.yml'
   workflow_dispatch:
 
 permissions:

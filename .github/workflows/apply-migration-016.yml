@@ -16,14 +16,9 @@ name: Apply Migration 016 (guarded)
 #
 # Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
 
+# Migration 016 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'supabase/migrations/202610060016_questions_and_word_reward.sql'
-      - 'scripts/apply-migration-016.mjs'
-      - 'scripts/migration-016-function.sql'
-      - '.github/workflows/apply-migration-016.yml'
   workflow_dispatch:
 
 permissions:

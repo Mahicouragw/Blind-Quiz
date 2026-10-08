@@ -12,13 +12,9 @@ name: Apply Migration 018 (guarded)
 #
 # Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
 
+# Migration 018 is applied. It must never run again (a re-run can replace newer functions from later
+# migrations). Manual run only, for disaster recovery by the owner.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'supabase/migrations/202610060018_sound_match_rewards.sql'
-      - 'scripts/apply-migration-018.mjs'
-      - '.github/workflows/apply-migration-018.yml'
   workflow_dispatch:
 
 permissions:

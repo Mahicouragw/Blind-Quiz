@@ -4,12 +4,8 @@ name: Supabase project hardening (owner-approved)
 # "smooth-processor" Edge Function. Idempotent; never touches blind-quiz-api or the database.
 # Secret: SUPABASE_ACCESS_TOKEN (environment variable only, never printed).
 
+# One-time hardening, already done. Manual run only.
 on:
-  push:
-    branches: [main, 'arena/**']
-    paths:
-      - 'scripts/supabase-hardening.mjs'
-      - '.github/workflows/supabase-hardening.yml'
   workflow_dispatch:
 
 permissions:
