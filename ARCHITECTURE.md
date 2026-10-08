@@ -12,15 +12,16 @@ This repository contains a static progressive web app, its local question pack, 
 - Polite and assertive live regions announce relevant state changes; visual feedback also uses text, not color alone.
 - Large text, high contrast, reduced motion, configurable timer, keyboard focus styles, and screen-reader-announcement controls are persisted locally.
 - A service worker caches the static shell and all question modules for offline rounds.
-- Fisher–Yates shuffling independently randomizes question order and each four-choice answer list. Correctness remains tied to the canonical answer text.
+- Fisher–Yates shuffling independently randomizes question selection and each four-choice answer list. Classic mixed rounds deliberately balance categories; Random Mix samples the full bank. Rapid Fire (8 questions, 15 seconds), Time Attack (10 questions, 10 seconds), and Survival (up to 20 questions, ends on a miss) have distinct selection/scoring behavior.
+- Leaving a round cancels its countdown and timer; round tokens prevent stale asynchronous callbacks from changing a later screen. Timed API calls also have a bounded timeout.
 
 ## Content
 
-- 325 questions across 20 categories.
-- IDs `bq-en-0001`–`bq-en-0073` preserve the source snapshot’s starter pack.
-- The live database was verified to contain 114 rows with a highest ID of `bq-en-0414`; missing numeric IDs are not reused.
-- Migration 009 adds IDs `bq-en-0415`–`bq-en-0666`: 12 additions per category plus 12 additional Telugu/Bharati Braille vowel questions.
-- Structural checks enforce unique IDs/prompts/answers, one listed correct answer, explanations, valid difficulties, rewards, and source notes on new rows.
+- 825 validated local questions across 25 categories: the 73-question starter pack, 252 applied Migration 009 questions, and 500 prepared Migration 010 questions.
+- IDs `bq-en-0001`–`bq-en-0073` preserve the historical starter pack. Migration 009 retains IDs `bq-en-0415`–`bq-en-0666`.
+- A live database check before Migration 009 found 114 rows with a highest ID of `bq-en-0414`; Migration 009 was later confirmed applied. Migration 010 adds IDs `bq-en-0667`–`bq-en-1166`, exactly 20 new questions per category. It is prepared but not remotely applied or verified.
+- Structural checks enforce unique IDs/prompts/answers, one listed correct answer, explanations, valid difficulties and rewards, HTTPS source notes, and the expected 500-question distribution.
+- Content validation regenerates the seed and Migration 010 only; it never rewrites already-applied Migration 009.
 
 ## Backend and security
 
@@ -35,7 +36,7 @@ This repository contains a static progressive web app, its local question pack, 
 
 ## Readiness gaps
 
-- The owner confirmed Migration 009 was applied on 4 October 2026. Post-application verification returned 366 total rows, 252 rows in its ID range, and 12 Telugu/Bharati Braille rows.
+- The owner confirmed Migration 009 was applied on 4 October 2026. Post-application verification returned 366 total rows, 252 rows in its ID range, and 12 Telugu/Bharati Braille rows. Migration 010 is prepared as a single 500-row insert migration and still needs content review, one-time application, and post-application verification; this workspace did not deploy it.
 - The owner verified the remote question count and maximum ID in the SQL editor. The agent workspace has no Supabase CLI and no outbound route to `*.supabase.co` or `api.supabase.com`, so Edge Function deployment and live auth/reward verification run through `.github/workflows/deploy-function.yml` on GitHub-hosted runners instead of from the workspace. That workflow needs the `SUPABASE_ACCESS_TOKEN` repository secret; `tests/live-api.mjs` can also be run from any machine with network access via `npm run test:live`.
 - GitHub Pages is deployed by `.github/workflows/deploy-pages.yml`; the Edge Function is deployed by `.github/workflows/deploy-function.yml`. Neither workflow runs a migration, and the Edge Function workflow asserts that against its own executable lines before deploying.
 - Achievements, combo rewards, quiz-completion persistence, daily-bank selection, and a complete profile UI are not implemented.

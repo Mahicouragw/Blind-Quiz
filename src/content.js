@@ -1,4 +1,5 @@
 import { EXPANSION_ROWS, CATEGORY_SOURCES } from './expansion-questions.js';
+import { EXPANSION_010_ROWS, CATEGORY_SOURCES_010 } from './expansion-questions-010.js';
 
 // The original 73-question pack remains in its historical order so its stable IDs do not change.
 const starterRows = [
@@ -77,14 +78,112 @@ const starterRows = [
 ['braille','Letters','easy','Which dots represent the letter C?','Dots 1 and 4','Dots 1 and 3','Dots 2 and 4','Dots 1, 2, and 4','The uncontracted Braille letter C is dots 1 and 4.'],
 ];
 export const STARTER_QUESTION_COUNT = starterRows.length;
-const rows = [...starterRows, ...EXPANSION_ROWS];
-const CATEGORIES = [
-  ['animals','Animals','Wildlife and animal life'],['birds','Birds','Flight, habitats, and species'],['nature','Nature','Living systems and our planet'],['instruments','Musical instruments','Sounds, families, and traditions'],['science','Science','Physics, chemistry, biology, and space'],['geography','Geography','Places, landforms, and rivers'],['india','India','People, places, and civic life'],['history','History','Events, people, and the past'],['technology','Technology','Computers and the connected world'],['sports','Sports','Rules, play, and equipment'],['civics','Civics','Institutions and public life'],['economics','Economics','Choices, markets, and money'],['music','Music','Rhythm, sound, and ideas'],['abbreviations','Abbreviations','Decode the short form'],['vocabulary','Vocabulary','Meaning, usage, and spelling'],['braille','Braille','Read six-dot patterns'],['management','Management','Planning, teams, quality, and leadership'],['business','Business','Customers, operations, strategy, and enterprise'],['accounting','Accounting','Records, statements, and financial concepts'],['commerce','Commerce','Trade, payments, logistics, and retail']
-].map(([id,name,description])=>({id,name,description,count:rows.filter(r=>r[0]===id).length}));
-export const QUESTION_BANK = rows.map((r,i)=>({id:`bq-en-${String(i<starterRows.length?i+1:415+(i-starterRows.length)).padStart(4,'0')}`,category:r[0],subcategory:r[1],difficulty:r[2],mode:'classic',question:r[3],answers:r.slice(4,8),correctAnswer:r[4],explanation:r[8],xp:10,coins:2,tags:[r[1].toLowerCase()],language:'en',active:true,sourceNote:i<starterRows.length?'Initial authored content; editorial review recommended':CATEGORY_SOURCES[r[0]]}));
+export const MIGRATION_009_QUESTION_COUNT = EXPANSION_ROWS.length;
+export const MIGRATION_010_QUESTION_COUNT = EXPANSION_010_ROWS.length;
+const rows = [...starterRows, ...EXPANSION_ROWS, ...EXPANSION_010_ROWS];
+const SOURCE_NOTES = { ...CATEGORY_SOURCES, ...CATEGORY_SOURCES_010 };
+const CATEGORY_DEFINITIONS = [
+  ['animals', 'Animals', 'Wildlife and animal life'],
+  ['birds', 'Birds', 'Flight, habitats, and species'],
+  ['nature', 'Nature', 'Living systems and our planet'],
+  ['instruments', 'Musical instruments', 'Sounds, families, and traditions'],
+  ['science', 'Science', 'Physics, chemistry, biology, and space'],
+  ['geography', 'Geography', 'Places, landforms, and rivers'],
+  ['india', 'India', 'People, places, and civic life'],
+  ['history', 'History', 'Events, people, and the past'],
+  ['technology', 'Technology', 'Computers and the connected world'],
+  ['sports', 'Sports', 'Rules, play, and equipment'],
+  ['civics', 'Civics', 'Institutions and public life'],
+  ['economics', 'Economics', 'Choices, markets, and money'],
+  ['music', 'Music', 'Rhythm, sound, and ideas'],
+  ['abbreviations', 'Abbreviations', 'Decode the short form'],
+  ['vocabulary', 'Vocabulary', 'Meaning, usage, and spelling'],
+  ['braille', 'Braille', 'Read six-dot patterns'],
+  ['management', 'Management', 'Planning, teams, quality, and leadership'],
+  ['business', 'Business', 'Customers, operations, strategy, and enterprise'],
+  ['accounting', 'Accounting', 'Records, statements, and financial concepts'],
+  ['commerce', 'Commerce', 'Trade, payments, logistics, and retail'],
+  ['mathematics', 'Mathematics', 'Numbers, patterns, measurement, and geometry'],
+  ['health', 'Health', 'The human body and everyday well-being'],
+  ['literature', 'Literature', 'Authors, books, forms, and literary devices'],
+  ['food', 'Food and cooking', 'Ingredients, food science, and techniques'],
+  ['arts', 'Visual arts', 'Art forms, materials, color, and history'],
+];
+const CATEGORIES = CATEGORY_DEFINITIONS.map(([id, name, description]) => ({
+  id,
+  name,
+  description,
+  count: rows.filter(row => row[0] === id).length,
+}));
+
+export const QUESTION_BANK = rows.map((row, index) => ({
+  id: `bq-en-${String(index < starterRows.length ? index + 1 : 415 + (index - starterRows.length)).padStart(4, '0')}`,
+  category: row[0],
+  subcategory: row[1],
+  difficulty: row[2],
+  mode: 'classic',
+  question: row[3],
+  answers: row.slice(4, 8),
+  correctAnswer: row[4],
+  explanation: row[8],
+  xp: 10,
+  coins: 2,
+  tags: [row[1].toLowerCase()],
+  language: 'en',
+  active: true,
+  sourceNote: index < starterRows.length
+    ? 'Initial authored content; editorial review recommended'
+    : SOURCE_NOTES[row[0]],
+}));
+
 export const CATEGORY_LIST = CATEGORIES;
-export const DIFFICULTIES = ['easy','medium','hard','expert'];
-export function validateQuestionBank(bank=QUESTION_BANK){
- const ids=new Set(),prompts=new Set();const errors=[];const cats=new Set(CATEGORIES.map(c=>c.id));const modes=new Set(['classic']);
- bank.forEach((q,i)=>{if(!q.id||ids.has(q.id))errors.push(`row ${i+1}: missing/duplicate id`);ids.add(q.id);if(!cats.has(q.category))errors.push(`${q.id}: invalid category`);if(!DIFFICULTIES.includes(q.difficulty))errors.push(`${q.id}: invalid difficulty`);if(!modes.has(q.mode))errors.push(`${q.id}: invalid game mode`);const prompt=typeof q.question==='string'?q.question.trim():'';if(!prompt)errors.push(`${q.id}: empty prompt`);const promptKey=`${q.category}:${prompt.toLocaleLowerCase('en-US')}`;if(prompts.has(promptKey))errors.push(`${q.id}: duplicate prompt`);prompts.add(promptKey);if(!Array.isArray(q.answers)||q.answers.length!==4)errors.push(`${q.id}: expected four answers`);if(Array.isArray(q.answers)&&new Set(q.answers).size!==q.answers.length)errors.push(`${q.id}: duplicate answers`);if(Array.isArray(q.answers)&&q.answers.some(a=>typeof a!=='string'||!a.trim()))errors.push(`${q.id}: empty answer choice`);if(!Array.isArray(q.answers)||!q.answers.includes(q.correctAnswer))errors.push(`${q.id}: correct answer missing from choices`);if(!q.explanation?.trim())errors.push(`${q.id}: missing explanation`);if(!Number.isInteger(q.xp)||q.xp<0||!Number.isInteger(q.coins)||q.coins<0)errors.push(`${q.id}: invalid reward data`);});return errors;
+export const DIFFICULTIES = ['easy', 'medium', 'hard', 'expert'];
+
+export function validateQuestionBank(bank = QUESTION_BANK) {
+  const ids = new Set();
+  const prompts = new Set();
+  const errors = [];
+  const categories = new Set(CATEGORIES.map(category => category.id));
+  const modes = new Set(['classic']);
+
+  bank.forEach((question, index) => {
+    const id = typeof question?.id === 'string' ? question.id.trim() : '';
+    const label = id || `row ${index + 1}`;
+    if (!id || ids.has(id)) errors.push(`${label}: missing/duplicate id`);
+    ids.add(id);
+    if (!categories.has(question?.category)) errors.push(`${label}: invalid category`);
+    if (!DIFFICULTIES.includes(question?.difficulty)) errors.push(`${label}: invalid difficulty`);
+    if (!modes.has(question?.mode)) errors.push(`${label}: invalid game mode`);
+
+    const prompt = typeof question?.question === 'string' ? question.question.trim() : '';
+    if (!prompt) errors.push(`${label}: empty prompt`);
+    const promptKey = `${question?.category}:${prompt.toLocaleLowerCase('en-US')}`;
+    if (prompts.has(promptKey)) errors.push(`${label}: duplicate prompt`);
+    prompts.add(promptKey);
+
+    const answers = question?.answers;
+    if (!Array.isArray(answers) || answers.length !== 4) {
+      errors.push(`${label}: expected four answers`);
+    } else {
+      const normalizedAnswers = answers.map(answer => typeof answer === 'string'
+        ? answer.trim().toLocaleLowerCase('en-US')
+        : '');
+      if (new Set(normalizedAnswers).size !== answers.length) errors.push(`${label}: duplicate answers`);
+      if (answers.some(answer => typeof answer !== 'string' || !answer.trim())) errors.push(`${label}: empty answer choice`);
+      if (typeof question.correctAnswer !== 'string' || !answers.includes(question.correctAnswer)) {
+        errors.push(`${label}: correct answer missing from choices`);
+      }
+    }
+
+    if (typeof question?.explanation !== 'string' || !question.explanation.trim()) errors.push(`${label}: missing explanation`);
+    if (!Number.isInteger(question?.xp) || question.xp < 0 || question.xp > 50
+      || !Number.isInteger(question?.coins) || question.coins < 0 || question.coins > 20) {
+      errors.push(`${label}: invalid reward data`);
+    }
+    const numericId = Number(id.match(/(\d+)$/)?.[1]);
+    if (numericId >= 415 && !/https:\/\//.test(question?.sourceNote || '')) {
+      errors.push(`${label}: missing HTTPS source note`);
+    }
+  });
+  return errors;
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-The repository contains 325 questions: 73 historical starter questions and 252 Migration 009 questions added on 3 October 2026. The live database was separately verified to contain 114 rows and to use IDs through `bq-en-0414`; therefore Migration 009 uses `bq-en-0415`–`bq-en-0666`. It contributes 12 questions to every category plus 12 additional Telugu/Bharati Braille vowel questions. Each added row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
+The local repository contains 825 questions: 73 historical starter questions, 252 applied Migration 009 questions, and 500 prepared Migration 010 questions across 25 categories. The database was verified before Migration 009 to contain 114 rows through `bq-en-0414`; Migration 009 uses `bq-en-0415`–`bq-en-0666` and is confirmed applied. Migration 010 adds IDs `bq-en-0667`–`bq-en-1166`, with exactly 20 new questions in each of the 25 categories. Migration 010 is prepared but has not been applied or live-verified. Each new row has four unique choices, one declared correct answer, an explanation, category/subcategory, difficulty, tags, stable ID, and a category-level source note stored in the question and migration row.
 
 The added questions were manually checked for consistency against the references below and passed automated structural and duplicate validation. This is an internal editorial review, **not independent expert fact-checking**. The original 73 questions still carry “editorial review recommended” source notes. Time-sensitive facts and rules should be rechecked before a production content release.
 
@@ -26,9 +26,18 @@ The added questions were manually checked for consistency against the references
 - **Business:** US Small Business Administration, Business Guide — https://www.sba.gov/business-guide
 - **Accounting:** IFRS Foundation issued standards — https://www.ifrs.org/issued-standards/list-of-standards/ ; IAASB standards — https://www.iaasb.org/publications
 
+## References used for Migration 010
+
+- **Mathematics:** Khan Academy mathematics topics — https://www.khanacademy.org/math ; Encyclopaedia Britannica, Mathematics — https://www.britannica.com/science/mathematics
+- **Health:** MedlinePlus Health Topics — https://medlineplus.gov/healthtopics.html ; Centers for Disease Control and Prevention — https://www.cdc.gov/
+- **Literature:** Encyclopaedia Britannica literature and author biographies — https://www.britannica.com/art/literature ; Nobel Prize profile for Rabindranath Tagore — https://www.nobelprize.org/prizes/literature/1913/tagore/
+- **Food and cooking:** USDA Food Safety and Inspection Service — https://www.fsis.usda.gov/food-safety ; FoodSafety.gov — https://www.foodsafety.gov/ ; Encyclopaedia Britannica, Food — https://www.britannica.com/topic/food
+- **Visual arts:** Tate Art Terms — https://www.tate.org.uk/art/art-terms ; The Metropolitan Museum of Art, Heilbrunn Timeline of Art History — https://www.metmuseum.org/toah/
+- **All existing categories:** the Migration 009 reference list above was retained and extended with 20 new questions per category.
+
 ## Editorial cautions
 
-Category-level sources support broad review but do not prove each sentence independently. An expert reviewer should still examine specialized claims, India civics/history items, sports rules, and accounting terminology before labeling the full bank independently fact-checked. Question reports from players should be triaged against the canonical database row.
+Category-level sources support broad review but do not prove each sentence independently. The 500 Migration 010 items received structured editorial and automated structural/duplicate checks, not independent expert fact-checking. An expert reviewer should still examine specialized claims, India civics/history, sports rules, health wording, Braille conventions, and accounting terminology before labeling the full bank independently fact-checked. Time-sensitive claims should be rechecked, and player reports should be triaged against the canonical database row.
 
 ## Audio
 

@@ -1,43 +1,729 @@
 import { QUESTION_BANK, CATEGORY_LIST, validateQuestionBank } from './content.js';
 import { callApi, getSession, setSession } from './backend.js';
 import { shuffled } from './random.js';
-const $=(s,root=document)=>root.querySelector(s), $$=(s,root=document)=>[...root.querySelectorAll(s)];
-const state={view:'home',category:'general',mode:'classic',difficulty:'easy',questions:[],index:0,score:0,answered:false,timer:null,timeLeft:0,locked:false,settings:{largeText:false,highContrast:false,reducedMotion:false,speech:true,timer:0},profile:null};
-const modes=[['classic','Classic Quiz','Four real answers, one clear choice.'],['rapid','Rapid Fire','Eight questions with a 15-second clock.'],['random','Random Mix','Questions drawn from the full playable pack.'],['vocabulary','Vocabulary','Meanings, context, and spelling.'],['abbreviations','Abbreviations','Decode common short forms.'],['braille','Braille','Explore letters through six-dot patterns.']];
-const announce=(text,urgent=false)=>{if(!state.settings.speech)return;const el=$(urgent?'#assertive-announcer':'#announcer');el.textContent='';setTimeout(()=>el.textContent=text,30)};
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-function go(view,{focus}={}){$$('.view').forEach(v=>{v.hidden=true});$(`#view-${view}`).hidden=false;state.view=view;window.scrollTo(0,0);if(focus){const el=$(focus);setTimeout(()=>el?.focus(),60)}else setTimeout(()=>{const h=$(`#view-${view} h1`);h?.setAttribute('tabindex','-1');h?.focus()},30)}
-function top(){const s=getSession();$('#top-meta').textContent=s?.profile?.name?`${s.profile.name} · Login ID account`:'';$('#logout-button').hidden=!s}
-function renderCategories(){const host=$('#category-list');host.innerHTML='';for(const c of CATEGORY_LIST){const b=document.createElement('button');b.type='button';b.className='category-button';b.dataset.category=c.id;b.innerHTML=`<strong>${esc(c.name)}</strong>`;host.append(b)}}
-function renderModes(){const host=$('#mode-list');host.innerHTML='';for(const [id,name,desc] of modes){const b=document.createElement('button');b.type='button';b.className='mode-button';b.dataset.mode=id;b.innerHTML=`<strong>${esc(name)}</strong><small>${esc(desc)}</small>`;host.append(b)}}
-function esc(v){return String(v).replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]))}
-function setAuthTab(tab){$$('[data-auth-tab]').forEach(b=>{const on=b.dataset.authTab===tab;b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on))});$('#login-form').hidden=tab!=='login';$('#signup-form').hidden=tab!=='signup';$('#recovery-form').hidden=true;$('#signup-success').hidden=true;$('#auth-title').textContent=tab==='login'?'Log in to play':'Create your account';(tab==='login'?$('#login-name'):$('#signup-name')).focus()}
-function showError(id,msg){const e=$(id);e.textContent=msg;e.hidden=false;announce(msg,true)}
-const genericLogin='The name, Login ID, or secret answer is incorrect. Please try again.';
-let questionLookupTimer,signupNameTimer;
-async function checkSignupName(){const name=$('#signup-name').value.trim(),status=$('#signup-name-status');status.textContent='';if(name.length<2)return;try{const data=await callApi('check-name',{name});status.textContent=data.available?'Name is available.':'This name is already registered. Please choose another name.';if(!data.available)announce(status.textContent,true)}catch{status.textContent='Name availability will be checked when you create the account.'}}
-async function lookupQuestion(){const name=$('#login-name').value.trim(),loginId=$('#login-id').value.trim().toUpperCase();if(name.length<2||loginId.length!==8)return;try{const d=await callApi('secret-question',{name,loginId});$('#question-context').textContent=d.question||'Secret question';$('#question-context').hidden=false}catch{$('#question-context').hidden=true}}
-async function signUp(e){e.preventDefault();$('#signup-error').hidden=true;const name=$('#signup-name').value.trim(),selection=$('#secret-question').value,question=selection==='custom'?$('#custom-question').value.trim():selection,answer=$('#signup-answer').value.trim(),btn=$('#signup-form button[type=submit]');if(name.length<2||!question||answer.length<2){showError('#signup-error','Please complete each field with at least two characters.');return}btn.disabled=true;btn.textContent='Creating account…';announce('Creating account. Please wait.');try{const data=await callApi('signup',{name,question,answer});$('#signup-success').hidden=false;$('#new-login-id').textContent=data.loginId;$('#signup-form').hidden=true;$('#login-form').hidden=true;$('#auth-title').textContent='Account created';$('#copy-login-id').focus();announce(`Your account has been created successfully. Your Login ID is ${data.loginId}.`,true)}catch(err){const message=err.message==='name_taken'?'This name is already registered. Please choose another name.':err.message==='rate_limited'?'Too many attempts. Please wait and try again.':'Something went wrong. Please try again.';showError('#signup-error',message)}finally{btn.disabled=false;btn.innerHTML='Create account <span aria-hidden="true">→</span>'}}
-async function login(e){e.preventDefault();$('#login-error').hidden=true;const name=$('#login-name').value.trim(),loginId=$('#login-id').value.trim().toUpperCase(),answer=$('#login-answer').value.trim(),btn=$('#login-form button[type=submit]');if(!name||loginId.length!==8||!answer){showError('#login-error','Enter your name, 8-character Login ID, and secret answer.');return}btn.disabled=true;announce('Signing in. Please wait.');try{const d=await callApi('login',{name,loginId,answer});setSession({token:d.token,expiresAt:d.expiresAt,profile:d.profile});state.profile=d.profile;top();if(d.firstLogin){$('#welcome-title').textContent=`Welcome to Blind Quiz, ${d.profile.name}.` ;$('#welcome-copy').textContent='Your quiz journey begins now.';go('welcome',{focus:'#welcome-continue'});announce(`Login successful. Welcome to Blind Quiz, ${d.profile.name}. Your quiz journey begins now.`)}else{go('home',{focus:'#play-featured'});announce(`Login successful. Welcome, ${d.profile.name}.`)}}catch(err){showError('#login-error',err.message==='rate_limited'?'Too many attempts. Please wait and try again.':genericLogin)}finally{btn.disabled=false}}
-async function recoverLoginId(e){e.preventDefault();$('#recovery-error').hidden=true;const name=$('#recovery-name').value.trim(),sel=$('#recovery-question').value,question=sel==='custom'?$('#recovery-custom-question').value.trim():sel,answer=$('#recovery-answer').value.trim();if(!name||!question||!answer){showError('#recovery-error','Complete each recovery field.');return}const btn=$('#recovery-form button[type=submit]');btn.disabled=true;try{const d=await callApi('recover-id',{name,question,answer});$('#recovered-id').textContent=d.loginId;$('#recovery-result').hidden=false;$('#copy-recovered-id').focus();announce(`Your Login ID is ${d.loginId}.`,true)}catch(err){showError('#recovery-error',err.message==='rate_limited'?'Too many attempts. Please wait and try again.':'The recovery details are incorrect. Please check them and try again.')}finally{btn.disabled=false}}
-function poolFor(category,mode){let pool=QUESTION_BANK.filter(q=>category==='general'||q.category===category);if(mode==='vocabulary')pool=pool.filter(q=>q.category==='vocabulary');if(mode==='abbreviations')pool=pool.filter(q=>q.category==='abbreviations');if(mode==='braille')pool=pool.filter(q=>q.category==='braille');return pool}
-function transformQuestion(q){return {...q,displayQuestion:q.question,displayAnswers:shuffled(q.answers),displayCorrect:q.correctAnswer,displayExplain:q.explanation}}
-function startRound(category='general',mode='classic'){if(state.locked)return;state.category=category;state.mode=mode;let pool=poolFor(category,mode);if(!pool.length){announce('There are not enough questions in this category yet.',true);return}pool=shuffled(pool);const n=mode==='rapid'?8:Math.min(10,pool.length);state.questions=pool.slice(0,n).map(transformQuestion);state.index=0;state.score=0;state.answered=false;state.locked=true;state.roundTimer=mode==='rapid'?15:Number(state.settings.timer);$('#round-label').textContent=`${(modes.find(m=>m[0]===mode)?.[1]||mode).toUpperCase()} · ${(CATEGORY_LIST.find(c=>c.id===category)?.name||'MIXED').toUpperCase()}`;$('#game-start').disabled=false;$('#game-start').hidden=false;$('#game-start').textContent='Play Quiz';$('#game-tools').hidden=true;$('#round-progress').textContent=`${n} questions`;$('#progress-meter').style.width='0%';$('#phase-label').textContent='READY WHEN YOU ARE';$('#game-title').innerHTML='Make some room<br>for a new question.';$('#game-copy').textContent='When you start, listen for the countdown. The first question begins after GO.';go('game',{focus:'#game-start'});state.locked=false}
-async function countdownAndBegin(){if(state.locked)return;state.locked=true;const b=$('#game-start');b.disabled=true;b.textContent='Starting…';$('#phase-label').textContent='GET READY';$('#game-title').textContent='Get ready!';$('#game-copy').textContent='Your round is about to begin.';tone(460,.08);announce('Get ready!');await sleep(1050);for(const n of ['3','2','1']){$('#game-title').textContent=n;$('#game-copy').textContent='';tone(610,.08,'triangle');announce(n,true);await sleep(1120)}$('#game-title').textContent='GO!';tone(790,.28,'sine',.07);announce('GO!',true);await sleep(950);state.locked=false;$('#game-tools').hidden=false;showQuestion()}
-function showQuestion(){clearTimer();const q=state.questions[state.index];if(!q){finishRound();return}state.answered=false;$('#phase-label').textContent=q.category.toUpperCase()+' · '+q.difficulty.toUpperCase();$('#round-progress').textContent=`Question ${state.index+1} of ${state.questions.length}`;$('#progress-meter').style.width=`${state.index/state.questions.length*100}%`;$('#game-title').textContent=`Question ${state.index+1}. ${q.displayQuestion}`;$('#game-title').className='question-text';$('#game-title').setAttribute('tabindex','-1');const stage=$('#game-stage');stage.querySelector('.game-copy')?.remove();stage.querySelector('.answer-list')?.remove();stage.querySelector('.feedback')?.remove();stage.querySelector('.next-question')?.remove();const list=document.createElement('div');list.className='answer-list';list.setAttribute('role','group');list.setAttribute('aria-label','Answer choices');q.displayAnswers.forEach((answer,i)=>{const btn=document.createElement('button');btn.type='button';btn.className='answer-button';btn.textContent=answer;btn.dataset.index=String(i);btn.addEventListener('click',()=>chooseAnswer(answer,btn));list.append(btn)});stage.append(list);const fb=document.createElement('p');fb.className='feedback';stage.append(fb);$('#game-start').hidden=true;$('#round-progress').textContent=`Question ${state.index+1} of ${state.questions.length}`;$('#game-title').focus();startTimer();}
-function startTimer(){const seconds=Number(state.roundTimer??state.settings.timer);if(!seconds)return;state.timeLeft=seconds;const warnAt=[10,5,3,2,1];state.timer=setInterval(()=>{state.timeLeft--;if(warnAt.includes(state.timeLeft))announce(`${state.timeLeft} seconds remaining.`);if(state.timeLeft<=0){clearTimer();timeExpired()}},1000)}function clearTimer(){if(state.timer)clearInterval(state.timer);state.timer=null}
-function offerNextQuestion(){const next=document.createElement('button');next.type='button';next.className='button button-hot next-question';next.textContent=state.index+1>=state.questions.length?'View results':'Next question';next.addEventListener('click',advance,{once:true});$('#game-stage').append(next)}
-async function chooseAnswer(answer,button){if(state.answered)return;state.answered=true;clearTimer();const q=state.questions[state.index],correct=answer===q.displayCorrect;if(correct){state.score++;button.classList.add('correct')}else{button.classList.add('incorrect');$$('.answer-button').forEach(b=>{if(b.textContent===q.displayCorrect)b.classList.add('correct')});}$$('.answer-button').forEach(b=>b.disabled=true);const fb=$('.feedback');fb.textContent=correct?`Correct. ${q.displayExplain}`:`Not quite. The answer is ${q.displayCorrect}. ${q.displayExplain}`;const session=getSession();if(session&&q.displayAnswers.length===4){try{const saved=await callApi('record-answer',{questionId:q.id,choice:answer});state.profile=saved.profile;setSession({...session,profile:saved.profile});top();if(saved.correct!==correct)fb.textContent=`${saved.correct?'Correct.':'Not quite.'} ${saved.explanation||q.displayExplain} ${saved.xp?`Earned ${saved.xp} XP and ${saved.coins} coins.`:''}`;}catch{fb.textContent+=` We could not save this answer to your profile, but you can continue your round.`}}announce(fb.textContent,true);offerNextQuestion()}
-function timeExpired(){if(state.answered)return;state.answered=true;const q=state.questions[state.index];$$('.answer-button').forEach(b=>{b.disabled=true;if(b.textContent===q.displayCorrect)b.classList.add('correct')});$('.feedback').textContent=`Time's up. The answer is ${q.displayCorrect}. ${q.displayExplain}`;announce($('.feedback').textContent,true);offerNextQuestion()}
-function advance(){state.index++;if(state.index>=state.questions.length){finishRound();return}showQuestion()}
-function finishRound(){clearTimer();$('#progress-meter').style.width='100%';go('results');$('#result-score').textContent=`${state.score} correct out of ${state.questions.length}`;$('#result-message').textContent=state.score===state.questions.length?'A perfect round. Every answer landed.':state.score>=Math.ceil(state.questions.length*.7)?'Strong round. Keep that rhythm.':'Every question is another clue for next time.';announce(`Round complete. ${state.score} correct out of ${state.questions.length}.`,true)}
-function repeatQuestion(){const q=state.questions[state.index];if(q)announce(`Question ${state.index+1}. ${q.displayQuestion}`,true)}
-function loadSettings(){try{Object.assign(state.settings,JSON.parse(localStorage.getItem('bq.settings')||'{}'))}catch{}$('#large-text').checked=state.settings.largeText;$('#high-contrast').checked=state.settings.highContrast;$('#reduced-motion').checked=state.settings.reducedMotion;$('#speech-on').checked=state.settings.speech;$('#timer-choice').value=state.settings.timer;document.body.classList.toggle('large-text',state.settings.largeText);document.body.classList.toggle('high-contrast',state.settings.highContrast);document.body.classList.toggle('reduce-motion',state.settings.reducedMotion)}
-function saveSettings(){state.settings={largeText:$('#large-text').checked,highContrast:$('#high-contrast').checked,reducedMotion:$('#reduced-motion').checked,speech:$('#speech-on').checked,timer:Number($('#timer-choice').value)};localStorage.setItem('bq.settings',JSON.stringify(state.settings));loadSettings();announce('Settings saved.');go('home',{focus:'#settings-open'})}
-function wire(){
- $('#play-featured').addEventListener('click',()=>startRound('general','classic'));$('#category-list').addEventListener('click',e=>{const b=e.target.closest('[data-category]');if(b)startRound(b.dataset.category,'classic')});$('#mode-list').addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(b)startRound('general',b.dataset.mode)});$('#random-category').addEventListener('click',()=>{const options=CATEGORY_LIST.filter(c=>c.count>=4);const c=options[Math.floor(Math.random()*options.length)];startRound(c.id,'classic')});$$('[data-category="braille"]').forEach(b=>b.addEventListener('click',()=>startRound('braille','classic')));
- $('#account-open').addEventListener('click',()=>{setAuthTab('login');go('auth',{focus:'#login-name'})});$$('[data-auth-tab]').forEach(b=>b.addEventListener('click',()=>setAuthTab(b.dataset.authTab)));$('#login-form').addEventListener('submit',login);$('#signup-form').addEventListener('submit',signUp);$('#recovery-form').addEventListener('submit',recoverLoginId);$('#recover-open').addEventListener('click',()=>{$('#login-form').hidden=true;$('#signup-form').hidden=true;$('#recovery-form').hidden=false;$('#recovery-result').hidden=true;$('#auth-title').textContent='Recover your Login ID';$('#recovery-name').focus()});$('#recovery-back').addEventListener('click',()=>{setAuthTab('login');$('#recovery-form').hidden=true;$('#login-form').hidden=false});$('#recovery-question').addEventListener('change',()=>{$('#recovery-custom-wrap').hidden=$('#recovery-question').value!=='custom';if(!$('#recovery-custom-wrap').hidden)$('#recovery-custom-question').focus()});$('#copy-recovered-id').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#recovered-id').textContent);announce('Login ID copied.')}catch{announce('Copy is unavailable. Select the Login ID text to copy it.')}});$('#signup-name').addEventListener('input',()=>{clearTimeout(signupNameTimer);signupNameTimer=setTimeout(checkSignupName,450)});$('#secret-question').addEventListener('change',()=>{$('#custom-question-wrap').hidden=$('#secret-question').value!=='custom';if(!$('#custom-question-wrap').hidden)$('#custom-question').focus()});['#login-name','#login-id'].forEach(sel=>$(sel).addEventListener('input',()=>{clearTimeout(questionLookupTimer);questionLookupTimer=setTimeout(lookupQuestion,500)}));$('#copy-login-id').addEventListener('click',async()=>{const id=$('#new-login-id').textContent;try{await navigator.clipboard.writeText(id);announce('Login ID copied.')}catch{const r=document.createRange();r.selectNodeContents($('#new-login-id'));getSelection().removeAllRanges();getSelection().addRange(r);announce('Select and copy your Login ID.')}});$('#continue-login').addEventListener('click',()=>{setAuthTab('login');$('#login-name').value=$('#signup-name').value;$('#login-id').value=$('#new-login-id').textContent;go('auth',{focus:'#login-answer'})});
- $('#game-start').addEventListener('click',countdownAndBegin);$('#repeat-question').addEventListener('click',repeatQuestion);$('#read-status').addEventListener('click',()=>announce(`Question ${state.index+1} of ${state.questions.length}. Score ${state.score}.`));$('#play-again').addEventListener('click',()=>startRound(state.category,state.mode));$('#settings-open').addEventListener('click',()=>go('settings'));$('#save-settings').addEventListener('click',saveSettings);$('#welcome-continue').addEventListener('click',()=>go('home',{focus:'#play-featured'}));$('#profile-auth').addEventListener('click',()=>{ setAuthTab('login');go('auth')});$('#logout-button').addEventListener('click',async()=>{try{await callApi('logout')}catch{}setSession(null);state.profile=null;top();announce('You are logged out.');go('home',{focus:'#account-open'})});$$('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));$('#login-name').addEventListener('input',()=>$('#question-context').hidden=true);
+import { GAME_MODES, selectRoundQuestions, timeLimitFor, endsAfterMiss } from './game-logic.js';
+
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const state = {
+  view: 'home',
+  category: 'general',
+  mode: 'classic',
+  questions: [],
+  index: 0,
+  score: 0,
+  answeredCount: 0,
+  answered: false,
+  lastAnswerCorrect: null,
+  timer: null,
+  timeLeft: 0,
+  roundTimer: 0,
+  roundToken: 0,
+  locked: false,
+  finished: false,
+  settings: { largeText: false, highContrast: false, reducedMotion: false, speech: true, timer: 0 },
+  profile: null,
+};
+
+const modes = GAME_MODES;
+const announcementTokens = { polite: 0, assertive: 0 };
+const announce = (text, urgent = false) => {
+  if (!state.settings.speech) return;
+  const channel = urgent ? 'assertive' : 'polite';
+  const element = $(urgent ? '#assertive-announcer' : '#announcer');
+  const token = ++announcementTokens[channel];
+  element.textContent = '';
+  setTimeout(() => {
+    if (announcementTokens[channel] === token) element.textContent = text;
+  }, 30);
+};
+const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+function go(view, { focus } = {}) {
+  if (state.view === 'game' && view !== 'game') {
+    clearTimer();
+    state.roundToken += 1;
+    state.locked = false;
+    const startButton = $('#game-start');
+    if (startButton) startButton.disabled = false;
+  }
+  $$('.view').forEach(element => { element.hidden = true; });
+  $(`#view-${view}`).hidden = false;
+  state.view = view;
+  window.scrollTo(0, 0);
+  if (focus) {
+    const element = $(focus);
+    setTimeout(() => element?.focus(), 60);
+  } else {
+    setTimeout(() => {
+      const heading = $(`#view-${view} h1`);
+      heading?.setAttribute('tabindex', '-1');
+      heading?.focus();
+    }, 30);
+  }
 }
-function init(){renderCategories();renderModes();$('#question-count').textContent=QUESTION_BANK.length;const errors=validateQuestionBank();if(errors.length){console.error('Question validation errors',errors);announce('Some question data needs review.');}loadSettings();wire();top();try{if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})}catch{}announce('Blind Quiz ready. Choose a category or start a round.')}
+
+function top() {
+  const session = getSession();
+  $('#top-meta').textContent = session?.profile?.name ? `${session.profile.name} · Login ID account` : '';
+  $('#logout-button').hidden = !session;
+}
+
+function renderCategories() {
+  const host = $('#category-list');
+  host.innerHTML = '';
+  for (const category of CATEGORY_LIST) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'category-button';
+    button.dataset.category = category.id;
+    button.innerHTML = `<strong>${esc(category.name)}</strong>`;
+    host.append(button);
+  }
+}
+
+function renderModes() {
+  const host = $('#mode-list');
+  host.innerHTML = '';
+  for (const [id, name, description] of modes) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mode-button';
+    button.dataset.mode = id;
+    button.innerHTML = `<strong>${esc(name)}</strong><small>${esc(description)}</small>`;
+    host.append(button);
+  }
+}
+
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+}
+
+function setAuthTab(tab) {
+  $$('[data-auth-tab]').forEach(button => {
+    const isActive = button.dataset.authTab === tab;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+  $('#login-form').hidden = tab !== 'login';
+  $('#signup-form').hidden = tab !== 'signup';
+  $('#recovery-form').hidden = true;
+  $('#signup-success').hidden = true;
+  $('#auth-title').textContent = tab === 'login' ? 'Log in to play' : 'Create your account';
+  (tab === 'login' ? $('#login-name') : $('#signup-name')).focus();
+}
+
+function showError(selector, message) {
+  const element = $(selector);
+  element.textContent = message;
+  element.hidden = false;
+  announce(message, true);
+}
+
+const genericLogin = 'The name, Login ID, or secret answer is incorrect. Please try again.';
+let questionLookupTimer;
+let signupNameTimer;
+
+async function checkSignupName() {
+  const name = $('#signup-name').value.trim();
+  const status = $('#signup-name-status');
+  status.textContent = '';
+  if (name.length < 2) return;
+  try {
+    const data = await callApi('check-name', { name });
+    if ($('#signup-name').value.trim() !== name) return;
+    status.textContent = data.available
+      ? 'Name is available.'
+      : 'This name is already registered. Please choose another name.';
+    if (!data.available) announce(status.textContent, true);
+  } catch {
+    if ($('#signup-name').value.trim() === name) {
+      status.textContent = 'Name availability will be checked when you create the account.';
+    }
+  }
+}
+
+async function lookupQuestion() {
+  const name = $('#login-name').value.trim();
+  const loginId = $('#login-id').value.trim().toUpperCase();
+  if (name.length < 2 || loginId.length !== 8) return;
+  try {
+    const data = await callApi('secret-question', { name, loginId });
+    if ($('#login-name').value.trim() !== name || $('#login-id').value.trim().toUpperCase() !== loginId) return;
+    $('#question-context').textContent = data.question || 'Secret question';
+    $('#question-context').hidden = false;
+  } catch {
+    if ($('#login-name').value.trim() === name && $('#login-id').value.trim().toUpperCase() === loginId) {
+      $('#question-context').hidden = true;
+    }
+  }
+}
+
+async function signUp(event) {
+  event.preventDefault();
+  $('#signup-error').hidden = true;
+  const name = $('#signup-name').value.trim();
+  const selection = $('#secret-question').value;
+  const question = selection === 'custom' ? $('#custom-question').value.trim() : selection;
+  const answer = $('#signup-answer').value.trim();
+  const button = $('#signup-form button[type=submit]');
+  if (name.length < 2 || !question || answer.length < 2) {
+    showError('#signup-error', 'Please complete each field with at least two characters.');
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Creating account…';
+  announce('Creating account. Please wait.');
+  try {
+    const data = await callApi('signup', { name, question, answer });
+    $('#signup-success').hidden = false;
+    $('#new-login-id').textContent = data.loginId;
+    $('#signup-form').hidden = true;
+    $('#login-form').hidden = true;
+    $('#auth-title').textContent = 'Account created';
+    $('#copy-login-id').focus();
+    announce(`Your account has been created successfully. Your Login ID is ${data.loginId}.`, true);
+  } catch (error) {
+    const message = error.message === 'name_taken'
+      ? 'This name is already registered. Please choose another name.'
+      : error.message === 'rate_limited'
+        ? 'Too many attempts. Please wait and try again.'
+        : 'Something went wrong. Please try again.';
+    showError('#signup-error', message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'Create account <span aria-hidden="true">→</span>';
+  }
+}
+
+async function login(event) {
+  event.preventDefault();
+  $('#login-error').hidden = true;
+  const name = $('#login-name').value.trim();
+  const loginId = $('#login-id').value.trim().toUpperCase();
+  const answer = $('#login-answer').value.trim();
+  const button = $('#login-form button[type=submit]');
+  if (!name || loginId.length !== 8 || !answer) {
+    showError('#login-error', 'Enter your name, 8-character Login ID, and secret answer.');
+    return;
+  }
+  button.disabled = true;
+  announce('Signing in. Please wait.');
+  try {
+    const data = await callApi('login', { name, loginId, answer });
+    setSession({ token: data.token, expiresAt: data.expiresAt, profile: data.profile });
+    state.profile = data.profile;
+    top();
+    if (data.firstLogin) {
+      $('#welcome-title').textContent = `Welcome to Blind Quiz, ${data.profile.name}.`;
+      $('#welcome-copy').textContent = 'Your quiz journey begins now.';
+      go('welcome', { focus: '#welcome-continue' });
+      announce(`Login successful. Welcome to Blind Quiz, ${data.profile.name}. Your quiz journey begins now.`);
+    } else {
+      go('home', { focus: '#play-featured' });
+      announce(`Login successful. Welcome, ${data.profile.name}.`);
+    }
+  } catch (error) {
+    showError('#login-error', error.message === 'rate_limited'
+      ? 'Too many attempts. Please wait and try again.'
+      : genericLogin);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function recoverLoginId(event) {
+  event.preventDefault();
+  $('#recovery-error').hidden = true;
+  const name = $('#recovery-name').value.trim();
+  const selection = $('#recovery-question').value;
+  const question = selection === 'custom' ? $('#recovery-custom-question').value.trim() : selection;
+  const answer = $('#recovery-answer').value.trim();
+  if (!name || !question || !answer) {
+    showError('#recovery-error', 'Complete each recovery field.');
+    return;
+  }
+  const button = $('#recovery-form button[type=submit]');
+  button.disabled = true;
+  try {
+    const data = await callApi('recover-id', { name, question, answer });
+    $('#recovered-id').textContent = data.loginId;
+    $('#recovery-result').hidden = false;
+    $('#copy-recovered-id').focus();
+    announce(`Your Login ID is ${data.loginId}.`, true);
+  } catch (error) {
+    showError('#recovery-error', error.message === 'rate_limited'
+      ? 'Too many attempts. Please wait and try again.'
+      : 'The recovery details are incorrect. Please check them and try again.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function transformQuestion(question) {
+  return {
+    ...question,
+    displayQuestion: question.question,
+    displayAnswers: shuffled(question.answers),
+    displayCorrect: question.correctAnswer,
+    displayExplain: question.explanation,
+  };
+}
+
+function startRound(category = 'general', mode = 'classic') {
+  if (state.locked) return;
+  clearTimer();
+  state.roundToken += 1;
+  state.category = category;
+  state.mode = mode;
+  const pool = selectRoundQuestions(QUESTION_BANK, category, mode);
+  if (!pool.length) {
+    announce('There are not enough questions in this category yet.', true);
+    return;
+  }
+  state.questions = pool.map(transformQuestion);
+  state.index = 0;
+  state.score = 0;
+  state.answeredCount = 0;
+  state.answered = false;
+  state.lastAnswerCorrect = null;
+  state.finished = false;
+  state.roundTimer = timeLimitFor(mode, state.settings.timer);
+  state.locked = true;
+
+  const modeName = modes.find(item => item[0] === mode)?.[1] || mode;
+  const categoryName = CATEGORY_LIST.find(item => item.id === category)?.name || 'Mixed';
+  $('#round-label').textContent = `${modeName.toUpperCase()} · ${categoryName.toUpperCase()}`;
+  $('#game-start').disabled = false;
+  $('#game-start').hidden = false;
+  $('#game-start').textContent = 'Play Quiz';
+  $('#game-tools').hidden = true;
+  $('#round-progress').textContent = `${state.questions.length} questions`;
+  $('#progress-meter').style.width = '0%';
+  $('#phase-label').textContent = 'READY WHEN YOU ARE';
+  $('#game-title').className = '';
+  $('#game-title').innerHTML = 'Make some room<br>for a new question.';
+  $('#game-copy').hidden = false;
+  $('#game-copy').textContent = 'Start when you are ready. The countdown appears on screen and in screen-reader announcements.';
+  go('game', { focus: '#game-start' });
+  state.locked = false;
+}
+
+async function countdownAndBegin() {
+  if (state.locked || state.view !== 'game') return;
+  state.locked = true;
+  const roundToken = state.roundToken;
+  const isCurrentRound = () => state.roundToken === roundToken && state.view === 'game';
+  const button = $('#game-start');
+  button.disabled = true;
+  button.textContent = 'Starting…';
+  $('#phase-label').textContent = 'GET READY';
+  $('#game-title').textContent = 'Get ready!';
+  $('#game-copy').hidden = false;
+  $('#game-copy').textContent = 'Your round is about to begin.';
+  announce('Get ready!');
+  await sleep(1050);
+  if (!isCurrentRound()) return;
+  for (const number of ['3', '2', '1']) {
+    $('#game-title').textContent = number;
+    $('#game-copy').textContent = '';
+    announce(number, true);
+    await sleep(1120);
+    if (!isCurrentRound()) return;
+  }
+  $('#game-title').textContent = 'GO!';
+  announce('GO!', true);
+  await sleep(950);
+  if (!isCurrentRound()) return;
+  state.locked = false;
+  $('#game-tools').hidden = false;
+  showQuestion();
+}
+
+function updateRoundProgress() {
+  const count = state.questions.length;
+  const prompt = `Question ${state.index + 1} of ${count}`;
+  $('#round-progress').textContent = state.timeLeft > 0
+    ? `${prompt} · ${state.timeLeft} seconds remaining`
+    : prompt;
+}
+
+function showQuestion() {
+  clearTimer();
+  const question = state.questions[state.index];
+  if (!question) {
+    finishRound();
+    return;
+  }
+  state.answered = false;
+  state.lastAnswerCorrect = null;
+  $('#phase-label').textContent = `${question.category.toUpperCase()} · ${question.difficulty.toUpperCase()}`;
+  updateRoundProgress();
+  $('#progress-meter').style.width = `${state.index / state.questions.length * 100}%`;
+  $('#game-title').textContent = `Question ${state.index + 1}. ${question.displayQuestion}`;
+  $('#game-title').className = 'question-text';
+  $('#game-title').setAttribute('tabindex', '-1');
+  $('#game-copy').hidden = true;
+
+  const stage = $('#game-stage');
+  stage.querySelector('.answer-list')?.remove();
+  stage.querySelector('.feedback')?.remove();
+  stage.querySelector('.next-question')?.remove();
+  const answerList = document.createElement('div');
+  answerList.className = 'answer-list';
+  answerList.setAttribute('role', 'group');
+  answerList.setAttribute('aria-label', 'Answer choices');
+  question.displayAnswers.forEach(answer => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'answer-button';
+    button.textContent = answer;
+    button.addEventListener('click', () => chooseAnswer(answer, button));
+    answerList.append(button);
+  });
+  stage.append(answerList);
+  const feedback = document.createElement('p');
+  feedback.className = 'feedback';
+  stage.append(feedback);
+  $('#game-start').hidden = true;
+  $('#game-title').focus();
+  startTimer();
+}
+
+function startTimer() {
+  clearTimer();
+  const seconds = Number(state.roundTimer ?? state.settings.timer);
+  if (!Number.isFinite(seconds) || seconds <= 0) return;
+  state.timeLeft = seconds;
+  updateRoundProgress();
+  const warningTimes = [10, 5, 3, 2, 1];
+  state.timer = setInterval(() => {
+    if (state.view !== 'game' || state.answered) {
+      clearTimer();
+      return;
+    }
+    state.timeLeft -= 1;
+    updateRoundProgress();
+    if (warningTimes.includes(state.timeLeft)) announce(`${state.timeLeft} seconds remaining.`);
+    if (state.timeLeft <= 0) {
+      clearTimer();
+      timeExpired();
+    }
+  }, 1000);
+}
+
+function clearTimer() {
+  if (state.timer !== null) clearInterval(state.timer);
+  state.timer = null;
+  state.timeLeft = 0;
+  if (state.view === 'game' && state.questions.length) updateRoundProgress();
+}
+
+function offerNextQuestion() {
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'button button-hot next-question';
+  const endNow = endsAfterMiss(state.mode, state.lastAnswerCorrect)
+    || state.index + 1 >= state.questions.length;
+  next.textContent = endNow ? 'View results' : 'Next question';
+  next.addEventListener('click', advance, { once: true });
+  $('#game-stage').append(next);
+}
+
+async function saveAnswerToProfile(question, answer, clientCorrect, session, roundToken) {
+  try {
+    const saved = await callApi('record-answer', { questionId: question.id, choice: answer });
+    const currentSession = getSession();
+    const savedCount = Number(saved.profile?.questionsAnswered);
+    const currentCount = Number(currentSession?.profile?.questionsAnswered);
+    if (saved.profile && currentSession?.token === session.token
+      && (!Number.isFinite(currentCount) || !Number.isFinite(savedCount) || savedCount >= currentCount)) {
+      state.profile = saved.profile;
+      setSession({ ...currentSession, profile: saved.profile });
+      top();
+    }
+    const isCurrentQuestion = state.roundToken === roundToken
+      && state.view === 'game'
+      && state.questions[state.index]?.id === question.id;
+    if (!isCurrentQuestion) return;
+    const feedback = $('.feedback', $('#game-stage'));
+    if (saved.alreadyAnswered) {
+      feedback.textContent += ' This question was already recorded; no additional profile reward was issued.';
+      announce('This question was already recorded; no additional profile reward was issued.');
+    } else if (typeof saved.correct === 'boolean' && saved.correct !== clientCorrect) {
+      feedback.textContent += ' The saved question version differs from this pack, so profile scoring may not match this round.';
+      announce('The saved question version differs from this pack, so profile scoring may not match this round.', true);
+    }
+  } catch {
+    const isCurrentQuestion = state.roundToken === roundToken
+      && state.view === 'game'
+      && state.questions[state.index]?.id === question.id;
+    if (!isCurrentQuestion) return;
+    const feedback = $('.feedback', $('#game-stage'));
+    feedback.textContent += ' We could not save this answer to your profile, but you can continue your round.';
+    announce('We could not save this answer to your profile, but you can continue your round.');
+  }
+}
+
+function chooseAnswer(answer, button) {
+  if (state.answered || state.view !== 'game') return;
+  state.answered = true;
+  state.answeredCount += 1;
+  clearTimer();
+  const question = state.questions[state.index];
+  const correct = answer === question.displayCorrect;
+  const roundToken = state.roundToken;
+  state.lastAnswerCorrect = correct;
+  if (correct) {
+    state.score += 1;
+    button.classList.add('correct');
+  } else {
+    button.classList.add('incorrect');
+    $$('.answer-button').forEach(choice => {
+      if (choice.textContent === question.displayCorrect) choice.classList.add('correct');
+    });
+  }
+  $$('.answer-button').forEach(choice => { choice.disabled = true; });
+  const feedback = $('.feedback', $('#game-stage'));
+  feedback.textContent = correct
+    ? `Correct. ${question.displayExplain}`
+    : `Not quite. The answer is ${question.displayCorrect}. ${question.displayExplain}`;
+  announce(feedback.textContent, true);
+  offerNextQuestion();
+
+  const session = getSession();
+  if (session && question.displayAnswers.length === 4) {
+    void saveAnswerToProfile(question, answer, correct, session, roundToken);
+  }
+}
+
+function timeExpired() {
+  if (state.answered || state.view !== 'game') return;
+  state.answered = true;
+  state.answeredCount += 1;
+  state.lastAnswerCorrect = false;
+  const question = state.questions[state.index];
+  $$('.answer-button').forEach(button => {
+    button.disabled = true;
+    if (button.textContent === question.displayCorrect) button.classList.add('correct');
+  });
+  $('.feedback', $('#game-stage')).textContent = `Time's up. The answer is ${question.displayCorrect}. ${question.displayExplain}`;
+  announce($('.feedback', $('#game-stage')).textContent, true);
+  offerNextQuestion();
+}
+
+function advance() {
+  if (endsAfterMiss(state.mode, state.lastAnswerCorrect)) {
+    finishRound();
+    return;
+  }
+  state.index += 1;
+  if (state.index >= state.questions.length) {
+    finishRound();
+    return;
+  }
+  showQuestion();
+}
+
+function finishRound() {
+  if (state.finished) return;
+  state.finished = true;
+  clearTimer();
+  $('#progress-meter').style.width = '100%';
+  const answered = state.mode === 'survival' ? state.answeredCount : state.questions.length;
+  go('results');
+  $('#result-score').textContent = `${state.score} correct out of ${answered} answered`;
+  $('#result-message').textContent = state.mode === 'survival' && answered < state.questions.length
+    ? 'Your Survival run ended on a miss. Start another round and see how long you can last.'
+    : state.score === state.questions.length
+      ? 'A perfect round. Every answer landed.'
+      : state.score >= Math.ceil(state.questions.length * 0.7)
+        ? 'Strong round. Keep that rhythm.'
+        : 'Every question is another clue for next time.';
+  announce(`Round complete. ${state.score} correct out of ${answered} answered.`, true);
+}
+
+function repeatQuestion() {
+  const question = state.questions[state.index];
+  if (question) announce(`Question ${state.index + 1}. ${question.displayQuestion}`, true);
+}
+
+function loadSettings() {
+  let saved = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem('bq.settings') || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) saved = parsed;
+  } catch {
+    saved = {};
+  }
+  state.settings = {
+    largeText: saved.largeText === true,
+    highContrast: saved.highContrast === true,
+    reducedMotion: saved.reducedMotion === true,
+    speech: saved.speech !== false,
+    timer: [0, 15, 30].includes(Number(saved.timer)) ? Number(saved.timer) : 0,
+  };
+  $('#large-text').checked = state.settings.largeText;
+  $('#high-contrast').checked = state.settings.highContrast;
+  $('#reduced-motion').checked = state.settings.reducedMotion;
+  $('#speech-on').checked = state.settings.speech;
+  $('#timer-choice').value = String(state.settings.timer);
+  document.body.classList.toggle('large-text', state.settings.largeText);
+  document.body.classList.toggle('high-contrast', state.settings.highContrast);
+  document.body.classList.toggle('reduce-motion', state.settings.reducedMotion);
+}
+
+function saveSettings() {
+  state.settings = {
+    largeText: $('#large-text').checked,
+    highContrast: $('#high-contrast').checked,
+    reducedMotion: $('#reduced-motion').checked,
+    speech: $('#speech-on').checked,
+    timer: [0, 15, 30].includes(Number($('#timer-choice').value)) ? Number($('#timer-choice').value) : 0,
+  };
+  let saved = true;
+  try {
+    localStorage.setItem('bq.settings', JSON.stringify(state.settings));
+  } catch {
+    saved = false;
+  }
+  loadSettings();
+  announce(saved ? 'Settings saved.' : 'Settings applied for this session; saving is unavailable.');
+  go('home', { focus: '#settings-open' });
+}
+
+function wire() {
+  $('.brand').addEventListener('click', event => {
+    event.preventDefault();
+    go('home', { focus: '#play-featured' });
+  });
+  $('#play-featured').addEventListener('click', () => startRound('general', 'classic'));
+  $('#category-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-category]');
+    if (button) startRound(button.dataset.category, 'classic');
+  });
+  $('#mode-list').addEventListener('click', event => {
+    const button = event.target.closest('[data-mode]');
+    if (button) startRound('general', button.dataset.mode);
+  });
+  $('#random-category').addEventListener('click', () => {
+    const options = CATEGORY_LIST.filter(category => category.count >= 4);
+    const category = options[Math.floor(Math.random() * options.length)];
+    if (category) startRound(category.id, 'classic');
+  });
+  $('.callout [data-category="braille"]').addEventListener('click', () => startRound('braille', 'classic'));
+
+  $('#account-open').addEventListener('click', () => {
+    setAuthTab('login');
+    go('auth', { focus: '#login-name' });
+  });
+  $$('[data-auth-tab]').forEach(button => button.addEventListener('click', () => setAuthTab(button.dataset.authTab)));
+  $('#login-form').addEventListener('submit', login);
+  $('#signup-form').addEventListener('submit', signUp);
+  $('#recovery-form').addEventListener('submit', recoverLoginId);
+  $('#recover-open').addEventListener('click', () => {
+    $('#login-form').hidden = true;
+    $('#signup-form').hidden = true;
+    $('#recovery-form').hidden = false;
+    $('#recovery-result').hidden = true;
+    $('#auth-title').textContent = 'Recover your Login ID';
+    $('#recovery-name').focus();
+  });
+  $('#recovery-back').addEventListener('click', () => {
+    setAuthTab('login');
+    $('#recovery-form').hidden = true;
+    $('#login-form').hidden = false;
+  });
+  $('#recovery-question').addEventListener('change', () => {
+    $('#recovery-custom-wrap').hidden = $('#recovery-question').value !== 'custom';
+    if (!$('#recovery-custom-wrap').hidden) $('#recovery-custom-question').focus();
+  });
+  $('#copy-recovered-id').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('#recovered-id').textContent);
+      announce('Login ID copied.');
+    } catch {
+      announce('Copy is unavailable. Select the Login ID text to copy it.');
+    }
+  });
+  $('#signup-name').addEventListener('input', () => {
+    clearTimeout(signupNameTimer);
+    signupNameTimer = setTimeout(checkSignupName, 450);
+  });
+  $('#secret-question').addEventListener('change', () => {
+    $('#custom-question-wrap').hidden = $('#secret-question').value !== 'custom';
+    if (!$('#custom-question-wrap').hidden) $('#custom-question').focus();
+  });
+  ['#login-name', '#login-id'].forEach(selector => $(selector).addEventListener('input', () => {
+    $('#question-context').hidden = true;
+    clearTimeout(questionLookupTimer);
+    questionLookupTimer = setTimeout(lookupQuestion, 500);
+  }));
+  $('#copy-login-id').addEventListener('click', async () => {
+    const id = $('#new-login-id').textContent;
+    try {
+      await navigator.clipboard.writeText(id);
+      announce('Login ID copied.');
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents($('#new-login-id'));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      announce('Select and copy your Login ID.');
+    }
+  });
+  $('#continue-login').addEventListener('click', () => {
+    setAuthTab('login');
+    $('#login-name').value = $('#signup-name').value;
+    $('#login-id').value = $('#new-login-id').textContent;
+    go('auth', { focus: '#login-answer' });
+  });
+
+  $('#game-start').addEventListener('click', countdownAndBegin);
+  $('#repeat-question').addEventListener('click', repeatQuestion);
+  $('#read-status').addEventListener('click', () => {
+    announce(`Question ${state.index + 1} of ${state.questions.length}. Score ${state.score}.`);
+  });
+  $('#play-again').addEventListener('click', () => startRound(state.category, state.mode));
+  $('#settings-open').addEventListener('click', () => go('settings'));
+  $('#save-settings').addEventListener('click', saveSettings);
+  $('#welcome-continue').addEventListener('click', () => go('home', { focus: '#play-featured' }));
+  $('#profile-auth').addEventListener('click', () => {
+    setAuthTab('login');
+    go('auth');
+  });
+  $('#logout-button').addEventListener('click', () => {
+    // Revoke the server session in the background, but never make local logout wait on the network.
+    void callApi('logout').catch(() => {});
+    setSession(null);
+    state.profile = null;
+    top();
+    announce('You are logged out.');
+    go('home', { focus: '#account-open' });
+  });
+  $$('[data-go]').forEach(button => button.addEventListener('click', () => go(button.dataset.go)));
+}
+
+function init() {
+  renderCategories();
+  renderModes();
+  $('#question-count').textContent = QUESTION_BANK.length;
+  const errors = validateQuestionBank();
+  if (errors.length) {
+    console.error('Question validation errors', errors);
+    announce('Some question data needs review.');
+  }
+  loadSettings();
+  wire();
+  top();
+  try {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  } catch {
+    // The app remains usable when service workers are unsupported or blocked.
+  }
+  announce('Blind Quiz ready. Choose a category or start a round.');
+}
+
 init();
