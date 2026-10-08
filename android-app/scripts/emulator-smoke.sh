@@ -31,6 +31,15 @@ fail_with_logs() {
     printf '\n=== Recent logcat (all buffers) ===\n'
     timeout 15 adb logcat -b all -d -v threadtime -t 2000 2>&1 || true
   } | tee "$logfile"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      printf '### Android emulator smoke test failed\n\n**Phase:** %s  \n**Reason:** %s\n\n' "$phase" "$reason"
+      printf '\n#### Crash buffer and relevant logcat\n\n```text\n'
+      timeout 15 adb logcat -b crash -d -v threadtime 2>&1 | tail -n 200 || true
+      timeout 15 adb logcat -b all -d -v threadtime -t 2000 2>&1 | grep -E 'AndroidRuntime|FATAL EXCEPTION|Fatal signal|Process: io[.]github[.]mahicouragw[.]blind_quiz|io[.]github[.]mahicouragw[.]blind_quiz' | tail -n 200 || true
+      printf '\n```\n\nFull logs are also attached as the emulator log artifact.\n'
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
   echo "::error title=Android emulator launch failed::$reason (full log: $logfile)"
   exit 1
 }
@@ -121,3 +130,6 @@ done
 
 launch_and_watch post-reboot
 printf 'PASS: signed APK installed, opened, survived cold launch, rebooted, and opened again.\n'
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  printf '### Android emulator smoke test passed\n\n- Signed APK installed successfully.\n- Launcher stayed alive for 20 seconds after cold launch.\n- Emulator rebooted; launcher stayed alive for 20 seconds after relaunch.\n' >> "$GITHUB_STEP_SUMMARY"
+fi
