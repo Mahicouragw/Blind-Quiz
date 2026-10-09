@@ -50,7 +50,12 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     : code === 'network' ? 'No internet connection. Please check it and try again.'
     : code === 'player_unavailable' ? 'No player with that name was found.'
     : code === 'too_many_requests' ? 'You have many friend requests waiting for an answer. Please wait until some are answered.'
-    : code === 'request_unavailable' ? 'That friend request is no longer waiting.'
+    : code === 'request_unavailable' ? 'That invitation is no longer waiting.'
+    : code === 'game_full' ? 'There is no player slot left in that match.'
+    : code === 'game_unavailable' ? 'That match is no longer available.'
+    : code === 'not_friends' ? 'This game invite is only available to friends.'
+    : code === 'not_room_member' ? 'That player is not currently in this room.'
+    : code === 'already_joined' ? 'That player has already joined the match.'
     : code === 'session_expired' ? 'Your session has ended. Please sign in again.'
     : code === 'unknown_action' ? 'Multiplayer is still being switched on for everyone. Please try again a little later.'
     : 'Something went wrong. Please try again.';
@@ -104,6 +109,15 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
 
   // ---- Notifications view ----------------------------------------------------------------------
   const list = $('#notif-list'), summary = $('#notif-summary');
+  async function respondGameInvite(n, accept, row) {
+    row?.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    try {
+      const d = await callApi('game-invite-respond', { gameId: n.ref, accept });
+      if (accept && d.roomId && d.gameId) { announce(`Game invite accepted. Joining ${n.actor || 'your friend'} in the room.`); openRoom(d.roomId, d.gameId); }
+      else { announce(accept ? 'Game invite accepted.' : 'Game invite declined.'); }
+      if (row) row.replaceWith(el('p', 'muted', accept ? 'Accepted.' : 'Declined.'));
+    } catch (err) { row?.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
+  }
   function renderNotification(n) {
     const li = el('li', `notif-item${n.read ? '' : ' unread'}`);
     li.append(el('p', 'notif-text', notificationText(n)), el('p', 'inbox-meta', `${fmt(n.createdAt)}${n.read ? '' : ' · New'}`));
@@ -113,7 +127,9 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       li.append(row);
     } else if (n.kind === 'friend_request' && n.relation === 'friends') li.append(el('p', 'muted', 'Accepted.'));
     if (n.kind === 'message' && n.actor) li.append(button(`Open chat with ${n.actor}`, () => openChat(n.actor), 'button button-outline'));
-    if (['room_invite', 'game_invite'].includes(n.kind) && n.ref) li.append(button(n.kind === 'game_invite' ? `Open the match room with ${n.actor || 'your friend'}` : 'Enter the room', () => openRoom(n.ref), 'button button-hot'));
+    if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('game-invite|')) {
+      const row=el('div','notif-actions');row.append(button(`Accept ${n.actor||'player'}’s game invite`,()=>respondGameInvite(n,true,row),'button button-hot'),button('Decline',()=>respondGameInvite(n,false,row)));li.append(row);
+    } else if (['room_invite','game_invite'].includes(n.kind) && n.ref) li.append(button(n.kind === 'game_invite' ? `Open the match room with ${n.actor || 'your friend'}` : 'Enter the room', () => openRoom(n.ref), 'button button-hot'));
     if (n.actor && ['friend_request', 'friend_accepted'].includes(n.kind)) li.append(button(`Open ${n.actor}'s player card`, () => openCard(n.actor), 'text-button'));
     return li;
   }

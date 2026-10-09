@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, MIGRATION_025_COUNT, validateQuestionBank } from '../src/content.js';
 import { shuffled } from '../src/random.js';
-import { GAME_MODES, poolFor, selectRoundQuestions, timeLimitFor, endsAfterMiss } from '../src/game-logic.js';
+import { GAME_MODES, presentQuestion, poolFor, selectRoundQuestions, timeLimitFor, endsAfterMiss } from '../src/game-logic.js';
+import { BOARD_GAME_KINDS, BOARD_GAME_LABELS, createBoardState, reduceBoardGame, legalChessMoves } from '../src/board-games.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
@@ -75,7 +76,27 @@ assert.equal(timeLimitFor('timeattack',30),10,'Time Attack keeps its 10-second l
 assert.equal(selectRoundQuestions(QUESTION_BANK,'general','survival',identity).length,20,'Survival has up to twenty questions');
 assert.equal(endsAfterMiss('survival',false),true,'a miss ends Survival');
 assert.equal(endsAfterMiss('survival',true),false,'a correct Survival answer continues');
-assert.deepEqual(GAME_MODES.map(mode=>mode[0]),['classic','rapid','timeattack','survival','random','vocabulary','abbreviations','braille'],'quiz modes stay registered');
+assert.deepEqual(GAME_MODES.map(mode=>mode[0]),['classic','rapid','timeattack','survival','random','vocabulary','abbreviations','braille','yesno','decision','quickdecision'],'quiz modes stay registered');
+const sample={id:'sample',question:'Which planet is known as the Red Planet?',answers:['Mars','Earth','Venus','Jupiter'],correctAnswer:'Mars',explanation:'Mars looks red.'};
+const yes=presentQuestion(sample,'yesno',values=>[...values]);
+assert.deepEqual(yes.displayAnswers,['Yes','No']);assert.equal(yes.displayCorrect,'Yes');assert.match(yes.displayQuestion,/Is “Mars” the correct answer/);
+const no=presentQuestion(sample,'yesno',values=>[values[1],values[0],...values.slice(2)]);
+assert.equal(no.displayCorrect,'No','Yes or No mode can generate a false suggested answer');
+const sharedNo=presentQuestion(sample,'yesno',identity,'Earth');assert.match(sharedNo.displayQuestion,/Is “Earth” the correct answer/);assert.equal(sharedNo.displayCorrect,'No','the shared UI uses the server-selected yes/no candidate');
+const decision=presentQuestion(sample,'decision',values=>[...values]);
+assert.equal(decision.displayAnswers.length,2);assert(decision.displayAnswers.includes(sample.correctAnswer));assert.equal(presentQuestion(sample,'quickdecision',values=>[...values]).displayAnswers.length,2);
+assert.equal(selectRoundQuestions(QUESTION_BANK,'general','quickdecision',identity).length,10);assert.equal(timeLimitFor('quickdecision',30),5,'Quick Decision has a five-second clock');
+assert.deepEqual(BOARD_GAME_KINDS,['snakes','ludo','carrom','blackjack','chess']);assert.equal(BOARD_GAME_LABELS.chess,'Chess');
+const snakes=reduceBoardGame('snakes',createBoardState('snakes',2),1,{type:'roll',value:2});
+assert.equal(snakes.state.players[0].position,38,'Snakes and Ladders moves through ladder squares');assert.deepEqual(snakes.sounds,['tick','click']);assert.equal(snakes.state.turnSeat,2);
+let ludo=reduceBoardGame('ludo',createBoardState('ludo',2),1,{type:'roll',value:6});assert(ludo.availableTokens.includes(0));assert.equal(ludo.sfx,'tick');
+ludo=reduceBoardGame('ludo',ludo.state,1,{type:'move',token:0});assert.equal(ludo.state.players[0].tokens[0],0);assert.equal(ludo.state.turnSeat,1,'a six gives a bonus roll');assert.equal(ludo.sfx,'click','Ludo token movement has its own cue');
+const chess0=createBoardState('chess',2,()=>.5);assert(legalChessMoves(chess0,[6,4]).some(m=>m.to[0]===4&&m.to[1]===4));
+const chess1=reduceBoardGame('chess',chess0,1,{type:'move',from:[6,4],to:[4,4]});assert.equal(chess1.state.turnSeat,2);assert.equal(chess1.state.board[4][4],'P');assert.equal(chess1.sfx,'click');
+const chess2=reduceBoardGame('chess',chess1.state,2,{type:'move',from:[1,4],to:[3,4]});assert.equal(chess2.state.board[3][4],'p');assert.throws(()=>reduceBoardGame('chess',chess2.state,1,{type:'move',from:[4,4],to:[1,4]}),/illegal_chess_move/);
+const capture1=reduceBoardGame('chess',createBoardState('chess',2),1,{type:'move',from:[6,4],to:[4,4]});const capture2=reduceBoardGame('chess',capture1.state,2,{type:'move',from:[1,3],to:[3,3]});const capture3=reduceBoardGame('chess',capture2.state,1,{type:'move',from:[4,4],to:[3,3]});assert.equal(capture3.sfx,'coin','chess captures use the piece-capture sound');
+const blackjack=reduceBoardGame('blackjack',createBoardState('blackjack',1,()=>.5),1,{type:'stand'});assert(blackjack.state.finished,'solo Blackjack plays against the dealer');
+const carrom=reduceBoardGame('carrom',createBoardState('carrom',1),1,{type:'strike',aim:0,power:.6});assert(carrom.state.coins.length===8&&carrom.announcement,'Carrom simulates an aimed shot');
 
 const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
 for(const id of ['home','auth','game','settings','results','announcer','assertive-announcer'])assert(html.includes(`id="${id.startsWith('announcer')?id:`view-${id}`}"`)||html.includes(`id="${id}"`),`required UI landmark ${id}`);
@@ -88,6 +109,7 @@ const css=await readFile(new URL('../styles.css',import.meta.url),'utf8');
 assert(css.includes(':focus-visible'),'visible focus indicator');
 assert(css.includes('.high-contrast')&&css.includes('.large-text')&&css.includes('.reduce-motion'),'accessibility settings styles');
 const main=await readFile(new URL('../src/main.js',import.meta.url),'utf8');
+const gameLogic=await readFile(new URL('../src/game-logic.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator)/.test(main),'no synthetic Web Audio effects');
 const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
@@ -114,7 +136,7 @@ assert(!Object.values(audioManifest.assets).some(a=>a.provider==='Mixkit'&&a.kin
 const licences=await readFile(new URL('../AUDIO_LICENSES.md',import.meta.url),'utf8');
 for(const a of Object.values(audioManifest.assets))assert(licences.includes(a.file),`AUDIO_LICENSES.md documents ${a.file}`);
 assert(!/\btone\(/.test(main),'no leftover synthetic tone() calls (they crashed every round)');
-assert(main.includes('displayAnswers:shuffled(q.answers)'),'answer choices are shuffled independently');
+assert(main.includes('return presentQuestion(q,state.mode,shuffled)')&&gameLogic.includes('displayAnswers: shuffle(answers)'),'answer choices are shuffled independently in classic mode');
 assert(main.includes("typeof saved.correct==='boolean'?saved.correct:correct")&&main.includes('state.lastAnswerCorrect=serverVerdict')&&main.includes("verdict?'good':'bad'"),'server-verified answers stay in sync with score, Survival, and feedback');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');
 assert(!html.includes('id=\"backend-note\"'),'no technical backend status element');
@@ -450,23 +472,28 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/Send \$\{p\.name\} a private message/.test(readFileSync(new URL('../src/social.js', import.meta.url), 'utf8')), 'friends can open a private chat from the card');
   console.log('PASS: Task 19 end-to-end encrypted private messages (real WebCrypto: seal, open, tamper and key-swap rejection, safety code, key pinning).');
 }
-// Task 19 stage D: rooms, room games, spectators hearing the player's sounds and announcements, comments.
+// Migration 026: shared quizzes, board games, numbered seats, invites, spectator sounds and threaded comments.
 {
   const { readFileSync } = await import('node:fs');
   const R = await import('../src/rooms.js');
   const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
-  const main = read('../src/main.js'), html = read('../index.html'), social = read('../src/social.js'), api = read('../supabase/functions/blind-quiz-api/index.ts'), rooms = read('../src/rooms.js');
-  assert(R.gameTitle('quiz', { category: 'history', mode: 'rapid' }, [{ id: 'history', name: 'History' }]) === 'Quiz: History, Rapid Fire' && R.gameTitle('soundmatch', { level: 'hard' }) === 'Sound Match: Hard' && R.gameTitle('letters') === 'Letters to Words', 'room game titles');
-  assert(R.eventText({ kind: 'say', name: 'Ann', body: 'Correct!' }) === "Ann's game: Correct!" && R.eventText({ kind: 'comment', name: 'Bo', body: 'Nice' }) === 'Bo commented: Nice' && R.eventText({ kind: 'sfx', name: 'Ann', body: 'correct' }) === null, 'spectator log lines (sound effects are heard, not listed)');
-  for (const id of ['view-room', 'view-watch', 'mp-rooms', 'mp-room-list', 'room-create-form', 'room-new-public', 'room-games', 'room-game-form', 'room-game-kind', 'room-game-category', 'room-game-mode', 'room-game-level', 'room-chat', 'room-chat-form', 'room-invite-form', 'watch-log', 'watch-scores', 'watch-comment-form', 'back-to-room']) assert(html.includes(`id="${id}"`), `rooms markup #${id}`);
-  assert(html.includes('data-mp-tab="rooms"'), 'Rooms tab in Multiplayer');
-  for (const a of ['rooms', 'room-create', 'room-remove', 'room-leave', 'room-state', 'room-say', 'room-invite', 'match-invite', 'game-create', 'game-join', 'game-watch', 'game-post']) assert(api.includes(`'${a}':['bq_`), `API action ${a}`);
-  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main) && /const announce=\(text,urgent=false\)=>\{livePush\('say',text\);/.test(main) && /function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main) && /function playMatchSound\(slot,\.\.\.a\)\{livePush\('match',slot\)/.test(main), 'room games broadcast announcements, sound effects and Sound Match sounds only while live');
-  assert(/playSfx:rawSfx,playMatchSound:rawMatch/.test(main), 'spectators replay with plain audio (never re-broadcast)');
-  assert(/state\.view==='room'&&\(view==='watch'\|\|\(live&&view===LIVE_VIEWS\[live\.kind\]\)\)/.test(main), 'starting or watching a room game does not ask to leave the room');
-  assert(/Send \$\{p\.name\} a match/.test(social) && /callApi\('match-invite'/.test(social) && /'room_invite', 'game_invite'\].includes\(n\.kind\) && n\.ref/.test(social), 'friends can send a match; invites open the room');
-  assert(!/loginId|login_id/.test(rooms), 'rooms never handle Login IDs');
-  console.log('PASS: Task 19 rooms (public and private rooms, chat, room games, live spectators, comments, match invites).');
+  const main=read('../src/main.js'),html=read('../index.html'),social=read('../src/social.js'),api=read('../supabase/functions/blind-quiz-api/index.ts'),rooms=read('../src/rooms.js'),play=read('../src/room-play.js'),migration=read('../supabase/migrations/202610090026_multiplayer_room_games.sql');
+  assert(R.gameTitle('quiz',{category:'history',mode:'rapid' },[{id:'history',name:'History'}])==='Quiz: History, Rapid Fire'&&R.gameTitle('soundmatch',{level:'hard'})==='Sound Match: Hard'&&R.gameTitle('letters')==='Letters to Words'&&R.gameTitle('chess')==='Chess','room game titles include the new board games');
+  assert(R.eventText({kind:'say',name:'Ann',body:'Correct!'})==="Ann's game: Correct!"&&R.eventText({kind:'comment',name:'Bo',body:'Nice'})==='Bo commented: Nice'&&R.eventText({kind:'comment',name:'Bo',body:'Nice',replyTo:2,replyName:'Ann'})==='Bo replied to Ann: Nice'&&R.eventText({kind:'sfx',name:'Ann',body:'correct'})===null,'spectator comments, threaded replies and sound-only events');
+  for(const id of ['view-room','view-room-game','view-watch','mp-rooms','mp-room-list','room-create-form','room-new-public','room-games','room-game-form','room-game-kind','room-game-category','room-game-mode','room-game-player-count','room-play-players','room-play-ready','room-play-start','room-play-join-form','room-play-invite-form','room-play-comments','room-play-comment-form','room-chat','room-chat-form','room-invite-form','watch-log','watch-scores','watch-comment-form','watch-reply-cancel'])assert(html.includes(`id="${id}"`),`rooms markup #${id}`);
+  assert(html.includes('value="yesno"')||GAME_MODES.some(([id])=>id==='yesno'),'quiz mode registered');assert(html.includes('Snakes and Ladders')&&html.includes('value="chess"'),'all requested board-game choices exist');
+  for(const a of ['rooms','room-create','room-remove','room-leave','room-state','room-say','game-comment','room-invite','match-invite','game-create','game-join','game-ready','game-answer','game-invite','game-invite-respond','game-state','game-watch','game-post'])assert(api.includes(`'${a}':['bq_`),`API action ${a}`);
+  assert(api.includes("if(body.action==='game-start')")&&api.includes("admin.rpc('bq_game_start'")&&api.includes('createBoardState(match.kind,Number(match.max_players))'),'board starts are initialized by the server, not by a host-supplied board state');
+  assert(api.includes("if(body.action==='game-action')")&&api.includes('reduceBoardGame(match.kind,match.state,Number(player.seat),action)')&&api.includes('expectedState:match.state')&&!api.includes("'game-action':['bq_game_action'")&&play.includes("callApi('game-action',{gameId:game.id,move:action})"),'board moves are recomputed from a version-checked server snapshot; client-supplied states are ignored');
+  assert(read('../scripts/build.mjs').includes("'supabase/functions/_shared'"),'the trusted board reducer is included in the static web build');
+  assert(play.includes('id:options.id||options.gameId')&&play.includes("typeof d.hostMe==='boolean'?d.hostMe:!!d.host"),'room gameplay routes use the real game id and server-reported host permissions');
+  assert(/'quiz','snakes','ludo','carrom','blackjack','chess'/.test(migration)&&/bq_game_start/.test(migration)&&/bq_game_answer/.test(migration)&&migration.includes('left join public.bq_questions q')&&/server_keys/.test(migration)&&/reply_to/.test(migration)&&/not_room_member/.test(migration)&&/k='score' and g\.kind not in \('letters','soundmatch'\)/.test(migration)&&/expectedState.*is distinct from g\.state/.test(migration)&&migration.includes('yesNoCandidates')&&migration.includes('answerOptions'),'Migration 026 adds verified scoring, synchronized Yes or No prompts, version-checked board moves, and threaded comments');
+  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main)&&/const announce=\(text,urgent=false\)=>\{livePush\('say',text\);/.test(main)&&/function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main),'active room-game events can be broadcast to spectators');
+  assert(/playSfx:rawSfx/.test(main)&&/game-state/.test(play)&&/game-answer/.test(play)&&/game-action/.test(play),'shared quiz and board UI use the room-state API and recorded local audio');
+  assert(/Questions stay hidden until the players are ready/.test(play)&&/players_not_ready/.test(migration)&&/waiting_for_players/.test(migration),'lobby gate blocks the shared start until all selected seats are ready');
+  assert(/game-invite-respond/.test(social)&&/Accept \$\{n\.actor/.test(social)&&/replyTo/.test(rooms),'friends can accept game invitations and spectators can reply');
+  assert(!/loginId|login_id/.test(rooms),'rooms never handle Login IDs');
+  console.log('PASS: Migration 026 room games (ready-up, shared score, board-game states, friend invites, public threaded comments, action-timed recorded sounds).');
 }
 // Ringtones and alert sounds; Android app background notifications; automatic update news.
 {

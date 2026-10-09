@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { createBoardState, reduceBoardGame } from '../src/board-games.js';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const html=readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'');
 let n=0;
@@ -127,7 +128,7 @@ console.log('ok 9 back navigation returns to Home');
   assert.match(dm.querySelector('#answer-feedback').textContent,/Incorrect/);assert.equal(dm.querySelector('.next-question').textContent,'View results');
   dm.querySelector('.next-question').click();await wait2(10);assert.equal(dm.querySelector('#result-score').textContent,'0 correct out of 1');assert.match(dm.querySelector('#result-message').textContent,/Survival run ended on a miss/);
   globalThis.setTimeout=fast;
-  console.log(`ok 10 all ${cats.length} categories and 8 quiz modes play to results; leaving mid-countdown/mid-timer never blocks the next game`);
+  console.log(`ok 10 all ${cats.length} categories and 11 quiz modes play to results; leaving mid-countdown/mid-timer never blocks the next game`);
 }
 // 11. Signed-in players see their profile, not a sign-in prompt.
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}},fetchImpl:()=>json(200,{ok:true,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}})});
@@ -514,62 +515,90 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   chat.stop();
   console.log('ok 21 encrypted chat: safety code, honest other-device notice, sealed for both devices, tampered message hidden, incoming announced, key change blocks sending until confirmed');
 }
-// 22. Task 19 stage D: rooms list, entering a room, room chat, watching live (sounds and announcements replayed), creating a room game that broadcasts, exit confirmation.
+// 22. Migration 026: game slots, invite/readiness flow, synchronized quick quiz, comments/replies and a playable board.
 {
-  const tick=(ms=60)=>new Promise(r=>setTimeout(r,ms));const sent=[];let watchCalls=0;
-  const ROOM='b1a1d000-0000-4000-8000-000000000001',GAME='c0ffee00-0000-4000-8000-000000000001',NEWGAME='c0ffee00-0000-4000-8000-000000000002';
-  const state=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Ann',level:4}],
-    games:[{id:GAME,kind:'quiz',title:'Quiz: History, Classic Quiz',config:{category:'history',mode:'classic'},status:'playing',host:'Ann',players:[{name:'Ann',score:2,finished:false}]}],chat:sent.filter(b=>b.action==='room-state').length>1?[]:[{id:5,name:'Ann',body:'hi all',createdAt:future}]});
-  const watch=()=>{watchCalls++;return watchCalls===1?{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:2,finished:false}],events:[{id:10,name:'Ann',kind:'say',body:'Question 3 of 10.'},{id:11,name:'Ann',kind:'sfx',body:'correct'}]}
-    :watchCalls===2?{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:3,finished:false}],events:[{id:12,name:'Ann',kind:'sfx',body:'correct'},{id:13,name:'Ann',kind:'say',body:'Correct! The answer is B: 1857.'},{id:14,name:'Ann',kind:'score',body:'3'},{id:15,name:'Bo',kind:'comment',body:'Great pick'}]}
-    :{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:3,finished:false}],events:[]}};
-  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);
-    const r={profile:{ok:true,profile},touch:{ok:true,unread:0,notificationsEnabled:true},'online-players':{ok:true,items:[]},
-      rooms:{ok:true,items:[{id:ROOM,name:'Blind Quiz',isPublic:true,isDefault:true,mine:false,games:1,users:2},{id:'b1a1d000-0000-4000-8000-000000000002',name:'Word Lovers',isPublic:true,isDefault:true,mine:false,games:0,users:0}]},
-      'room-state':state,'game-watch':watch,'room-say':{ok:true},'game-create':{ok:true,id:NEWGAME},'game-post':{ok:true,stored:1},'room-leave':{ok:true}}[b.action];
-    return json(200,(typeof r==='function'?r():r)||{ok:true});}});
+  const tick=(ms=60)=>new Promise(r=>setTimeout(r,ms)),sent=[];
+  const ROOM='b1a1d000-0000-4000-8000-000000000001',QUIZ='c0ffee00-0000-4000-8000-000000000001',BOARD='c0ffee00-0000-4000-8000-000000000002';
+  let gameId=null,gameKind='quiz',gameTitle='Quiz: History, Quick Decision',gameConfig={category:'history',mode:'quickdecision',players:2},gamePhase='lobby',gameMax=2,gamePlayers=[],gameState={},gameEvents=[],eventId=100,gameCount=0;
+  const makePlayers=ready=>Array.from({length:gameMax},(_,i)=>({seat:i+1,name:i===0?'Asha':`Google${i>1?` ${i+1}`:''}`,ready:i===0?ready:ready,score:0,finished:false}));
+  const addComment=(name,body,replyTo)=>{const parent=gameEvents.find(e=>e.id===replyTo);gameEvents.push({id:++eventId,name,kind:'comment',body,replyTo,replyName:parent?.name||null});};
+  const roomState=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Google',level:2}],
+    games:gameId?[{id:gameId,kind:gameKind,title:gameTitle,config:gameConfig,status:gamePhase==='finished'?'finished':'playing',phase:gamePhase,maxPlayers:gameMax,host:'Asha',hostMe:true,commentCount:gameEvents.filter(e=>e.kind==='comment').length,recentComments:gameEvents.filter(e=>e.kind==='comment').slice(-3),players:gamePlayers}]:[],
+    chat:[{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[]});
+  const stateFor=body=>({ok:true,phase:gamePhase,status:gamePhase==='finished'?'finished':'playing',kind:gameKind,title:gameTitle,roomId:ROOM,maxPlayers:gameMax,host:'Asha',hostMe:true,seat:gamePlayers.find(p=>p.name==='Asha')?.seat||1,players:gamePlayers,state:gameState,
+    events:gameEvents.filter(e=>Number(e.id)>Number(body.afterId||0))});
+  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);let r;
+    if(b.action==='room-state')r=roomState();
+    else if(b.action==='game-state')r=stateFor(b);
+    else if(b.action==='game-watch')r={...stateFor(b),status:gamePhase==='finished'?'finished':'playing'};
+    else if(b.action==='game-create'){gameCount++;gameId=gameCount===1?QUIZ:BOARD;gameKind=b.kind;gameConfig=b.config;gameTitle=b.title;gameMax=Number(b.config.players)||2;gamePhase='lobby';gameState={};gameEvents=[];gamePlayers=[{seat:1,name:'Asha',ready:false,score:0,finished:false}];r={ok:true,id:gameId,maxPlayers:gameMax,phase:'lobby'};}
+    else if(b.action==='game-ready'){gamePlayers=makePlayers(!!b.ready);r={ok:true,ready:b.ready};}
+    else if(b.action==='game-start'){gamePhase='playing';gameState=b.initialState.questionIds?{questionIds:b.initialState.questionIds,currentIndex:0,questionStartedAt:new Date().toISOString()}:createBoardState(gameKind,gameMax,()=>.5);if(gameKind==='snakes'){gameState.players[0].position=96;gameState.players[0].score=96;}r={ok:true,phase:'playing'};}
+    else if(b.action==='game-answer')r={ok:true,correct:true,points:2,currentIndex:b.questionIndex};
+    else if(b.action==='game-comment'){addComment('Asha',b.text,b.replyTo??null);r={ok:true};}
+    else if(b.action==='game-action'){const result=reduceBoardGame(gameKind,gameState,1,b.move,()=>.5);gameState=result.state;if(result.finished)gamePhase='finished';for(const s of result.sounds||[result.sfx||'click'])gameEvents.push({id:++eventId,name:'Asha',kind:'sfx',body:s});gameEvents.push({id:++eventId,name:'Asha',kind:'say',body:result.announcement});r={ok:true,finished:result.finished,sfx:result.sfx,sounds:result.sounds||[result.sfx||'click']};}
+    else {r={profile:{ok:true,profile},touch:{ok:true,unread:0,notificationsEnabled:true},'online-players':{ok:true,items:[]},
+      rooms:{ok:true,items:[{id:ROOM,name:'Blind Quiz',isPublic:true,isDefault:true,mine:false,games:0,users:2}]},
+      'room-say':{ok:true},notifications:{ok:true,items:[{kind:'game_invite',actor:'Google',ref:BOARD,body:`game-invite|${ROOM}|Snakes and Ladders`,createdAt:future,read:false}]},'notifications-read':{ok:true,unread:0},'game-invite':{ok:true},'game-invite-respond':{ok:true,accepted:true,roomId:ROOM,gameId:BOARD,seat:2,title:'Snakes and Ladders'},'game-post':{ok:true,stored:1},'room-leave':{ok:true}}[b.action]||{ok:true};}
+    return json(200,r);}});
   const {d,w}=t22;await tick();
   d.querySelector('#mp-open').click();await tick();d.querySelector('[data-mp-tab="rooms"]').click();await tick();await tick();
-  const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,2);
-  assert.equal(rb[0].getAttribute('aria-label'),'Blind Quiz. Public room, 1 game, 2 players inside. Enter room');
-  rb[0].click();await tick();await tick();
-  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');
-  assert.match(d.querySelector('#room-status').textContent,/You are in Blind Quiz\. 2 players here, 1 game being played\./);
-  assert.match(d.querySelector('#room-chat').textContent,/Ann: hi all/);assert.match(d.querySelector('#room-people').textContent,/Ann, level 4/);
-  assert.match(d.querySelector('#room-games').textContent,/Quiz: History, Classic Quiz.*Playing now\. Host Ann\. Scores: Ann 2\./s);
-  assert.equal(d.querySelector('#room-invite-box').hidden,true,'public rooms you do not own need no invitations');
-  d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
-  assert.deepEqual(sent.find(b=>b.action==='room-say'),{action:'room-say',roomId:ROOM,text:'hello room'});
-  // Watch: earlier events are text only; new ones are heard (recorded sound effect) and announced, comments too.
-  [...d.querySelectorAll('#room-games button')].find(b=>/^Watch /.test(b.textContent)).click();await tick();await tick();
-  assert.equal(d.querySelector('#exit-confirm').hidden,true,'watching a room game does not ask to leave the room');
-  assert.equal(d.querySelector('#view-watch').hidden,false);assert.match(d.querySelector('#watch-log').textContent,/Ann's game: Question 3 of 10\./);
-  const played=[];for(const win of WINDOWS)win.HTMLMediaElement.prototype.play=function(){played.push(this.src);return Promise.resolve()};
-  await tick(1700);
-  assert.match(d.querySelector('#watch-log').textContent,/Ann's game: Correct! The answer is B: 1857\..*Ann score: 3.*Bo commented: Great pick/s);
-  assert.match(d.querySelector('#watch-scores').textContent,/Ann: 3/);
-  assert(played.some(src=>/correct/.test(src)),'the spectator hears the player\'s correct-answer sound');
-  assert.match(d.querySelector('#announcer').textContent,/Correct! The answer is B: 1857\.|Bo commented: Great pick/);
-  d.querySelector('#watch-comment-text').value='Well done';d.querySelector('#watch-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
-  assert.deepEqual(sent.filter(b=>b.action==='room-say').at(-1),{action:'room-say',roomId:ROOM,gameId:GAME,text:'Well done'});
-  d.querySelector('#watch-back').click();await tick();await tick();assert.equal(d.querySelector('#view-room').hidden,false);
-  // Create a quiz game: it starts locally without the leave-room question, and broadcasts announcements and score.
-  d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-category').value='history';d.querySelector('#room-game-mode').value='classic';
+  const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,1);rb[0].click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');assert.match(d.querySelector('#room-chat').textContent,/Google: hi room/);
+  d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();assert(sent.some(b=>b.action==='room-say'&&b.text==='hello room'));
+
+  // A new quiz opens a lobby; no questions appear while only one of two player slots is ready.
+  d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));
+  d.querySelector('#room-game-category').value='history';d.querySelector('#room-game-mode').value='quickdecision';d.querySelector('#room-game-player-count').value='2';
   d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
-  assert.deepEqual(sent.find(b=>b.action==='game-create'),{action:'game-create',roomId:ROOM,kind:'quiz',title:'Quiz: History, Classic Quiz',config:{category:'history',mode:'classic'}});
-  assert.equal(d.querySelector('#exit-confirm').hidden,true);assert.equal(d.querySelector('#view-game').hidden,false);
-  d.querySelector('#game-start').click();await tick(6900);
-  const posts=sent.filter(b=>b.action==='game-post');assert(posts.length>=1&&posts.every(b=>b.gameId===NEWGAME),'the game is broadcast');
-  const evs=posts.flatMap(b=>b.events);assert(evs.some(e=>e.k==='say'&&/Question 1 of/.test(e.b)),'announcements reach spectators');assert(evs.some(e=>e.k==='score'&&e.b==='0'),'score is sent');
-  d.querySelector('#view-game .back-link').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false);
-  d.querySelector('#exit-leave').click();await tick();
-  assert.deepEqual(sent.filter(b=>b.action==='game-post').at(-1).events.slice(-1),[{k:'end',b:''}],'leaving ends the room game');
-  const after=sent.length;await tick(1500);assert(!sent.slice(after).some(b=>b.action==='game-post'),'nothing is broadcast after the game ends');
-  // Leaving the room asks first, then tells the server.
-  [...d.querySelectorAll('#mp-room-list .room-button')][0]?.click();rb[0].click();await tick();await tick();
-  d.querySelector('#view-room .back-link').click();await tick();assert.equal(d.querySelector('#exit-title').textContent,'Leave this room?');
-  d.querySelector('#exit-leave').click();await tick();assert(sent.some(b=>b.action==='room-leave'&&b.roomId===ROOM));assert.equal(d.querySelector('#view-multiplayer').hidden,false);
-  console.log('ok 22 rooms: list with game and player counts, room chat, watch live with sounds/announcements/comments, create game broadcasts, exit confirmation');
+  assert.deepEqual(sent.find(b=>b.action==='game-create'),{action:'game-create',roomId:ROOM,kind:'quiz',title:'Quiz: History, Quick Decision',config:{category:'history',mode:'quickdecision',players:2}});
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert.equal(d.querySelector('#room-play-quiz').hidden,true);assert.equal(d.querySelector('#room-play-start').disabled,true);
+  assert.match(d.querySelector('#room-play-players').textContent,/Player 1: Asha.*Player 2: Waiting/s);
+  d.querySelector('#room-play-invite-name').value='Google';d.querySelector('#room-play-invite-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  assert.deepEqual(sent.find(b=>b.action==='game-invite'),{action:'game-invite',gameId:QUIZ,name:'Google'});
+  d.querySelector('#room-play-ready').click();await tick();await tick();assert.equal(d.querySelector('#room-play-start').disabled,false,'the host can start only after both slots are ready');
+  assert.equal(d.querySelector('#room-play-quiz').hidden,true,'ready players still see the waiting lobby before the host start');
+  d.querySelector('#room-play-start').click();await tick();await tick();
+  const start=sent.find(b=>b.action==='game-start');assert.equal(start.gameId,QUIZ);assert.equal(start.initialState.questionIds.length,10);assert.equal(start.initialState.questionIds.length,start.initialState.answerKeys.length);
+  assert.equal(d.querySelector('#room-play-quiz').hidden,false);assert.equal(d.querySelectorAll('#room-play-options button').length,2,'Quick Decision shares two answer options');
+  d.querySelector('#room-play-options button').click();await tick();assert(sent.some(b=>b.action==='game-answer'&&b.gameId===QUIZ&&b.questionIndex===0),'answer is submitted against the shared question index');
+
+  d.querySelector('#room-play-comment-text').value='Everyone can see this';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-comment').at(-1),{action:'game-comment',roomId:ROOM,gameId:QUIZ,text:'Everyone can see this',replyTo:null});
+  const commentLine=d.querySelector('#room-play-comments li');assert.match(commentLine.textContent,/Asha: Everyone can see this/);
+  commentLine.querySelector('button').click();assert.equal(d.querySelector('#room-play-replying').textContent,'Replying to Asha.');
+  d.querySelector('#room-play-comment-text').value='Thanks!';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.equal(sent.filter(b=>b.action==='game-comment').at(-1).replyTo,Number(gameEvents.find(e=>e.kind==='comment')?.id),'replies point at the visible parent comment');
+
+  d.querySelector('#room-play-back').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false,'leaving a match is confirmed without ending it for everyone');d.querySelector('#exit-leave').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.match(d.querySelector('#room-games').textContent,/Everyone can see this/,'recent game comments also appear on the room card');
+  [...d.querySelectorAll('#room-games button')].find(b=>/^Watch /.test(b.textContent)).click();await tick();await tick();
+  assert.equal(d.querySelector('#view-watch').hidden,false);assert.match(d.querySelector('#watch-log').textContent,/replied to Asha: Thanks!/,'spectators see another player’s reply');
+  const replyBtn=d.querySelector('#watch-log .watch-comment button');assert(replyBtn,'watchers can reply to a spectator comment');replyBtn.click();d.querySelector('#watch-comment-text').value='Watching too';d.querySelector('#watch-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  assert.equal(sent.filter(b=>b.action==='game-comment').at(-1).replyTo,Number(gameEvents.find(e=>e.kind==='comment')?.id));
+  d.querySelector('#watch-back').click();await tick();await tick();
+
+  // Snakes and Ladders is a real roll-and-move board with separate, action-timed dice/token sounds.
+  d.querySelector('#room-game-kind').value='snakes';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));d.querySelector('#room-game-player-count').value='1';
+  d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-create').at(-1).config,{players:1});assert.equal(d.querySelector('#room-play-quiz').hidden,true);
+  d.querySelector('#room-play-ready').click();await tick();await tick();assert.equal(d.querySelector('#room-play-start').disabled,false);
+  d.querySelector('#room-play-start').click();await tick();await tick();assert.equal(d.querySelector('#room-play-board-wrap').hidden,false);
+  assert.match(d.querySelector('#room-play-board').textContent,/Snakes and Ladders|Square 100|reach exactly 100/);
+  d.querySelector('#room-play-controls button').click();await tick();await tick();
+  const move=sent.filter(b=>b.action==='game-action').at(-1);assert.equal(move.gameId,BOARD);assert.deepEqual(move.move,{type:'roll'},'the browser sends only an action, never a dice value or replacement board state');
+  assert.deepEqual(gameEvents.filter(e=>e.kind==='sfx').map(e=>e.body),['tick','click'],'the trusted board reducer publishes distinct dice and token sounds');
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert.match(d.querySelector('#room-play-board').textContent,/Player 1 wins!/,'the finished board shows the winner instead of a blank post-game screen');
+
+  d.querySelector('#room-play-back').click();await tick();d.querySelector('#exit-leave').click();await tick();await tick();
+  d.querySelector('#view-room .back-link').click();await tick();assert.equal(d.querySelector('#exit-title').textContent,'Leave this room?');d.querySelector('#exit-leave').click();await tick();
+  assert(sent.some(b=>b.action==='room-leave'&&b.roomId===ROOM));assert.equal(d.querySelector('#view-multiplayer').hidden,false);
+  d.querySelector('#notif-open').click();await tick();await tick();
+  const accept=[...d.querySelectorAll('#notif-list button')].find(b=>b.textContent.includes('Accept Google')&&b.textContent.includes('game invite'));assert(accept,'game invite notification offers an explicit Accept action');
+  accept.click();await tick();await tick();await tick();
+  assert(sent.some(b=>b.action==='game-invite-respond'&&b.gameId===BOARD&&b.accept===true),'accepting a notification responds to that exact match invitation');
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert(sent.some(b=>b.action==='game-state'&&b.gameId===BOARD),'accepted invite opens the shared game in its room');
+  console.log('ok 22 synchronized room quiz: numbered slots, invite/accept, ready gate, same quick-decision round, shared comments/replies, playable snakes and action-timed dice/token cues');
 }
 // 23. Direct file transfer and calls between two friends: real WebCrypto sealing through a relay that sees only boxes,
 //     an in-memory WebRTC stand-in, ring -> accept -> offer -> answer, chunked file with confirmation, call and hang up.
