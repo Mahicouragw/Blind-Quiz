@@ -380,7 +380,7 @@ const vGet = await post({ action: 'room-voice', id: vSend.body?.id }, { token: o
 const vBad = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: 'data:text/html;base64,PHNjcmlwdD4=', durationMs: 2500 }, { token: wtok });
 check('Room voice messages: others in the room can play them; only audio is accepted', vSend.body?.ok === true && (vState.body?.voices || []).some(v => v.id === vSend.body.id && v.name === NEW_NAME) && !vState.text.includes('base64') && vGet.body?.audio === VOICE && vBad.status === 400, `${codeOf(vSend)}/${codeOf(vState)}/${codeOf(vGet)}/${codeOf(vBad)} listed=${(vState.body?.voices || []).some(v => v.id === vSend.body?.id)} named=${(vState.body?.voices || []).some(v => v.name === NEW_NAME)} hidden=${!vState.text.includes('base64')} same=${vGet.body?.audio === VOICE} len=${String(vGet.body?.audio || '').length}/${VOICE.length} bad=${vBad.status}`);
 const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
-const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
+const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'not-a-game', title: 'Nope', config: {} }, { token: wtok });
 check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
 const SESSION = randomUUID();
 const ringText = JSON.stringify({ t: 'file-offer', name: 'notes.pdf', size: 7000000 });
