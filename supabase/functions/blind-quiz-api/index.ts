@@ -41,7 +41,7 @@ function publicProfile(p:any){const changes=p.name_change_count??0;return {name:
 async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
 const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{p_name_normalized:n}:null};
 const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
-const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline','seat_taken','game_started','players_not_ready','waiting_for_players','stale_question','stale_action','comment_unavailable','not_your_turn','not_room_member','already_joined','illegal_chess_move','illegal_token_move','choose_token_first','invalid_action','invalid_move'];
+const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline','seat_taken','game_started','players_not_ready','waiting_for_players','stale_question','stale_action','comment_unavailable','comments_disabled','not_your_turn','not_room_member','already_joined','color_taken','choose_color','invalid_word','illegal_chess_move','illegal_token_move','choose_token_first','invalid_action','invalid_move'];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Encrypted messages: the server only checks the shape and size of the sealed boxes; it cannot read them.
 const boxesArg=(b:any)=>{const n=nameArg(b),d=String(b.deviceId??''),x=b.boxes;if(!n||!UUID.test(d)||!x||typeof x!=='object'||Array.isArray(x))return null;const k=Object.keys(x);if(!k.length||k.length>8||JSON.stringify(x).length>24000||!k.every(id=>UUID.test(id)&&['s','iv','ct'].every(f=>typeof x[id]?.[f]==='string')))return null;return {...n,p_sender_device:d,p_boxes:x}};
@@ -67,9 +67,13 @@ const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,b
  'game-comment':['bq_room_comment',b=>{const r=roomArg(b),g=gameArg(b),t=text(b.text,1,300),reply=b.replyTo==null?null:Number(b.replyTo);return r&&g&&t&&(reply===null||(Number.isSafeInteger(reply)&&reply>0))?{...r,...g,p_reply_to:reply,p_body:t}:null},600],
  'room-invite':['bq_room_invite',b=>{const r=roomArg(b),n=nameArg(b);return r&&n?{...r,...n}:null},120],
  'game-create':['bq_game_create',b=>{const r=roomArg(b),t=text(b.title,3,80);return r&&t&&['quiz','letters','soundmatch','snakes','ludo','carrom','blackjack','chess'].includes(b.kind)&&configOk(b.config)?{...r,p_kind:b.kind,p_title:t,p_config:b.config}:null},60],
- 'game-join':['bq_game_join_seat',b=>{const g=gameArg(b),seat=Number(b.seat??0);return g&&Number.isSafeInteger(seat)&&seat>=0&&seat<=6?{...g,p_seat:seat}:null},300],
+ 'game-join':['bq_game_join_seat_color',b=>{const g=gameArg(b),seat=Number(b.seat??0),color=b.color==null?null:clean(b.color,10).toLowerCase();return g&&Number.isSafeInteger(seat)&&seat>=0&&seat<=6&&(color===null||['red','yellow','green','blue','white','black'].includes(color))?{...g,p_seat:seat,p_color:color}:null},300],
+ 'game-assign':['bq_game_assign_member',b=>{const g=gameArg(b),n=nameArg(b),seat=Number(b.seat);return g&&n&&Number.isSafeInteger(seat)&&seat>=1&&seat<=6?{...g,...n,p_seat:seat}:null},300],
  'game-ready':['bq_game_ready',b=>{const g=gameArg(b);return g&&typeof b.ready==='boolean'?{...g,p_ready:b.ready}:null},600],
+ 'game-comments':['bq_game_set_comments',b=>{const g=gameArg(b);return g&&typeof b.enabled==='boolean'?{...g,p_enabled:b.enabled}:null},120],
  'game-answer':['bq_game_answer',b=>{const g=gameArg(b),i=Number(b.questionIndex),a=text(b.answer,1,200);return g&&Number.isSafeInteger(i)&&i>=0&&i<20&&a?{...g,p_question_index:i,p_answer:a}:null},600],
+ 'game-letter-word':['bq_game_letter_word',b=>{const g=gameArg(b),word=text(b.word,3,7)?.toLowerCase();return g&&word?{...g,p_word:word}:null},600],
+ 'game-sound-flip':['bq_game_sound_flip',b=>{const g=gameArg(b),number=Number(b.number);return g&&Number.isSafeInteger(number)&&number>=1&&number<=20?{...g,p_number:number}:null},1200],
  'game-invite':['bq_game_invite',b=>{const g=gameArg(b),n=nameArg(b);return g&&n?{...g,...n}:null},120],
  'game-invite-respond':['bq_game_invite_respond',b=>{const g=gameArg(b);return g&&typeof b.accept==='boolean'?{...g,p_accept:b.accept}:null},120],
  'game-state':['bq_game_state',b=>{const g=gameArg(b),a=after(b.afterId);return g&&a!==undefined?{...g,p_after:a}:null},3600],
@@ -190,14 +194,24 @@ async function handler(req:Request){
   if(body.action==='game-start'){
    const game=gameArg(body);if(!game)return json({ok:false,code:'invalid_request'},400,origin);
    if(!await permitAccount('social-game-start',profileId,120,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const {data:match,error:matchError}=await admin.from('bq_room_games').select('kind,max_players').eq('id',game.p_game_id).maybeSingle();
+   const {data:match,error:matchError}=await admin.from('bq_room_games').select('kind,max_players,config').eq('id',game.p_game_id).maybeSingle();
    if(matchError){console.error('Room-game setup read failed',matchError.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!match)return json({ok:false,code:'game_unavailable'},409,origin);
    let initialState:any;
    if(match.kind==='quiz'){
     initialState=body.initialState;if(!initialState||typeof initialState!=='object'||Array.isArray(initialState)||JSON.stringify(initialState).length>20000)return json({ok:false,code:'invalid_request'},400,origin);
-   }else if(BOARD_GAME_KINDS.includes(match.kind))initialState=match.kind==='blackjack'?{kind:'blackjack'}:createBoardState(match.kind,Number(match.max_players));
-   else return json({ok:false,code:'game_unavailable'},409,origin);
+   }else if(match.kind==='letters')initialState={kind:'letters'};
+   else if(match.kind==='soundmatch'){
+    initialState=body.initialState;if(!initialState||typeof initialState!=='object'||Array.isArray(initialState)||initialState.kind!=='soundmatch'||JSON.stringify(initialState).length>12000)return json({ok:false,code:'invalid_request'},400,origin);
+   }else if(BOARD_GAME_KINDS.includes(match.kind)){
+    if(match.kind==='blackjack')initialState={kind:'blackjack'};
+    else{
+     const {data:seats,error:seatError}=await admin.from('bq_room_game_players').select('seat,color').eq('game_id',game.p_game_id);
+     if(seatError){console.error('Room-game seat colors read failed',seatError.code);return json({ok:false,code:'service_error'},503,origin)}
+     const colors=Object.fromEntries((seats||[]).filter((p:any)=>p.color).map((p:any)=>[Number(p.seat),p.color]));
+     initialState=createBoardState(match.kind,Number(match.max_players),Math.random,{colors});
+    }
+   }else return json({ok:false,code:'game_unavailable'},409,origin);
    const {data:started,error:startError}=await admin.rpc('bq_game_start',{p_profile_id:profileId,p_game_id:game.p_game_id,p_initial_state:initialState});
    if(startError){console.error('Room-game start failed',startError.code);return json({ok:false,code:'service_error'},503,origin)}
    if(started?.ok===false)return json({ok:false,code:SOCIAL_CODES.includes(started.code)?started.code:'invalid_request'},409,origin);

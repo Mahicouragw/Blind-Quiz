@@ -302,3 +302,23 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
  .ludo-track{grid-template-columns:1fr}.ludo-token{font-size:.8rem}.chess-board{width:min(100%,68vh);border-width:4px}.chess-square{font-size:clamp(1.2rem,9vw,2.8rem)}
 }
 .high-contrast .snake-cell{color:#000;background:#fff}.high-contrast .chess-square.light-square{background:#fff}.high-contrast .chess-square.dark-square{background:#777}
+
+/* New synchronized room modes, player assignment, colors, and signup name suggestions. */
+.signup-name-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}.signup-name-row label{margin:0}
+#room-game-host,#room-play-join-color,#room-play-color,#room-play-assign-name,#room-play-assign-seat,#watch-join-seat,#watch-join-color{margin:6px 0 12px}
+#room-play-color-box,#room-play-assign-form,#watch-join-form{padding:12px 14px;margin:12px 0;border:1px solid var(--line);border-radius:14px;background:#ffffff08}
+#room-play-color-box .button,#room-play-assign-form .button,#watch-join-form .button{margin-top:8px}
+#room-play-comments-toggle-wrap,#watch-comments-toggle-wrap{display:flex;align-items:center;gap:10px;margin:12px 0;font-weight:700}
+#room-play-comments-toggle-wrap input,#watch-comments-toggle-wrap input{width:24px;height:24px;min-height:0;accent-color:var(--acid)}
+.room-play-letters-tiles{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:18px auto;padding:12px;max-width:560px;font-family:'Bungee',system-ui,sans-serif;font-size:clamp(1.3rem,4vw,2rem);letter-spacing:.12em;color:var(--acid);background:var(--panel2);border:2px solid var(--acid);border-radius:16px}
+#room-play-word-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px;margin:16px 0}#room-play-word-form label{grid-column:1/-1;margin-bottom:-8px}#room-play-word-form .button{min-height:52px}
+.room-play-word-list{list-style:none;padding:0;margin:12px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.room-play-word-list li{padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:#d6ff5f10;font-weight:700}
+.room-play-sound-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:14px 0}
+.room-play-sound-card{min-height:86px;padding:10px 6px;border:2px solid #746d92;border-radius:16px;background:linear-gradient(150deg,#322a54,#1e1a33);color:var(--ink);font-weight:800;overflow-wrap:anywhere}
+.room-play-sound-card:hover:not(:disabled){border-color:var(--focus);transform:translateY(-1px)}.room-play-sound-card.is-open{background:linear-gradient(150deg,#ffd264,#ff984c);color:#1b1036;border-color:#fff1ae}
+.room-play-sound-card.is-matched{background:linear-gradient(150deg,#39866f,#1d5146);color:#f1fff9;border-color:#83dfbd}
+.room-play-sound-card:disabled{opacity:.78}.ludo-player.color-red{--seat-color:#ff725d}.ludo-player.color-yellow{--seat-color:#ffd65c}.ludo-player.color-green{--seat-color:#73d69a}.ludo-player.color-blue{--seat-color:#79b9ff}
+.ludo-player.color-white{--seat-color:#eee}.ludo-player.color-black{--seat-color:#6d6576}
+@media(max-width:560px){.room-play-sound-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.room-play-sound-card{min-height:70px;padding:8px 4px;font-size:.88rem}#room-play-word-form{grid-template-columns:1fr}#room-play-word-form label{grid-column:auto}.signup-name-row{align-items:flex-start}}
+.high-contrast .room-play-sound-card{background:#000;color:#fff;border-color:#fff}.high-contrast .room-play-sound-card.is-open{background:#ff0;color:#000}.high-contrast .room-play-sound-card.is-matched{background:#063;color:#fff}

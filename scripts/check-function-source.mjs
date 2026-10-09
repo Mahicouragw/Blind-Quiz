@@ -3,16 +3,16 @@
 // The production incident was a concatenated/duplicated deployment:
 //   Uncaught SyntaxError: Identifier 'createClient' has already been declared
 //   at index.ts:680:10
-// while the repository source is a single ~87-line module. This script fails
-// loudly if the file ever stops being exactly one self-consistent module, so a
-// broken bundle can never be uploaded again.
+// while the repository source is a single self-consistent module. This script
+// fails loudly if the file ever stops being one module, so a broken bundle can
+// never be uploaded again.
 //
 // It is deliberately dependency-free (no TypeScript install needed).
 
 import { readFile } from 'node:fs/promises';
 
 const TARGET = new URL('../supabase/functions/blind-quiz-api/index.ts', import.meta.url);
-const MAX_LINES = 260; // leave room for reviewed room-game actions while still catching accidental concatenation
+const MAX_LINES = 320; // leave room for reviewed server-owned game actions while catching accidental concatenation
 
 const problems = [];
 const assert = (ok, message) => { if (!ok) problems.push(message); };
@@ -90,7 +90,7 @@ const required = [
   ['generic login rejection', /code:'invalid_credentials'/],
   ['rate limited response', /code:'rate_limited'/],
   ['server-authoritative board moves', /reduceBoardGame\(match\.kind,match\.state,Number\(player\.seat\),action\)/],
-  ['server-created board setup', /createBoardState\(match\.kind,Number\(match\.max_players\)\)/],
+  ['server-created board setup', /initialState=createBoardState\(match\.kind,Number\(match\.max_players\)/],
   ['stale board state rejected', /expectedState:match\.state/],
 ];
 for (const [label, pattern] of required) assert(pattern.test(source), `missing security behaviour: ${label}`);

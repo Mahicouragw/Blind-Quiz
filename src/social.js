@@ -33,7 +33,7 @@ export function notificationText(n) {
     case 'feedback_reply': return `The Blind Quiz developer replied to your feedback: ${n.body}`;
     case 'announcement': return `Announcement: ${n.body}`;
     case 'room_invite': return `${who} invited you to a room.`;
-    case 'game_invite': return `${who} invited you to a match.`;
+    case 'game_invite': return String(n.body||'').startsWith('host-request|') ? `${who} selected you to host a room game.` : `${who} invited you to a match.`;
     default: return n.body || 'New notification.';
   }
 }
@@ -127,7 +127,9 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       li.append(row);
     } else if (n.kind === 'friend_request' && n.relation === 'friends') li.append(el('p', 'muted', 'Accepted.'));
     if (n.kind === 'message' && n.actor) li.append(button(`Open chat with ${n.actor}`, () => openChat(n.actor), 'button button-outline'));
-    if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('game-invite|')) {
+    if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('host-request|')) {
+      const [,roomId]=String(n.body).split('|');li.append(button(`Open the room game hosted by ${n.actor||'a player'}`,()=>openRoom(roomId,n.ref),'button button-hot'));
+    } else if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('game-invite|')) {
       const row=el('div','notif-actions');row.append(button(`Accept ${n.actor||'player'}’s game invite`,()=>respondGameInvite(n,true,row),'button button-hot'),button('Decline',()=>respondGameInvite(n,false,row)));li.append(row);
     } else if (['room_invite','game_invite'].includes(n.kind) && n.ref) li.append(button(n.kind === 'game_invite' ? `Open the match room with ${n.actor || 'your friend'}` : 'Enter the room', () => openRoom(n.ref), 'button button-hot'));
     if (n.actor && ['friend_request', 'friend_accepted'].includes(n.kind)) li.append(button(`Open ${n.actor}'s player card`, () => openCard(n.actor), 'text-button'));

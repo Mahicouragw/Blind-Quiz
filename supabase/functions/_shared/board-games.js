@@ -18,9 +18,9 @@ const assertTurn = (state, seat) => {
 };
 const die = (random = Math.random) => Math.min(6, Math.max(1, 1 + Math.floor(random() * 6)));
 
-export function createBoardState(kind, seatCount = 2, random = Math.random) {
+export function createBoardState(kind, seatCount = 2, random = Math.random, options = {}) {
   const count = Math.max(1, Math.min(kind === 'ludo' ? 4 : kind === 'snakes' ? 4 : 2, Number(seatCount) || 2));
-  const players = makePlayers(count);
+  const players = makePlayers(count).map(p => options.colors?.[p.seat] ? { ...p, color: options.colors[p.seat] } : p);
   if (kind === 'snakes') return { kind, players: players.map(p => ({ ...p, position: 0 })), turnSeat: 1, lastRoll: null, winner: null };
   if (kind === 'ludo') return { kind, players: players.map(p => ({ ...p, tokens: [-1, -1, -1, -1] })), turnSeat: 1, pendingRoll: null, winner: null };
   if (kind === 'carrom') {
@@ -39,14 +39,18 @@ export function createBoardState(kind, seatCount = 2, random = Math.random) {
     }
     return state;
   }
-  if (kind === 'chess') return {
-    kind,
-    board: [
-      ['r','n','b','q','k','b','n','r'], Array(8).fill('p'), Array(8).fill(''), Array(8).fill(''),
-      Array(8).fill(''), Array(8).fill(''), Array(8).fill('P'), ['R','N','B','Q','K','B','N','R'],
-    ],
-    players, turnSeat: 1, castling: { K: true, Q: true, k: true, q: true }, enPassant: null, winner: null, finished: false,
-  };
+  if (kind === 'chess') {
+    const colors = options.colors || {}, whiteSeat = Number(Object.keys(colors).find(seat => colors[seat] === 'white')) || 1;
+    const blackSeat = Number(Object.keys(colors).find(seat => colors[seat] === 'black')) || 2;
+    return {
+      kind,
+      board: [
+        ['r','n','b','q','k','b','n','r'], Array(8).fill('p'), Array(8).fill(''), Array(8).fill(''),
+        Array(8).fill(''), Array(8).fill(''), Array(8).fill('P'), ['R','N','B','Q','K','B','N','R'],
+      ],
+      players, turnSeat: whiteSeat, colorSeats: { white: whiteSeat, black: blackSeat }, castling: { K: true, Q: true, k: true, q: true }, enPassant: null, winner: null, finished: false,
+    };
+  }
   throw new Error('unsupported_game');
 }
 
@@ -195,7 +199,7 @@ function chessHasMove(state,white) {
   return false;
 }
 function moveChess(state, seat, action) {
-  const white=seat===1;
+  const white=Number(state.colorSeats?.white ?? 1)===Number(seat);
   if (Number(state.turnSeat)!==seat) throw new Error('not_your_turn');
   const from=action.from?.map(Number), to=action.to?.map(Number);
   const move=legalChessMoves(state,from).find(m=>m.to[0]===to?.[0]&&m.to[1]===to?.[1]);
