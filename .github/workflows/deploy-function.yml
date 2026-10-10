@@ -181,6 +181,7 @@ jobs:
       - name: Run live API verification
         env:
           BQ_VERIFY_ORIGIN: https://mahicouragw.github.io
+          BQ_EXPECT_AI_NAME: 'true'
           BQ_REPORT_FILE: ${{ runner.temp }}/live-api-summary.md
         run: |
           set -o pipefail

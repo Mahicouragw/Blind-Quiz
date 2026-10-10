@@ -184,6 +184,8 @@ for(const term of ['PBKDF2','310000','name_taken','loginId','bq_consume_attempt'
 assert(html.includes('id="signup-ai-status" role="status" aria-live="polite" hidden')&&html.includes('aria-describedby="signup-name-status"'),'signup name has an accessible AI suggestion status');
 assert(main.includes("callApi('suggest-name')")&&main.includes('AI-generated name suggested.')&&main.includes('offline suggestion'),'signup replaces its local fallback with AI and degrades gracefully');
 assert(fn.includes("body.action==='suggest-name'")&&fn.includes('geminiSignupName()'),'signup AI generation is routed through the Edge Function');
+const deployFunctionWorkflow=await readFile(new URL('../.github/workflows/deploy-function.yml',import.meta.url),'utf8'),liveApiTest=await readFile(new URL('../tests/live-api.mjs',import.meta.url),'utf8');
+assert(deployFunctionWorkflow.includes("BQ_EXPECT_AI_NAME: 'true'")&&liveApiTest.includes("process.env.BQ_EXPECT_AI_NAME === 'true'")&&liveApiTest.includes('aiSuggestionAwaitingDeploy'),'post-deployment AI verification is strict while read-only checks tolerate deploy races');
 assert.equal((fn.match(/^import \{ createClient \}/gm)||[]).length,1,'one Supabase client import');
 assert.equal((fn.match(/\bcreateClient\s*\(/g)||[]).length,1,'one admin client initialization');
 assert.equal((fn.match(/Deno\.serve\(handler\)/g)||[]).length,1,'one Edge Function entrypoint');

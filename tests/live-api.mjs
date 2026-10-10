@@ -145,8 +145,15 @@ const aiSuggestionValid = aiSuggestion.status === 200 && aiSuggestion.body?.ok =
   && typeof aiSuggestion.body.name === 'string' && AI_NAME_PATTERN.test(aiSuggestion.body.name);
 const aiSuggestionFallback = aiSuggestion.status === 503 && aiSuggestion.body?.code === 'ai_unavailable';
 const aiSuggestionLimited = aiSuggestion.status === 429 && aiSuggestion.body?.code === 'rate_limited';
-check('Signup AI suggestion is validated or safely unavailable/rate-limited',
-  aiSuggestionValid || aiSuggestionFallback || aiSuggestionLimited,
+// The read-only push workflow can race the separate Edge Function deploy. Only that workflow
+// may accept an old function that has not received this action yet; post-deploy verification is strict.
+const aiSuggestionRequired = process.env.BQ_EXPECT_AI_NAME === 'true';
+const aiSuggestionAwaitingDeploy = !aiSuggestionRequired
+  && aiSuggestion.status === 400 && aiSuggestion.body?.code === 'unknown_action';
+check(aiSuggestionRequired
+  ? 'Signup AI suggestion is validated or safely unavailable/rate-limited after deployment'
+  : 'Signup AI suggestion is validated, safely unavailable, or awaiting deployment',
+  aiSuggestionValid || aiSuggestionFallback || aiSuggestionLimited || aiSuggestionAwaitingDeploy,
   `status ${aiSuggestion.status}, code ${codeOf(aiSuggestion)}`);
 
 // --- 2. Signup with Name + Secret Question + Secret Answer. ------------------
