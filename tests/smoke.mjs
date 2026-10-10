@@ -181,8 +181,8 @@ assert(!/\b(create|alter|drop|truncate|delete|update|grant|revoke)\s/i.test(migr
 for(const q of QUESTION_BANK.slice(725)){assert.equal(new Set(q.answers).size,4,`${q.id} has 4 unique options`);assert(q.answers.includes(q.correctAnswer),`${q.id} includes its answer`);assert(/https:\/\//.test(q.sourceNote),`${q.id} has a source`)}
 const fn=await readFile(new URL('../supabase/functions/blind-quiz-api/index.ts',import.meta.url),'utf8');
 for(const term of ['PBKDF2','310000','name_taken','loginId','bq_consume_attempt','token_hash','record-answer'])assert(fn.includes(term),`server feature ${term}`);
-assert(html.includes('id="signup-ai-status" role="status" aria-live="polite" hidden')&&html.includes('aria-describedby="signup-name-status"'),'signup name has an accessible AI suggestion status');
-assert(main.includes("callApi('suggest-name')")&&main.includes('AI-generated name suggested.')&&main.includes('offline suggestion'),'signup replaces its local fallback with AI and degrades gracefully');
+assert(html.includes('id="signup-name-generate">Generate name</button>')&&!html.includes('id="signup-ai-status"')&&html.includes('aria-describedby="signup-name-status"'),'signup offers a simple Generate name button without provider status');
+assert(main.includes("callApi('suggest-name')")&&main.includes('async function generateSignupName()')&&main.includes('localSignupName()')&&!/AI name suggestions are unavailable|AI-generated name suggested|offline suggestion/.test(main),'signup silently generates names and keeps its local fallback');
 assert(fn.includes("body.action==='suggest-name'")&&fn.includes('geminiSignupName()'),'signup AI generation is routed through the Edge Function');
 const deployFunctionWorkflow=await readFile(new URL('../.github/workflows/deploy-function.yml',import.meta.url),'utf8'),liveApiTest=await readFile(new URL('../tests/live-api.mjs',import.meta.url),'utf8');
 assert(deployFunctionWorkflow.includes("BQ_EXPECT_AI_NAME: 'true'")&&liveApiTest.includes("process.env.BQ_EXPECT_AI_NAME === 'true'")&&liveApiTest.includes('aiSuggestionAwaitingDeploy'),'post-deployment AI verification is strict while read-only checks tolerate deploy races');
@@ -204,7 +204,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v24'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features and the offline Migration 025 modules');
+assert(sw.includes("const CACHE='blind-quiz-shell-v25'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features and the offline Migration 025 modules');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -527,6 +527,8 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/callApi\('notify-register'\)/.test(social) && /op: 'logout'/.test(social) && /op: 'disable'/.test(social) && /op: 'sounds'/.test(social), 'the app bridge enables, disables, signs out and opens phone sound settings');
   const news = JSON.parse(read('../news.json'));
   assert(typeof news.id === 'string' && news.id && /^\d{4}-\d{2}-\d{2}$/.test(news.date) && news.title && news.text && news.text.length <= 240, 'news.json drives the automatic update notification');
+  assert(news.text.includes('Generate a fresh name at signup')&&/host-led rooms/i.test(news.text)&&news.text.includes('spectators')&&news.text.includes('comments'),'update news highlights recent player-facing features');
+  assert(!/Gemini|AI|offline|API|secret|key/i.test(news.text),'update news contains no provider, outage, or credential details');
   assert(read('../scripts/build.mjs').includes("'news.json'"), 'news.json is published with the site');
   const kt = read('../android-app/native/NotifyWorker.kt');
   assert(kt.includes('notify-check') && kt.includes('news.json') && !/import [^\n]*firebase/i.test(kt) && !/firebase/i.test(read('../.github/workflows/build-android.yml').replace(/no Firebase/g, '')), 'the app checks without Firebase');

@@ -12,7 +12,7 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 - **Profile**: stats read as "Level, 1" or "Coins, 18". **Change** lets you edit your username, secret question and secret answer after confirming your current answer. Your User ID never changes. Username changes have a server-side cooldown of 7, 14, 30, then 60 days, and usernames are unique regardless of capital letters.
 - **TalkBack**: after each answer, focus moves to the result (correct or incorrect, the correct answer, XP, coins, streak) and then to Next question. Hidden screens are inert, and the header is not a live region.
 - Essential content is text. Recorded, royalty-free sound effects (bell for correct, buzzer for wrong, watch ticks and a referee whistle for the countdown, school bell when time runs out, applause and cheering at the end) and background music (Bach, Joplin, Grieg and Mozart recordings, a different track per screen and category group) are bundled from Wikimedia Commons under CC0 / Public domain. See `AUDIO_LICENSES.md`. Nothing is synthesised, and sound effects, music and music volume can be changed in Settings.
-- Custom account fields remain Name + Secret Question + Secret Answer for signup, and Name + Login ID + Secret Answer for login. Signup pre-fills a Gemini-generated, family-friendly two-word nickname; the regenerate button can request another. Only a fixed prompt is sent to Gemini, and a local name is used if the AI service is unavailable.
+- Custom account fields remain Name + Secret Question + Secret Answer for signup, and Name + Login ID + Secret Answer for login. Signup fills in a suggested player name; **Generate name** gives another option, and players can always type their own.
 
 ## Run and validate
 
