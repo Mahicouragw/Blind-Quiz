@@ -18,8 +18,11 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pendingMedia: MethodChannel.Result? = null
     private var pendingNotify: MethodChannel.Result? = null
+    private var notifyChannel: MethodChannel? = null
+    private var pendingNotificationClick: Map<String, Any?>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pendingNotificationClick = BQNotify.clickPayload(intent)
         super.onCreate(savedInstanceState)
         // Notifications are optional. A scheduler or permission error must not crash the quiz UI.
         try {
@@ -33,6 +36,15 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Optional notification startup failed; continuing without notifications", e)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val payload = BQNotify.clickPayload(intent) ?: return
+        pendingNotificationClick = payload
+        // Dart drains the queued payload so warm and cold launches use the same route path.
+        notifyChannel?.invokeMethod("notificationClick", null)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -52,8 +64,15 @@ class MainActivity : FlutterActivity() {
                 else -> { pendingMedia = result; requestPermissions(missing.toTypedArray(), MEDIA) }
             }
         }
-        MethodChannel(messenger, "blind_quiz/notify").setMethodCallHandler { call, result ->
+        val notifications = MethodChannel(messenger, "blind_quiz/notify")
+        notifyChannel = notifications
+        notifications.setMethodCallHandler { call, result ->
             when (call.method) {
+                "consumeLaunchNotification" -> {
+                    val payload = pendingNotificationClick
+                    pendingNotificationClick = null
+                    result.success(payload)
+                }
                 "enable" -> {
                     try {
                         BQNotify.enable(this, (call.arguments as? String) ?: "")

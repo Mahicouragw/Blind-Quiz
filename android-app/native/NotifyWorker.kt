@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit
 object BQNotify {
     private const val API = "https://zchircgdkyjnowqcdwvf.supabase.co/functions/v1/blind-quiz-api"
     private const val KEY = "sb_publishable_raQlRdkDriEGoGj0iZ3ZhQ_e6CofOfM"
+    const val EXTRA_OPEN_TARGET = "io.github.mahicouragw.blind_quiz.notification.target"
+    const val EXTRA_NOTIFICATION_ID = "io.github.mahicouragw.blind_quiz.notification.id"
     const val NEWS = "https://mahicouragw.github.io/Blind-Quiz/news.json"
     const val PREFS = "bq_notify"
 
@@ -112,11 +114,30 @@ object BQNotify {
     fun canNotify(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < 33 || ctx.checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED
 
+    fun clickPayload(intent: Intent?): Map<String, Any?>? {
+        val target = intent?.getStringExtra(EXTRA_OPEN_TARGET) ?: return null
+        return when (target) {
+            "notification" -> {
+                val id = intent.getLongExtra(EXTRA_NOTIFICATION_ID, -1L)
+                if (id <= 0L) null else mapOf("target" to target, "id" to id.toString())
+            }
+            "home" -> mapOf("target" to target)
+            else -> null
+        }
+    }
+
     @SuppressLint("MissingPermission")
-    fun show(ctx: Context, channel: String, id: Int, title: String, text: String) {
+    fun show(ctx: Context, channel: String, id: Int, title: String, text: String, target: String = "home", notificationId: Long? = null) {
         if (!canNotify(ctx)) return
-        val intent = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val open = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val safeTarget = if (target == "notification" && notificationId != null && notificationId > 0L) "notification" else "home"
+        val clickKey = notificationId?.takeIf { safeTarget == "notification" }?.toString() ?: "home.$id"
+        val intent = Intent(ctx, MainActivity::class.java)
+            .setAction("${ctx.packageName}.OPEN_NOTIFICATION.$clickKey")
+            .putExtra(EXTRA_OPEN_TARGET, safeTarget)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (safeTarget == "notification" && notificationId != null) intent.putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        // A distinct PendingIntent per notification preserves the tapped item's own route.
+        val open = PendingIntent.getActivity(ctx, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(ctx.applicationInfo.icon)
             .setContentTitle(title)
@@ -170,7 +191,8 @@ class NotifyWorker(context: Context, params: WorkerParameters) : Worker(context,
             "announcement" -> Triple("bq_announcements", "Blind Quiz", body.ifEmpty { "New announcement." })
             else -> return
         }
-        BQNotify.show(ctx, channel, 1000 + (n.optLong("id") % 1000000L).toInt(), title, text)
+        val notificationId = n.optLong("id")
+        BQNotify.show(ctx, channel, 1000 + (notificationId % 1000000L).toInt(), title, text, "notification", notificationId)
     }
 
     // Public feature news is checked even after account sign-out; a disconnected phone retries once online.

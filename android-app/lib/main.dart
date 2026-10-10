@@ -31,6 +31,38 @@ const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
 
+/// Largest integer JavaScript can compare exactly; notification IDs are opened by the web app.
+const int kMaxSafeNotificationId = 9007199254740991;
+
+/// Validates the small, native-only route payload before it reaches the WebView.
+Map<String, dynamic>? normalizeNotificationRoute(Object? payload) {
+  if (payload is! Map<dynamic, dynamic>) return null;
+  final target = (payload['target'] ?? '').toString();
+  if (target == 'home') return <String, dynamic>{'target': 'home'};
+  if (target != 'notification') return null;
+  final id = int.tryParse((payload['id'] ?? '').toString());
+  if (id == null || id <= 0 || id > kMaxSafeNotificationId) return null;
+  return <String, dynamic>{'target': 'notification', 'id': id.toString()};
+}
+
+/// JavaScript entry point readiness check for a normalized notification route.
+String? notificationRouteAvailabilityCheck(Object? payload) {
+  final route = normalizeNotificationRoute(payload);
+  if (route == null) return null;
+  return route['target'] == 'notification'
+      ? 'typeof globalThis.bqOpenNotificationById === "function"'
+      : 'typeof globalThis.bqOpenHomeFromNotification === "function"';
+}
+
+/// JavaScript invocation for a normalized notification route; JSON encoding prevents injection.
+String? notificationRouteOpenScript(Object? payload) {
+  final route = normalizeNotificationRoute(payload);
+  if (route == null) return null;
+  return route['target'] == 'notification'
+      ? 'globalThis.bqOpenNotificationById(${jsonEncode(route['id'])});'
+      : 'globalThis.bqOpenHomeFromNotification();';
+}
+
 /// The developer's contact address: the only mailto: link the app opens (in the user's email app).
 const String kContactEmail = 'numbersareplaying@gmail.com';
 
@@ -117,11 +149,15 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
   bool _reloading = false;
   final Map<String, _Incoming> _incoming = <String, _Incoming>{};
   final Map<String, Timer> _receivedTimers = <String, Timer>{};
+  Map<String, dynamic>? _pendingNotificationRoute;
+  bool _webViewReady = false;
+  bool _openingNotificationRoute = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    kNotify.setMethodCallHandler(_onNativeNotificationCall);
     // Calls and voice messages: the page asks for the microphone (and camera for video calls); Android asks the player.
     _controller = WebViewController(onPermissionRequest: _onPermissionRequest)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -133,9 +169,12 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
             if (mounted) setState(() => _progress = p);
           },
           onPageStarted: (_) {
+            _webViewReady = false;
             if (mounted) setState(() => _failed = false);
           },
           onPageFinished: (_) {
+            _webViewReady = true;
+            unawaited(_openPendingNotificationRoute());
             if (!mounted || !_reloading || _failed) return;
             _reloading = false;
             _say('Blind Quiz reloaded.');
@@ -143,6 +182,7 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
           onWebResourceError: (error) {
             // Only a failed main page counts; a missing image should not hide the game.
             if (!(error.isForMainFrame ?? true) || !mounted) return;
+            _webViewReady = false;
             setState(() => _failed = true);
             if (_reloading) {
               _reloading = false;
@@ -170,11 +210,53 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     _controller.addJavaScriptChannel('BQNotify', onMessageReceived: (m) => _onNotifyMessage(m.message));
     _cleanReceived();
     _controller.loadRequest(Uri.parse(kLiveUrl));
+    unawaited(_consumeNativeNotificationClick());
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _cleanReceived();
+    if (state == AppLifecycleState.resumed) {
+      _cleanReceived();
+      unawaited(_consumeNativeNotificationClick());
+    }
+  }
+
+  Future<void> _onNativeNotificationCall(MethodCall call) async {
+    if (call.method == 'notificationClick') await _consumeNativeNotificationClick();
+  }
+
+  Future<void> _consumeNativeNotificationClick() async {
+    try {
+      final payload = await kNotify.invokeMapMethod<String, dynamic>('consumeLaunchNotification');
+      if (payload != null) _queueNotificationRoute(payload);
+    } catch (_) {}
+  }
+
+  void _queueNotificationRoute(Map<String, dynamic> payload) {
+    final route = normalizeNotificationRoute(payload);
+    if (route == null) return;
+    _pendingNotificationRoute = route;
+    if (_webViewReady) unawaited(_openPendingNotificationRoute());
+  }
+
+  Future<void> _openPendingNotificationRoute() async {
+    final route = _pendingNotificationRoute;
+    if (!mounted || !_webViewReady || route == null || _openingNotificationRoute) return;
+    final availabilityCheck = notificationRouteAvailabilityCheck(route);
+    final openScript = notificationRouteOpenScript(route);
+    if (availabilityCheck == null || openScript == null) return;
+    _openingNotificationRoute = true;
+    try {
+      final available = await _controller.runJavaScriptReturningResult(availabilityCheck);
+      if (available.toString() != 'true') return;
+      if (identical(_pendingNotificationRoute, route)) _pendingNotificationRoute = null;
+      await _controller.runJavaScript(openScript);
+    } catch (_) {
+      // Keep the route queued so the next successful page load can try again.
+      _pendingNotificationRoute ??= route;
+    } finally {
+      _openingNotificationRoute = false;
+    }
   }
 
   @override

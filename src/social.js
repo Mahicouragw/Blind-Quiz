@@ -40,7 +40,7 @@ export function notificationText(n) {
 
 export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {}, openRoom = () => {}, loadRooms = () => {}, onRing = () => {} }) {
   const bell = $('#notif-open');
-  let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online';
+  let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online', pendingNotificationId = null;
   const signedIn = () => !!getSession()?.profile;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (text, onClick, cls = 'button button-quiet') => { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
@@ -90,8 +90,18 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     } catch {}
   }
   function schedule() { clearTimeout(timer); if (!signedIn()) return; timer = setTimeout(async () => { await touch(); schedule(); }, document.hidden ? HIDDEN_HEARTBEAT_MS : HEARTBEAT_MS); }
-  function start() { lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); appNotify(); }
-  function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
+  function start() {
+    lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); appNotify();
+    if (pendingNotificationId !== null && signedIn()) {
+      const id = pendingNotificationId; pendingNotificationId = null;
+      setTimeout(() => openNotification(id), 0);
+    }
+  }
+  function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); }
+  // Only an explicit player sign-out removes the Android background-notification key.
+  // The page also calls stop() during its initial signed-out render, which must not cancel
+  // a key persisted by the native app while the WebView process was closed.
+  function stopAppNotifications() { appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
 
   // ---- Android app: notifications while Blind Quiz is closed (checked about every 15 minutes, no Firebase) ----
   const appWanted = () => { try { return localStorage.getItem(APP_NOTIFY_KEY) !== 'off'; } catch { return true; } };
@@ -120,6 +130,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   }
   function renderNotification(n) {
     const li = el('li', `notif-item${n.read ? '' : ' unread'}`);
+    li.dataset.notificationId = String(n.id ?? ''); li.tabIndex = -1;
     li.append(el('p', 'notif-text', notificationText(n)), el('p', 'inbox-meta', `${fmt(n.createdAt)}${n.read ? '' : ' · New'}`));
     if (n.kind === 'friend_request' && n.relation === 'incoming' && n.actor) {
       const row = el('div', 'notif-actions');
@@ -127,6 +138,9 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       li.append(row);
     } else if (n.kind === 'friend_request' && n.relation === 'friends') li.append(el('p', 'muted', 'Accepted.'));
     if (n.kind === 'message' && n.actor) li.append(button(`Open chat with ${n.actor}`, () => openChat(n.actor), 'button button-outline'));
+    if (n.kind === 'feedback_reply') li.append(button('Open My feedback', () => {
+      go('settings', { focus: '#my-feedback-title' });
+    }, 'button button-outline'));
     if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('host-request|')) {
       const [,roomId]=String(n.body).split('|');li.append(button(`Open the room game hosted by ${n.actor||'a player'}`,()=>openRoom(roomId,n.ref),'button button-hot'));
     } else if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('game-invite|')) {
@@ -135,7 +149,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     if (n.actor && ['friend_request', 'friend_accepted'].includes(n.kind)) li.append(button(`Open ${n.actor}'s player card`, () => openCard(n.actor), 'text-button'));
     return li;
   }
-  async function loadNotifications() {
+  async function loadNotifications(focusId = null) {
     summary.textContent = 'Loading notifications…'; list.innerHTML = '';
     try {
       const d = await callApi('notifications'); const items = d.items || [];
@@ -144,6 +158,18 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       summary.textContent = items.length ? `${items.length} notification${items.length === 1 ? '' : 's'}, ${fresh} new.` : 'No notifications yet.';
       announce(summary.textContent);
       if (fresh) { const r = await callApi('notifications-read', { ids: null }); unread = r.unread || 0; lastUnread = unread; renderBell(); }
+      if (focusId != null) {
+        const item = [...list.querySelectorAll('.notif-item')].find(row => row.dataset.notificationId === String(focusId));
+        if (item) {
+          item.scrollIntoView?.({ block: 'center' });
+          const text = item.querySelector('.notif-text')?.textContent || 'New notification.';
+          // Let go() finish its normal heading focus first, then leave focus on the tapped item.
+          setTimeout(() => {
+            if (!item.isConnected || $('#view-notifications').hidden) return;
+            item.focus(); announce(`Opened notification: ${text}`);
+          }, 80);
+        } else announce('That notification is no longer in your recent list.', true);
+      }
     } catch (err) { say(summary, errorText(err.message), true); }
   }
   async function respond(name, accept, row) {
@@ -159,6 +185,12 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     } catch (err) { row?.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
   }
   function openNotifications() { if (!signedIn()) { openSignIn(); return; } go('notifications'); loadNotifications(); }
+  function openNotification(id) {
+    const n = Number(id);
+    if (!Number.isSafeInteger(n) || n <= 0) return;
+    if (!signedIn()) { pendingNotificationId = n; openSignIn(); return; }
+    go('notifications'); loadNotifications(n);
+  }
 
   // ---- Multiplayer: online players and friends -------------------------------------------------
   function playerItem(p, extra = []) {
@@ -323,5 +355,5 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   $('#mp-rooms-refresh')?.addEventListener('click', () => loadRooms());
   $('#mp-find-form')?.addEventListener('submit', e => { e.preventDefault(); const n = $('#mp-find-name').value.trim(); if (n.length < 2) { announce('Type a player name first.', true); return; } openCard(n); });
 
-  return { start, stop, touch, openNotifications, openMultiplayer, openCard, refreshSettings, loadNotifications };
+  return { start, stop, stopAppNotifications, touch, openNotifications, openNotification, openMultiplayer, openCard, refreshSettings, loadNotifications };
 }

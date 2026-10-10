@@ -9,13 +9,16 @@ const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const html=readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'');
 let n=0;
 const WINDOWS=[]; // src/audio.js is loaded once, so its cached audio elements may belong to an earlier window
-async function boot({session,fetchImpl,local}){
+async function boot({session,fetchImpl,local,nativeBridge}){
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
   const w=dom.window;WINDOWS.push(w);
   for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement','Event'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
+  Object.defineProperty(globalThis,'BQNotify',{value:nativeBridge,configurable:true,writable:true});
+  const backend=await import(ROOT+'src/backend.js');backend.setSession(null);
   // jsdom does not implement media playback; native controls are represented by HTMLAudioElements in tests.
   w.HTMLMediaElement.prototype.play=()=>Promise.resolve();w.HTMLMediaElement.prototype.pause=()=>{};w.HTMLMediaElement.prototype.load=()=>{};
+  w.sessionStorage.clear();
   for(const [k,v] of Object.entries(local||{}))w.localStorage.setItem(k,JSON.stringify(v));
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
   // Presence heartbeats (Task 19 'touch') are recorded separately so older tests keep checking their own calls.
@@ -823,6 +826,52 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5)); d.querySelector('#chat-voice-cancel').click();
   assert.equal(recordings.length, 2, 'cancelling a recording never sends it');
   chat.stop(); dom.window.close(); console.log('ok private chat voice recordings stop at 60 seconds, require Send, support discard/cancel, bake the selected effect into the microphone stream and preview with speed-only controls');
+}
+// Android notification lifecycle: initial signed-out rendering must not erase the native token;
+// explicit logout still does, and tapping a notification opens/focuses its inbox item.
+{
+  const initialMessages=[];
+  await boot({fetchImpl:()=>{throw new Error('no request expected')},nativeBridge:{postMessage:raw=>initialMessages.push(JSON.parse(raw))}});
+  assert.deepEqual(initialMessages,[],'the initial signed-out render does not send a native logout');
+
+  const nativeMessages=[];
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},nativeBridge:{postMessage:raw=>nativeMessages.push(JSON.parse(raw))},fetchImpl:(u,init)=>{
+    const action=JSON.parse(init.body).action;
+    if(action==='notify-register')return json(200,{ok:true,token:'n'.repeat(43)});
+    if(action==='logout')return json(200,{ok:true});
+    if(action==='profile')return json(200,{ok:true,profile});
+    return json(200,{ok:true,unread:0});
+  }});
+  await new Promise(r=>setTimeout(r,80));
+  assert(nativeMessages.some(m=>m.op==='enable'),'a signed-in player registers Android background notifications');
+  t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,60));
+  assert.equal(nativeMessages.filter(m=>m.op==='logout').length,1,'explicit logout removes the native account-notification token exactly once');
+
+  const item={id:42,kind:'message',actor:'Bob',body:'',createdAt:new Date().toISOString(),read:true};
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(u,init)=>{
+    const action=JSON.parse(init.body).action;
+    if(action==='notifications')return json(200,{ok:true,items:[item]});
+    return json(200,{ok:true,unread:0,profile});
+  }});
+  globalThis.bqOpenNotificationById('42');await new Promise(r=>setTimeout(r,100));
+  const row=t.d.querySelector('#notif-list [data-notification-id="42"]');
+  assert(row,'the notification click opens the inbox and loads its target item');
+  assert.equal(t.d.querySelector('#view-notifications').hidden,false);
+  assert.equal(t.d.activeElement,row,'the target notification receives focus for keyboard and screen-reader users');
+
+  t=await boot({fetchImpl:(u,init)=>{
+    const action=JSON.parse(init.body).action;
+    if(action==='login')return json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:future,profile});
+    if(action==='notifications')return json(200,{ok:true,items:[item]});
+    return json(200,{ok:true,unread:0,profile});
+  }});
+  globalThis.bqOpenNotificationById('42');assert.equal(t.d.querySelector('#view-auth').hidden,false,'a signed-out tap asks the player to sign in');
+  t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCD2345';t.d.querySelector('#login-answer').value='blue';
+  t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,220));
+  const afterLogin=t.d.querySelector('#notif-list [data-notification-id="42"]');
+  assert(afterLogin&&t.d.querySelector('#view-notifications').hidden===false,'the queued notification opens after sign-in');
+  assert.equal(t.d.activeElement,afterLogin,'the queued target receives focus after sign-in');
+  console.log('ok Android notification lifecycle preserves registration while signed out, unregisters only on explicit logout, and routes/focuses a tapped inbox item before or after sign-in');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);
