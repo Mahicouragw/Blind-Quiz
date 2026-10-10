@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "meanings": "npm i --no-save --no-package-lock wordnet-db@3.1.14 && node scripts/build-meanings.mjs",
-    "test": "node --no-warnings tests/smoke.mjs && node --no-warnings tests/audio-playlist.mjs && node --no-warnings scripts/check-function-source.mjs",
+    "test": "node --no-warnings tests/smoke.mjs && node --no-warnings tests/audio-playlist.mjs && node --no-warnings tests/voice-dsp.mjs && node --no-warnings scripts/check-function-source.mjs",
     "test:a11y": "node --no-warnings tests/smoke.mjs",
     "test:function": "node --no-warnings scripts/check-function-source.mjs",
     "test:ui": "node --no-warnings tests/ui-session.mjs",

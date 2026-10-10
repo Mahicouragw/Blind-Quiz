@@ -3,16 +3,16 @@
 // The production incident was a concatenated/duplicated deployment:
 //   Uncaught SyntaxError: Identifier 'createClient' has already been declared
 //   at index.ts:680:10
-// while the repository source is a single ~87-line module. This script fails
-// loudly if the file ever stops being exactly one self-consistent module, so a
-// broken bundle can never be uploaded again.
+// while the repository source is a single self-consistent module. This script
+// fails loudly if the file ever stops being one module, so a broken bundle can
+// never be uploaded again.
 //
 // It is deliberately dependency-free (no TypeScript install needed).
 
 import { readFile } from 'node:fs/promises';
 
 const TARGET = new URL('../supabase/functions/blind-quiz-api/index.ts', import.meta.url);
-const MAX_LINES = 200; // the reviewed module is ~87 lines; duplication shows up immediately
+const MAX_LINES = 320; // leave room for reviewed server-owned game actions while catching accidental concatenation
 
 const problems = [];
 const assert = (ok, message) => { if (!ok) problems.push(message); };
@@ -24,7 +24,7 @@ const lines = source.split('\n');
 assert(lines.length <= MAX_LINES, `index.ts is ${lines.length} lines, expected at most ${MAX_LINES} (source looks concatenated)`);
 
 const imports = source.match(/^\s*import\s.+$/gm) ?? [];
-assert(imports.length === 1, `expected exactly 1 import statement, found ${imports.length}`);
+assert(imports.length === 2, `expected exactly 2 import statements (Supabase client and trusted board rules), found ${imports.length}`);
 assert((source.match(/^\s*import\s*\{\s*createClient\s*\}/gm) ?? []).length === 1,
   'createClient must be imported exactly once');
 assert((source.match(/\bcreateClient\s*\(/g) ?? []).length === 1,
@@ -89,6 +89,13 @@ const required = [
   ['generic signup rejection', /code:'name_taken'/],
   ['generic login rejection', /code:'invalid_credentials'/],
   ['rate limited response', /code:'rate_limited'/],
+  ['server-only Gemini API key', /Deno\.env\.get\('GEMINI_API_KEY'\)/],
+  ['Gemini API key sent only in its header', /'x-goog-api-key':key/],
+  ['rate-limited signup name generation', /permit\(req,'signup-name-ai','',12,3600\)/],
+  ['graceful AI suggestion fallback response', /code:'ai_unavailable'/],
+  ['server-authoritative board moves', /reduceBoardGame\(match\.kind,match\.state,Number\(player\.seat\),action\)/],
+  ['server-created board setup', /initialState=createBoardState\(match\.kind,Number\(match\.max_players\)/],
+  ['stale board state rejected', /expectedState:match\.state/],
 ];
 for (const [label, pattern] of required) assert(pattern.test(source), `missing security behaviour: ${label}`);
 
@@ -140,5 +147,5 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(`PASS: blind-quiz-api source is one clean ${lines.length - 1}-line module `
-  + `(${imports.length} import, 1 createClient, 1 admin client, 1 Deno.serve), `
+  + `(${imports.length} imports, 1 createClient, 1 admin client, 1 Deno.serve), `
   + 'no duplicate declarations, security and logging invariants intact.');

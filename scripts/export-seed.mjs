@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { QUESTION_BANK, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, validateQuestionBank } from '../src/content.js';
+import { QUESTION_BANK, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, MIGRATION_025_COUNT, validateQuestionBank } from '../src/content.js';
 
 const errors=validateQuestionBank();
 if(errors.length)throw new Error(errors.join('\n'));
@@ -36,3 +36,17 @@ const function016=readFileSync(new URL('./migration-016-function.sql',import.met
 await writeFile(new URL('../supabase/migrations/202610060016_questions_and_word_reward.sql',import.meta.url),`-- Migration 016: add ${added016.length} reviewed questions (${added016[0]?.id} to ${added016.at(-1)?.id}), 10 in each of the 25 categories,\n-- and change the Letters to Words reward to 5 XP + 1 coin the first time a player finds a word (repeats pay nothing).\n-- Additive questions plus one create-or-replace of bq_record_word; approved by the owner on 6 Oct 2026.\n-- Requires migrations 001-015, which are already applied and must not be rerun.\n-- Applied only by .github/workflows/apply-migration-016.yml through the Supabase Management API query endpoint.\nbegin;\n${migration016}\n${function016}commit;\n`);
 console.log(`Migration 016: ${added016.length} questions and the word reward function.`);
 console.log(`Wrote ${QUESTION_BANK.length} validated seed questions, Migration 009 with ${added.length} rows (unchanged), Migration 010 with ${added010.length} rows (unchanged), Migration 011 with ${added011.length} rows (unchanged), and Migration 015 with ${added015.length} new rows.`);
+
+// Migration 025 preserves all PR #5 rows and adds PR #6's 500 new questions after ID 1416.
+// It is prepared only; never rewrite or reapply PR #5's already-published migrations.
+if (MIGRATION_025_COUNT !== 500) throw new Error(`Migration 025 must contain 500 rows; found ${MIGRATION_025_COUNT}`);
+const start025 = QUESTION_BANK.length - MIGRATION_025_COUNT;
+const added025 = QUESTION_BANK.slice(start025);
+const migration025 = added025.map(q => insert(q) + ' on conflict (id) do nothing;').join('\n');
+const categoryCounts025 = new Map();
+for (const question of added025) categoryCounts025.set(question.category, (categoryCounts025.get(question.category) || 0) + 1);
+if (categoryCounts025.size !== 25 || [...categoryCounts025.values()].some(count => count !== 20)) {
+  throw new Error('Migration 025 must add exactly 20 questions in each of the 25 categories');
+}
+await writeFile(new URL('../supabase/migrations/202610080025_expand_question_bank.sql', import.meta.url), `-- Migration 025: add 500 reviewed questions, exactly 20 in each of the 25 categories.\n-- IDs bq-en-1417 through bq-en-1916. Prepared 2026-10-08; not applied remotely.\n-- Additive only; preserves all PR #5 migrations 009-024.\nbegin;\n${migration025}\ncommit;\n`);
+console.log(`Prepared Migration 025 with ${added025.length} questions (20 in each of 25 categories); it has not been applied.`);

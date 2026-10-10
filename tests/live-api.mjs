@@ -25,6 +25,7 @@ const API = `${(process.env.SUPABASE_URL || SUPABASE_URL).replace(/\/$/, '')}/fu
 const APIKEY = process.env.SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
 const ORIGIN = process.env.BQ_VERIFY_ORIGIN || 'https://mahicouragw.github.io';
 const LOGIN_ID_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/; // 8 chars from the server alphabet (no I, O, 0, 1)
+const AI_NAME_PATTERN = /^\p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \d{2}$/u;
 const TIMEOUT_MS = 30_000;
 
 // Values that must never appear in anything this script prints.
@@ -137,6 +138,23 @@ if (boot.status === 546 || boot.status === 503 || boot.status === 0) {
 }
 if (boot.body === null) fail('Function returns JSON', `non-JSON response ${sanitize(boot.text)}`);
 check('Function boots without BOOT_ERROR', true, `status ${boot.status}, code ${codeOf(boot)}`);
+
+// --- 1a. Gemini name suggestions: validate the output, or accept safe fail-closed modes. ---
+const aiSuggestion = await post({ action: 'suggest-name' });
+const aiSuggestionValid = aiSuggestion.status === 200 && aiSuggestion.body?.ok === true
+  && typeof aiSuggestion.body.name === 'string' && AI_NAME_PATTERN.test(aiSuggestion.body.name);
+const aiSuggestionFallback = aiSuggestion.status === 503 && aiSuggestion.body?.code === 'ai_unavailable';
+const aiSuggestionLimited = aiSuggestion.status === 429 && aiSuggestion.body?.code === 'rate_limited';
+// The read-only push workflow can race the separate Edge Function deploy. Only that workflow
+// may accept an old function that has not received this action yet; post-deploy verification is strict.
+const aiSuggestionRequired = process.env.BQ_EXPECT_AI_NAME === 'true';
+const aiSuggestionAwaitingDeploy = !aiSuggestionRequired
+  && aiSuggestion.status === 400 && aiSuggestion.body?.code === 'unknown_action';
+check(aiSuggestionRequired
+  ? 'Signup AI suggestion is validated or safely unavailable/rate-limited after deployment'
+  : 'Signup AI suggestion is validated, safely unavailable, or awaiting deployment',
+  aiSuggestionValid || aiSuggestionFallback || aiSuggestionLimited || aiSuggestionAwaitingDeploy,
+  `status ${aiSuggestion.status}, code ${codeOf(aiSuggestion)}`);
 
 // --- 2. Signup with Name + Secret Question + Secret Answer. ------------------
 const signup = await post({ action: 'signup', name: NAME, question: QUESTION, answer: ANSWER });
@@ -353,9 +371,13 @@ const rList = await post({ action: 'rooms' }, { token: wtok });
 const pubRoom = (rList.body?.items || []).find(r => r.name === 'Blind Quiz' && r.isDefault);
 check('Rooms: three default public rooms with game and user counts', (rList.body?.items || []).filter(r => r.isDefault).length === 3 && !!pubRoom && typeof pubRoom.games === 'number' && typeof pubRoom.users === 'number', `${codeOf(rList)}, ${(rList.body?.items || []).length} rooms`);
 const rState = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: wtok });
-const rSay = await post({ action: 'room-say', roomId: pubRoom?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
-const rSeen = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: otok });
-check('Rooms: entering shows the people there and room chat reaches others', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text), `${codeOf(rState)}/${codeOf(rSay)}/${codeOf(rSeen)}`);
+// Exercise public chat in a disposable room so live checks never leave test messages in a default room.
+const rTestRoom = await post({ action: 'room-create', name: `Live check ${tokenish()}`, isPublic: true }, { token: wtok });
+const rTestState = await post({ action: 'room-state', roomId: rTestRoom.body?.id, afterId: null }, { token: wtok });
+const rSay = await post({ action: 'room-say', roomId: rTestRoom.body?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
+const rSeen = await post({ action: 'room-state', roomId: rTestRoom.body?.id, afterId: null }, { token: otok });
+const rTestRemoved = await post({ action: 'room-remove', roomId: rTestRoom.body?.id }, { token: wtok });
+check('Rooms: public chat reaches another player and its temporary test room is removed', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rTestState.body?.ok === true && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text) && rTestRemoved.body?.ok === true, `${codeOf(rState)}/${codeOf(rTestState)}/${codeOf(rSay)}/${codeOf(rSeen)}/${codeOf(rTestRemoved)}`);
 const rPriv = await post({ action: 'room-create', name: `Live ${tokenish()}`, isPublic: false }, { token: wtok });
 const rClosed = await post({ action: 'room-state', roomId: rPriv.body?.id, afterId: null }, { token: otok });
 const rInvite = await post({ action: 'room-invite', roomId: rPriv.body?.id, name: OTHER_NAME }, { token: wtok });
@@ -380,7 +402,7 @@ const vGet = await post({ action: 'room-voice', id: vSend.body?.id }, { token: o
 const vBad = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: 'data:text/html;base64,PHNjcmlwdD4=', durationMs: 2500 }, { token: wtok });
 check('Room voice messages: others in the room can play them; only audio is accepted', vSend.body?.ok === true && (vState.body?.voices || []).some(v => v.id === vSend.body.id && v.name === NEW_NAME) && !vState.text.includes('base64') && vGet.body?.audio === VOICE && vBad.status === 400, `${codeOf(vSend)}/${codeOf(vState)}/${codeOf(vGet)}/${codeOf(vBad)} listed=${(vState.body?.voices || []).some(v => v.id === vSend.body?.id)} named=${(vState.body?.voices || []).some(v => v.name === NEW_NAME)} hidden=${!vState.text.includes('base64')} same=${vGet.body?.audio === VOICE} len=${String(vGet.body?.audio || '').length}/${VOICE.length} bad=${vBad.status}`);
 const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
-const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
+const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'not-a-game', title: 'Nope', config: {} }, { token: wtok });
 check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
 const SESSION = randomUUID();
 const ringText = JSON.stringify({ t: 'file-offer', name: 'notes.pdf', size: 7000000 });

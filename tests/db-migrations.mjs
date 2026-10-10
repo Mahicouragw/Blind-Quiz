@@ -3,15 +3,23 @@
 //   npm i --no-save @electric-sql/pglite@0.2 && node tests/db-migrations.mjs
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
+import { reduceBoardGame } from '../src/board-games.js';
 const db = new PGlite();
 // Roles and schema that exist on Supabase. pgcrypto is not bundled with PGlite; gen_random_uuid() is built in.
 await db.exec(`create role anon; create role authenticated; create role service_role; create role supabase_admin; create schema if not exists extensions;`);
 const dir = new URL('../supabase/migrations/', import.meta.url);
+let legacyQuizId=null,legacyProfileId=null;
 for (const f of readdirSync(dir).sort()) {
-  try { await db.exec(readFileSync(new URL(f, dir), 'utf8').replace('create extension if not exists pgcrypto with schema extensions;', '')); console.log('PASS migration', f); }
-  catch (e) { console.log('::error::Migration', f, 'failed:', e.message); process.exit(1); }
+  try {
+    if(f==='202610090026_multiplayer_room_games.sql'){
+      const profile=(await db.query(`insert into bq_profiles(display_name,name_normalized,login_id,secret_question,answer_salt,answer_hash) values ('Legacy Player','legacy player','OLD12345','q','s','h') returning id`)).rows[0];legacyProfileId=profile.id;
+      legacyQuizId=(await db.query(`insert into bq_room_games(room_id,host_id,kind,title) values ('b1a1d000-0000-4000-8000-000000000001',$1,'quiz','Old unsynchronized quiz') returning id`,[profile.id])).rows[0].id;
+    }
+    await db.exec(readFileSync(new URL(f, dir), 'utf8').replace('create extension if not exists pgcrypto with schema extensions;', '')); console.log('PASS migration', f);
+  }catch (e) { console.log('::error::Migration', f, 'failed:', e.message); process.exit(1); }
 }
 const q = async (s, p) => (await db.query(s, p)).rows;
+if(legacyQuizId){const legacy=(await q(`select status,phase from bq_room_games where id=$1`,[legacyQuizId]))[0];if(legacy.status!=='finished'||legacy.phase!=='finished')throw new Error('Migration 026 left an unsynchronized legacy quiz active');console.log('PASS migration 026 closes legacy quizzes with no shared question state');await q(`delete from bq_profiles where id=$1`,[legacyProfileId]);}
 const mk = async n => (await q(`insert into bq_profiles(display_name,name_normalized,login_id,secret_question,answer_salt,answer_hash) values ($1,lower($1),upper(substr(md5($1),1,8)),'q','s','h') returning id`, [n]))[0].id;
 let failed = 0;
 const ok = (c, m) => { if (!c) { failed++; console.log('::error::FAIL', m); } else console.log('ok', m); };
@@ -82,16 +90,167 @@ if (await j(`select to_regclass('public.bq_rooms') is not null`)) {
   ok((await j(`select bq_room_invite($1,$2,'dave')`, [a, priv])).code === 'not_friends', 'invites only for friends');
   ok((await j(`select bq_room_invite($1,$2,'bob')`, [a, priv])).ok && (await j(`select bq_room_state($1,$2,null)`, [b, priv])).ok, 'invited friend can enter');
   ok((await j(`select bq_notifications_list($1)`, [b])).some(n => n.kind === 'room_invite' && n.ref === priv), 'room invite notification');
-  const g = (await j(`select bq_game_create($1,$2,'quiz','Quiz: History',$3)`, [a, pub, { category: 'history', mode: 'classic' }])).id; ok(!!g, 'create game');
+  await j(`select bq_room_state($1,$2,null)`,[dd,pub]);
+  const lettersGame=await j(`select bq_game_create($1,$2,'letters','Letters to Words',$3)`,[a,pub,{players:2}]);const g=lettersGame.id;
+  ok(lettersGame.ok&&lettersGame.phase==='lobby'&&lettersGame.synchronized&&lettersGame.maxPlayers===2,'Letters to Words starts in a synchronized numbered-seat lobby');
   ok((await j(`select bq_rooms_list($1)`, [dd]))[0].games === 1, 'room list counts games');
-  ok((await j(`select bq_game_post($1,$2,$3)`, [dd, g, [{ k: 'say', b: 'hack' }]])).code === 'game_unavailable', 'spectators cannot post game events');
-  const posted = await j(`select bq_game_post($1,$2,$3)`, [a, g, [{ k: 'sfx', b: 'correct' }, { k: 'say', b: 'Correct! The answer is B: 1857.' }, { k: 'score', b: '1' }, { k: 'sfx', b: 'bad slot!' }, { k: 'evil', b: 'x' }]]);
-  ok(posted.stored === 3, 'only valid events are stored');
-  const w = await j(`select bq_game_watch($1,$2,null)`, [dd, g]); ok(w.ok && w.events.map(e => e.kind).join() === 'sfx,say,score' && w.players[0].score === 1, 'spectator sees sounds, announcements and score');
-  ok((await j(`select bq_game_join($1,$2)`, [dd, g])).config.category === 'history', 'join a game');
-  ok((await j(`select bq_room_say($1,$2,$3,'Nice one!')`, [dd, pub, g])).ok && (await j(`select bq_game_watch($1,$2,$3)`, [b, g, w.events.at(-1).id])).events.some(e => e.kind === 'comment' && e.body === 'Nice one!'), 'comments on a game');
-  await q(`select bq_game_post($1,$2,$3)`, [a, g, [{ k: 'end', b: '' }]]);
-  ok((await j(`select bq_game_watch($1,$2,null)`, [dd, g])).status === 'finished' && (await j(`select bq_game_post($1,$2,$3)`, [dd, g, [{ k: 'say', b: 'late' }]])).code === 'game_finished', 'host ending finishes the game');
+  const memberSeat=await j(`select bq_game_join_seat($1,$2,0::smallint)`,[dd,g]);
+  ok(memberSeat.ok&&(await j(`select bq_game_post($1,$2,$3)`,[dd,g,[{k:'say',b:'hack'}]])).code==='invalid_request','legacy event posting cannot spoof a synchronized room match');
+  await j(`select bq_game_ready($1,$2,true)`,[a,g]);await j(`select bq_game_ready($1,$2,true)`,[dd,g]);
+  ok(memberSeat.ok&&memberSeat.seat===2&&(await j(`select bq_game_start($1,$2,$3)`,[a,g,{kind:'letters'}])).ok,'host starts Letters only after both numbered seats are ready');
+  const letterWatch=await j(`select bq_game_watch($1,$2,null)`,[dd,g]);
+  ok(letterWatch.ok&&letterWatch.phase==='playing'&&/^[a-z]{4,7}$/.test(letterWatch.state.letters)&&!('answerKeys' in letterWatch.state),'spectators receive the shared letter puzzle without hidden answer state');
+  const word=(await q(`select word from bq_words where length(word) between 3 and 7 and bq_word_fits_letters(word,$1) order by length(word) desc limit 1`,[letterWatch.state.letters]))[0]?.word;
+  if(!word)throw new Error('No dictionary word fits the synchronized Letters board');
+  const found=await j(`select bq_game_letter_word($1,$2,$3)`,[a,g,word]);const duplicate=await j(`select bq_game_letter_word($1,$2,$3)`,[a,g,word]);
+  ok(found.ok&&found.valid&&found.points===word.length&&duplicate.alreadyFound,'Letters scoring and duplicate-word rejection are checked by the server');
+  ok((await j(`select bq_game_set_comments($1,$2,false)`,[a,g])).ok&&(await j(`select bq_room_comment($1,$2,$3,null,'blocked')`,[dd,pub,g])).code==='comments_disabled','the game host can disable spectator comments');
+  await j(`select bq_game_set_comments($1,$2,true)`,[a,g]);
+  ok((await j(`select bq_room_comment($1,$2,$3,null,'Nice word!')`,[dd,pub,g])).ok&&(await j(`select bq_game_watch($1,$2,null)`,[b,g])).events.some(e=>e.kind==='comment'&&e.body==='Nice word!'),'spectators can read and post comments when host-enabled');
+
+  const selectedHost=await j(`select bq_game_create($1,$2,'ludo','Room host assignment',$3)`,[a,pub,{players:2,hostName:'Dave'}]);
+  const selectedHostRow=(await q(`select creator_id,host_id,synchronized,config from bq_room_games where id=$1`,[selectedHost.id]))[0];
+  const hostNotif=(await j(`select bq_notifications_list($1)`,[dd])).find(n=>n.ref===selectedHost.id&&n.body.startsWith('host-request|'));
+  ok(selectedHost.ok&&selectedHostRow.creator_id===a&&selectedHostRow.host_id===dd&&selectedHostRow.synchronized&&selectedHostRow.config.roomSync&&hostNotif,'a room member can request a game and notify a different selected member who becomes its host');
+  const creatorWatch=await j(`select bq_game_watch($1,$2,null)`,[a,selectedHost.id]);
+  ok(creatorWatch.creatorMe&&!creatorWatch.hostMe&&(await j(`select bq_game_set_comments($1,$2,false)`,[a,selectedHost.id])).ok&&(await j(`select bq_game_set_comments($1,$2,true)`,[dd,selectedHost.id])).ok,'the original creator and selected host can moderate spectator comments');
+  const assigned=await j(`select bq_game_assign_member($1,$2,'alice',2::smallint)`,[dd,selectedHost.id]);
+  ok(assigned.ok&&assigned.name==='Alice'&&assigned.seat===2,'the selected host can assign an active room member to a numbered seat');
+  ok((await j(`select bq_game_start($1,$2,$3)`,[a,selectedHost.id,{kind:'ludo'}])).code==='forbidden','the creator cannot start a match unless they are its selected host');
+  ok((await j(`select bq_game_ready($1,$2,true)`,[dd,selectedHost.id])).code==='choose_color','Ludo players must choose their colors before readying up');
+  ok((await j(`select bq_game_join_seat_color($1,$2,1::smallint,'red')`,[dd,selectedHost.id])).color==='red','the Ludo host can choose red');
+  ok((await j(`select bq_game_join_seat_color($1,$2,2::smallint,'red')`,[a,selectedHost.id])).code==='color_taken','Ludo color selection is unique');
+  ok((await j(`select bq_game_join_seat_color($1,$2,2::smallint,'green')`,[a,selectedHost.id])).color==='green','a second player can choose green');
+  const ludoRoomCard=(await j(`select bq_room_state($1,$2,null)`,[a,pub])).games.find(game=>game.id===selectedHost.id);
+  ok(ludoRoomCard?.players.find(player=>player.name==='Dave')?.color==='red'&&ludoRoomCard.players.find(player=>player.name==='Alice')?.color==='green','room cards expose seat colors so joining players see which choices remain open');
+  await j(`select bq_game_ready($1,$2,true)`,[dd,selectedHost.id]);await j(`select bq_game_ready($1,$2,true)`,[a,selectedHost.id]);
+  const ludoState={kind:'ludo',players:[{seat:1,color:'red',tokens:[-1,-1,-1,-1]},{seat:2,color:'green',tokens:[-1,-1,-1,-1]}],turnSeat:1,pendingRoll:null,winner:null};
+  const ludoStart=await j(`select bq_game_start($1,$2,$3)`,[dd,selectedHost.id,ludoState]);const ludoWatch=await j(`select bq_game_watch($1,$2,null)`,[a,selectedHost.id]);
+  ok(ludoStart.ok&&ludoWatch.state.players[0].color==='red'&&ludoWatch.state.players[1].color==='green','Ludo start waits for filled, ready, uniquely colored seats and shares the colored board');
+  ok((await j(`select bq_game_join_seat_color($1,$2,1::smallint,'blue')`,[dd,selectedHost.id])).code==='game_started','players cannot change board colors after the shared start');
+
+  const chessGame=await j(`select bq_game_create($1,$2,'chess','Room Chess colors',$3)`,[a,pub,{players:2,hostName:'Dave'}]);
+  await j(`select bq_game_join_seat($1,$2,0::smallint)`,[a,chessGame.id]);
+  await j(`select bq_game_join_seat_color($1,$2,1::smallint,'black')`,[dd,chessGame.id]);
+  await j(`select bq_game_join_seat_color($1,$2,2::smallint,'white')`,[a,chessGame.id]);
+  await j(`select bq_game_ready($1,$2,true)`,[dd,chessGame.id]);await j(`select bq_game_ready($1,$2,true)`,[a,chessGame.id]);
+  const chessStart=await j(`select bq_game_start($1,$2,$3)`,[dd,chessGame.id,{kind:'chess'}]);const chessWatch=await j(`select bq_game_watch($1,$2,null)`,[a,chessGame.id]);
+  ok(chessStart.ok&&chessWatch.state.colorSeats.white===2&&chessWatch.state.colorSeats.black===1&&chessWatch.state.turnSeat===2,'Chess preserves host-assigned colors and gives White the first move');
+
+  await j(`select bq_room_state($1,$2,null)`,[b,pub]);
+  const soundGame=await j(`select bq_game_create($1,$2,'soundmatch','Room Sound Match',$3)`,[a,pub,{players:2,level:'easy'}]);
+  await j(`select bq_game_join_seat($1,$2,0::smallint)`,[b,soundGame.id]);await j(`select bq_game_ready($1,$2,true)`,[a,soundGame.id]);await j(`select bq_game_ready($1,$2,true)`,[b,soundGame.id]);
+  const soundSlots=['match_bell','match_drums','match_flute','match_gong','match_harp'].map((slot,i)=>({slot,name:`Sound ${i+1}`}));
+  const soundStart=await j(`select bq_game_start($1,$2,$3)`,[a,soundGame.id,{kind:'soundmatch',soundSlots}]);
+  const hiddenSound=await j(`select bq_game_watch($1,$2,null)`,[b,soundGame.id]);const privateCards=(await q(`select state->'cards' cards from bq_room_games where id=$1`,[soundGame.id]))[0].cards;
+  const invalidFlip=await j(`select bq_game_sound_flip($1,$2,99::smallint)`,[a,soundGame.id]);
+  const firstFlip=await j(`select bq_game_sound_flip($1,$2,1::smallint)`,[a,soundGame.id]);const sameFlip=await j(`select bq_game_sound_flip($1,$2,1::smallint)`,[a,soundGame.id]);
+  ok(soundStart.ok&&hiddenSound.state.cardCount===10&&!('cards' in hiddenSound.state)&&privateCards.length===10,'Sound Match synchronizes a shuffled board while hiding unmatched sounds from spectators');
+  ok(invalidFlip.code==='invalid_request'&&firstFlip.ok&&sameFlip.code==='invalid_action'&&Number((await q(`select count(*) n from bq_room_events where game_id=$1 and kind='match'`,[soundGame.id]))[0].n)===1,'invalid Sound Match flips cannot create sound-playback events');
+  const firstSlot=privateCards[0].slot,wrongCard=privateCards.find(card=>card.number!==1&&card.slot!==firstSlot);
+  const miss=await j(`select bq_game_sound_flip($1,$2,$3)`,[a,soundGame.id,wrongCard.number]);
+  await q(`update bq_room_games set state=jsonb_set(state,'{resolveAt}',to_jsonb(now()-interval '1 second'),true) where id=$1`,[soundGame.id]);
+  const turnAfterMiss=await j(`select bq_game_watch($1,$2,null)`,[b,soundGame.id]);
+  const pairSlot=privateCards.find(card=>card.slot!==firstSlot).slot;const pair=privateCards.filter(card=>card.slot===pairSlot);
+  const goodOne=await j(`select bq_game_sound_flip($1,$2,$3)`,[b,soundGame.id,pair[0].number]);const goodTwo=await j(`select bq_game_sound_flip($1,$2,$3)`,[b,soundGame.id,pair[1].number]);
+  const afterPair=await j(`select bq_game_watch($1,$2,null)`,[b,soundGame.id]);
+  ok(miss.ok&&miss.matched===false&&Number(turnAfterMiss.state.turnSeat)===2,'a missed Sound Match pair advances from the stored pending turn');
+  ok(goodOne.ok&&goodTwo.ok&&goodTwo.matched===true&&afterPair.players.find(p=>p.name==='Bob').score===1&&Object.keys(afterPair.state.revealedNames).length===2,'Sound Match matches score the active seat and safely reveal found sounds to every spectator');
+
+  // Migration 026: numbered seats, invitations, a shared ready gate, server-scored answers and threaded comments.
+  const memberGame=await j(`select bq_game_create($1,$2,'quiz','Room member invite',$3)`,[a,pub,{category:'history',mode:'classic',players:2}]);
+  const memberInvite=await j(`select bq_game_invite($1,$2,'dave')`,[a,memberGame.id]);
+  const memberAccepted=await j(`select bq_game_invite_respond($1,$2,true)`,[dd,memberGame.id]);
+  const memberRelation=await j(`select bq_relation($1,$2)`,[a,dd]);
+  ok(memberInvite.ok&&memberAccepted.ok&&memberAccepted.accepted&&memberAccepted.seat===2&&memberRelation!=='friends','an active room member who is not a friend can accept an invite into Player 2');
+  const quizIds=['bq-en-0415','bq-en-0416'];
+  const quizAnswers=(await q(`select correct_answer from bq_questions where id=any($1::text[]) order by id`,[quizIds])).map(row=>row.correct_answer);
+  const shared = await j(`select bq_game_create($1,$2,'quiz','Shared quick decision',$3)`, [a,pub,{category:'history',mode:'quickdecision',players:2}]);
+  ok(shared.ok && shared.phase==='lobby' && shared.maxPlayers===2, 'new quiz games open in a ready-up lobby');
+  ok((await j(`select bq_game_ready($1,$2,true)`,[a,shared.id])).ok, 'host can ready up');
+  ok((await j(`select bq_game_start($1,$2,$3)`,[a,shared.id,{questionIds:['bq-en-0415'],answerKeys:['The answer']}])).code==='waiting_for_players','lobby cannot start before all player seats join');
+  const waitingState=await j(`select bq_game_state($1,$2,null)`,[a,shared.id]);
+  ok(waitingState.phase==='lobby'&&!waitingState.state.questionIds,'lobby players receive no question data before the shared start');
+  const invite=await j(`select bq_game_invite($1,$2,'bob')`,[a,shared.id]);
+  ok(invite.ok && (await j(`select bq_notifications_list($1)`,[b])).some(n=>n.kind==='game_invite'&&n.ref===shared.id&&n.body.startsWith('game-invite|')), 'friend receives a room-game invitation request');
+  const accepted=await j(`select bq_game_invite_respond($1,$2,true)`,[b,shared.id]);
+  ok(accepted.ok&&accepted.accepted&&accepted.roomId===pub&&accepted.seat===2,'accepting the request joins the same numbered game slot');
+  ok((await j(`select bq_game_ready($1,$2,true)`,[b,shared.id])).ok,'invited player can ready up');
+  await j(`select bq_game_ready($1,$2,false)`,[b,shared.id]);
+  const notReady=await j(`select bq_game_start($1,$2,$3)`,[a,shared.id,{questionIds:['bq-en-0415'],answerKeys:['The answer']}]);
+  ok(notReady.code==='players_not_ready','every player must ready before the shared start');
+  await j(`select bq_game_ready($1,$2,true)`,[b,shared.id]);
+  ok((await j(`select bq_game_start($1,$2,$3)`,[a,shared.id,{questionIds:quizIds,answerKeys:['host supplied lie','host supplied lie']}])).ok,'host starts one shared ordered question set');
+  const sharedState=await j(`select bq_game_state($1,$2,null)`,[a,shared.id]);
+  const bobSharedState=await j(`select bq_game_state($1,$2,null)`,[b,shared.id]);
+  const privateKeys=await j(`select state->'answerKeys' from bq_room_games where id=$1`,[shared.id]);
+  ok(sharedState.ok&&bobSharedState.ok&&sharedState.phase==='playing'&&sharedState.state.currentIndex===0&&JSON.stringify(sharedState.state.questionIds)===JSON.stringify(bobSharedState.state.questionIds)&&bobSharedState.seat===2&&!bobSharedState.hostMe&&!('answerKeys' in sharedState.state)&&JSON.stringify(privateKeys)===JSON.stringify(quizAnswers),'both players receive the same question order while the database keeps its verified answer key private');
+  const forgedQuizPost=await j(`select bq_game_post($1,$2,$3)`,[a,shared.id,[{k:'score',b:'999'},{k:'end',b:''}]]);
+  const intactQuiz=await j(`select bq_game_state($1,$2,null)`,[a,shared.id]);
+  ok(forgedQuizPost.code==='invalid_request'&&intactQuiz.phase==='playing'&&intactQuiz.players[0].score===0,'legacy event posting cannot forge shared-quiz scores, sounds, or match endings');
+  const fast1=await j(`select bq_game_answer($1,$2,0,$3)`,[a,shared.id,quizAnswers[0]]);
+  const fast2=await j(`select bq_game_answer($1,$2,0,$3)`,[b,shared.id,quizAnswers[0]]);
+  ok(fast1.correct&&fast1.points===2&&fast2.correct&&fast2.points===1,'fastest correct response earns the bonus; another correct response still scores');
+  await q(`update bq_room_games set state=jsonb_set(state,'{solvedAt}',to_jsonb(now()-interval '4 seconds'),true) where id=$1`,[shared.id]);
+  const advanced=await j(`select bq_game_state($1,$2,null)`,[b,shared.id]);
+  ok(advanced.state.currentIndex===1&&advanced.players.find(p=>p.name==='Alice').score===2&&advanced.players.find(p=>p.name==='Bob').score===1,'polling advances the shared question and keeps both scores synchronized');
+  await j(`select bq_game_answer($1,$2,1,$3)`,[a,shared.id,quizAnswers[1]]);
+  await j(`select bq_game_answer($1,$2,1,'an incorrect answer')`,[b,shared.id]);
+  ok((await j(`select bq_game_watch($1,$2,null)`,[dd,shared.id])).status==='finished','shared quiz finishes for players and spectators together');
+  const comment=await j(`select bq_room_comment($1,$2,$3,null,'The room can see this comment')`,[a,pub,shared.id]);
+  const parent=(await j(`select bq_game_watch($1,$2,null)`,[dd,shared.id])).events.find(e=>e.kind==='comment');
+  ok(comment.ok&&parent.name==='Alice','players and spectators both read a game comment');
+  ok((await j(`select bq_room_comment($1,$2,$3,$4,'A visible reply')`,[b,pub,shared.id,parent.id])).ok,'a spectator can reply to the comment');
+  const thread=(await j(`select bq_game_watch($1,$2,null)`,[dd,shared.id])).events.filter(e=>e.kind==='comment');
+  ok(thread.length===2&&thread[1].replyTo===parent.id&&thread[1].replyName==='Alice'&&thread[1].body==='A visible reply','threaded replies stay visible to every room watcher');
+  const roomGame=(await j(`select bq_room_state($1,$2,null)`,[dd,pub])).games.find(item=>item.id===shared.id);
+  ok(roomGame.commentCount===2&&roomGame.recentComments.length===2&&roomGame.phase==='finished','room cards display live status and recent comments');
+
+  const yesNoGame=await j(`select bq_game_create($1,$2,'quiz','Yes or No test',$3)`,[a,pub,{category:'history',mode:'yesno',players:1}]);
+  await j(`select bq_game_ready($1,$2,true)`,[a,yesNoGame.id]);
+  await j(`select bq_game_start($1,$2,$3)`,[a,yesNoGame.id,{questionIds:[quizIds[0]],answerKeys:['forged host key'],answerOptions:[['forged choice']]}]);
+  const yesNoState=await j(`select bq_game_state($1,$2,null)`,[a,yesNoGame.id]);
+  const yesNoKey=await j(`select state->'answerKeys' from bq_room_games where id=$1`,[yesNoGame.id]);
+  const yesNoOptions=await j(`select answers from bq_questions where id=$1`,[quizIds[0]]);
+  const yesNoChoice=yesNoState.state.yesNoCandidates[0],yesNoAnswer=yesNoChoice===quizAnswers[0]?'Yes':'No';
+  const yesNoScored=await j(`select bq_game_answer($1,$2,0,$3)`,[a,yesNoGame.id,yesNoAnswer]);
+  ok(yesNoKey[0]===quizAnswers[0]&&yesNoState.state.yesNoCandidates.length===1&&yesNoOptions.includes(yesNoChoice)&&!('answerKeys' in yesNoState.state)&&yesNoScored.correct&&yesNoScored.finished,'Yes or No uses a server-selected database answer choice and scores Yes/No against the private key');
+  const fallbackId='bq-en-1417',fallbackQuestion=(await q(`select correct_answer,answers from bq_questions where id=$1`,[fallbackId]))[0];
+  await q(`delete from bq_questions where id=$1`,[fallbackId]);
+  const fallbackYesNo=await j(`select bq_game_create($1,$2,'quiz','Fallback Yes or No',$3)`,[a,pub,{category:'general',mode:'yesno',players:1}]);
+  await j(`select bq_game_ready($1,$2,true)`,[a,fallbackYesNo.id]);
+  await j(`select bq_game_start($1,$2,$3)`,[a,fallbackYesNo.id,{questionIds:[fallbackId],answerKeys:[fallbackQuestion.correct_answer],answerOptions:[fallbackQuestion.answers]}]);
+  const fallbackState=await j(`select bq_game_state($1,$2,null)`,[a,fallbackYesNo.id]);
+  const fallbackCandidate=fallbackState.state.yesNoCandidates[0],fallbackAnswer=fallbackCandidate===fallbackQuestion.correct_answer?'Yes':'No';
+  const fallbackScored=await j(`select bq_game_answer($1,$2,0,$3)`,[a,fallbackYesNo.id,fallbackAnswer]);
+  ok(fallbackState.ok&&fallbackScored.correct&&fallbackScored.finished,'Yes or No remains playable from verified-range source content while Migration 025 is unapplied');
+
+  const board=await j(`select bq_game_create($1,$2,'snakes','Snakes test',$3)`,[a,pub,{players:1}]);
+  ok(board.ok&&board.phase==='lobby'&&board.maxPlayers===1,'board games support a solo room lobby');
+  await j(`select bq_game_ready($1,$2,true)`,[a,board.id]);
+  const boardState={kind:'snakes',players:[{seat:1,score:0,position:0}],turnSeat:1,lastRoll:null,winner:null};
+  await j(`select bq_game_start($1,$2,$3)`,[a,board.id,boardState]);
+  const forgedBoardPost=await j(`select bq_game_post($1,$2,$3)`,[a,board.id,[{k:'score',b:'999'},{k:'end',b:''}]]);
+  const intactBoard=await j(`select bq_game_state($1,$2,null)`,[a,board.id]);
+  ok(forgedBoardPost.code==='invalid_request'&&intactBoard.phase==='playing'&&intactBoard.players[0].score===0,'legacy event posting cannot forge board-game scores, sounds, or match endings');
+  const boardSnapshot=await j(`select state from bq_room_games where id=$1`,[board.id]);
+  const boardMove=reduceBoardGame('snakes',boardSnapshot,1,{type:'roll'},()=>.5);
+  const action=await j(`select bq_game_action($1,$2,$3)`,[a,board.id,{type:'roll',expectedState:boardSnapshot,state:boardMove.state,announcement:boardMove.announcement,sfx:boardMove.sfx,sounds:boardMove.sounds,finished:boardMove.finished}]);
+  ok(action.ok&&(await j(`select bq_game_watch($1,$2,null)`,[dd,board.id])).events.some(e=>e.kind==='sfx'&&e.body==='tick'),'board-game actions update shared state and publish action-timed dice/token sounds');
+  const staleBoard=await j(`select bq_game_action($1,$2,$3)`,[a,board.id,{type:'roll',expectedState:boardSnapshot,state:boardSnapshot,announcement:'forged stale roll',sfx:'click',sounds:['click']}]);
+  const afterStaleBoard=await j(`select state from bq_room_games where id=$1`,[board.id]);
+  ok(staleBoard.code==='stale_action'&&afterStaleBoard.players[0].position===boardMove.state.players[0].position,'serialized board actions reject stale state snapshots instead of overwriting a newer move');
+  const bj=await j(`select bq_game_create($1,$2,'blackjack','Blackjack test',$3)`,[a,pub,{players:1}]);await j(`select bq_game_ready($1,$2,true)`,[a,bj.id]);
+  await j(`select bq_game_start($1,$2,$3)`,[a,bj.id,{kind:'blackjack'}]);
+  const privateBj=await j(`select bq_game_state($1,$2,null)`,[a,bj.id]);
+  ok(privateBj.ok&&!('deck' in privateBj.state)&&privateBj.state.dealer[1]==='hidden','Blackjack hides the shuffled deck and dealer hole card from players');
+  const blackjackSnapshot=await j(`select state from bq_room_games where id=$1`,[bj.id]);
+  const stood=await j(`select bq_game_action($1,$2,$3)`,[a,bj.id,{type:'stand',expectedState:blackjackSnapshot,state:{},announcement:'Player 1 stands.',sfx:'click',sounds:['click']}]);
+  const settled=await j(`select bq_game_state($1,$2,null)`,[a,bj.id]);
+  ok(stood.ok&&stood.finished&&settled.phase==='finished'&&settled.state.dealer[1]!=='hidden'&&settled.players[0].score>=-1,'Blackjack deals, resolves and records a server-owned round');
+  ok((await j(`select bq_game_create($1,$2,'chess','Chess invalid players',$3)`,[a,pub,{players:3}])).code==='invalid_request','Chess rejects more than two seats');
+  ok(!(await q(`select has_function_privilege('anon','public.bq_game_start(uuid,uuid,jsonb)','execute')`))[0].has_function_privilege,'new match RPCs remain service-role only');
+
   const m1 = await j(`select bq_match_invite($1,'bob')`, [a]), m2 = await j(`select bq_match_invite($1,'bob')`, [a]);
   ok(m1.ok && m1.roomId === m2.roomId && (await j(`select bq_room_state($1,$2,null)`, [b, m1.roomId])).ok && (await j(`select bq_match_invite($1,'carol')`, [a])).code === 'not_friends', 'match invite: friends only, one private room reused');
   ok((await j(`select bq_room_remove($1,$2)`, [dd, pub])).code === 'forbidden' && (await j(`select bq_room_remove($1,$2)`, [a, priv])).ok, 'only owners remove their own rooms; defaults stay');

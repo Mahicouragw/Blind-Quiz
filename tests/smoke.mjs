@@ -1,17 +1,27 @@
 import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, validateQuestionBank } from '../src/content.js';
+import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, MIGRATION_025_COUNT, validateQuestionBank } from '../src/content.js';
 import { shuffled } from '../src/random.js';
+import { GAME_MODES, presentQuestion, poolFor, selectRoundQuestions, timeLimitFor, endsAfterMiss } from '../src/game-logic.js';
+import { BOARD_GAME_KINDS, BOARD_GAME_LABELS, createBoardState, reduceBoardGame, legalChessMoves } from '../src/board-games.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
-assert.equal(QUESTION_BANK.length,1075,'73 starter plus 1002 expansion questions (252 in Migration 009, 200 in Migration 010, 200 in Migration 011, 100 in Migration 015, 250 in Migration 016)');
+assert.equal(QUESTION_BANK.length,1575,'1075 PR #5 questions plus 500 additive PR #6 questions');
 assert.equal(MIGRATION_009_COUNT,252,'Migration 009 keeps its 252 rows');
-assert.equal(CATEGORY_LIST.length,25,'20 established categories plus Medical, Math, Physics, Chemistry and Biology');
+assert.equal(MIGRATION_010_COUNT,200,'PR #5 Migration 010 stays intact');
+assert.equal(MIGRATION_011_COUNT,200,'PR #5 Migration 011 stays intact');
+assert.equal(MIGRATION_015_COUNT,100,'PR #5 Migration 015 stays intact');
+assert.equal(MIGRATION_016_COUNT,250,'PR #5 Migration 016 stays intact');
+assert.equal(MIGRATION_025_COUNT,500,'Migration 025 adds exactly 500 new questions');
+assert.equal(CATEGORY_LIST.length,30,'25 PR #5 categories plus five additive PR #6 categories');
 const NEW_CATS=['medical','math','physics','chemistry','biology'];
-assert.deepEqual(CATEGORY_LIST.slice(20).map(c=>c.id),NEW_CATS,'five new categories');
-for(const c of CATEGORY_LIST.slice(20))assert.equal(c.count,30,`${c.id} has 30 questions (20 from Migration 015, 10 from Migration 016)`);
+assert.deepEqual(CATEGORY_LIST.slice(20,25).map(c=>c.id),NEW_CATS,'PR #5 categories remain intact');
+const PR6_CATS=['mathematics','health','literature','food','arts'];
+assert.deepEqual(CATEGORY_LIST.slice(25).map(c=>c.id),PR6_CATS,'Migration 025 adds five distinct categories without remapping PR #5 data');
+for(const c of CATEGORY_LIST.slice(20,25))assert.equal(c.count,30,`${c.id} retains its 30 PR #5 questions`);
+for(const c of CATEGORY_LIST.slice(25))assert.equal(c.count,20,`${c.id} receives exactly 20 Migration 025 questions`);
 for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(STARTER_QUESTION_COUNT,STARTER_QUESTION_COUNT+252).filter(q=>q.category===category.id);
   const expected=category.id==='braille'?24:12;
@@ -24,8 +34,16 @@ assert.equal(QUESTION_BANK[524].id,'bq-en-0866','final Migration 010 ID');
 assert.equal(QUESTION_BANK[525].id,'bq-en-0867','first Migration 011 ID');
 assert.equal(QUESTION_BANK[724].id,'bq-en-1066','final Migration 011 ID');
 assert.equal(QUESTION_BANK[725].id,'bq-en-1067','first Migration 015 ID');
-assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1416','final expansion ID (end of Migration 016)');
-assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,1002,'1002 expansion questions');
+assert.equal(QUESTION_BANK[1074].id,'bq-en-1416','PR #5 ends at its stable final ID');
+assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1916','Migration 025 ends after PR #5 without reusing IDs');
+assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,1502,'1502 total expansion questions');
+const start025=QUESTION_BANK.length-MIGRATION_025_COUNT;
+const migration025Questions=QUESTION_BANK.slice(start025);
+assert.equal(migration025Questions[0].id,'bq-en-1417','Migration 025 starts after the PR #5 maximum ID');
+const migration025Counts=new Map();for(const q of migration025Questions)migration025Counts.set(q.category,(migration025Counts.get(q.category)||0)+1);
+assert.equal(migration025Counts.size,25,'Migration 025 contains 25 categories');
+assert.deepEqual([...migration025Counts.keys()].sort(),[...CATEGORY_LIST.slice(0,20).map(c=>c.id),...PR6_CATS].sort(),'Migration 025 preserves its 20 established categories and adds five new ones');
+for(const [category,count] of migration025Counts)assert.equal(count,20,`${category} receives exactly 20 Migration 025 questions`);
 for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(325,525).filter(q=>q.category===category.id);
   assert.equal(added.length,10,`${category.id} has 10 Migration 010 questions`);
@@ -33,7 +51,7 @@ for(const category of CATEGORY_LIST.slice(0,20)){
   assert.equal(added011.length,10,`${category.id} has 10 Migration 011 questions`);
 }
 const normPrompt=s=>s.toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 1075 questions');
+assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 1575 questions');
 const ids=new Set(QUESTION_BANK.map(q=>q.id));
 assert.equal(ids.size,QUESTION_BANK.length,'unique stable question ids');
 for(const q of QUESTION_BANK.slice(STARTER_QUESTION_COUNT))assert.match(q.sourceNote,/https:\/\//,`${q.id} source note`);
@@ -43,6 +61,44 @@ const deterministic=shuffled(source,max=>max-1);
 assert.deepEqual(deterministic,source,'shuffle supports final index');
 assert.notEqual(shuffled(source,()=>0),source,'shuffle can move the authored correct-first choice');
 assert.deepEqual([...shuffled(source,()=>0)].sort(),source,'shuffle preserves every answer');
+
+const identity=values=>[...values];
+const classic=selectRoundQuestions(QUESTION_BANK,'general','classic',identity);
+assert.equal(classic.length,10,'Classic selects ten questions');
+assert.equal(new Set(classic.map(q=>q.category)).size,10,'Classic balances categories');
+const random=selectRoundQuestions(QUESTION_BANK,'general','random',identity);
+assert.equal(random.length,10,'Random Mix selects ten questions');
+assert.equal(poolFor(QUESTION_BANK,'general','vocabulary').every(q=>q.category==='vocabulary'),true,'Vocabulary mode filters its pool');
+assert.equal(selectRoundQuestions(QUESTION_BANK,'general','rapid',identity).length,8,'Rapid Fire has eight questions');
+assert.equal(timeLimitFor('rapid',30),15,'Rapid Fire keeps its 15-second limit');
+assert.equal(selectRoundQuestions(QUESTION_BANK,'general','timeattack',identity).length,10,'Time Attack has ten questions');
+assert.equal(timeLimitFor('timeattack',30),10,'Time Attack keeps its 10-second limit');
+assert.equal(selectRoundQuestions(QUESTION_BANK,'general','survival',identity).length,20,'Survival has up to twenty questions');
+assert.equal(endsAfterMiss('survival',false),true,'a miss ends Survival');
+assert.equal(endsAfterMiss('survival',true),false,'a correct Survival answer continues');
+assert.deepEqual(GAME_MODES.map(mode=>mode[0]),['classic','rapid','timeattack','survival','random','vocabulary','abbreviations','braille','yesno','decision','quickdecision'],'quiz modes stay registered');
+const sample={id:'sample',question:'Which planet is known as the Red Planet?',answers:['Mars','Earth','Venus','Jupiter'],correctAnswer:'Mars',explanation:'Mars looks red.'};
+const yes=presentQuestion(sample,'yesno',values=>[...values]);
+assert.deepEqual(yes.displayAnswers,['Yes','No']);assert.equal(yes.displayCorrect,'Yes');assert.match(yes.displayQuestion,/Is “Mars” the correct answer/);
+const no=presentQuestion(sample,'yesno',values=>[values[1],values[0],...values.slice(2)]);
+assert.equal(no.displayCorrect,'No','Yes or No mode can generate a false suggested answer');
+const sharedNo=presentQuestion(sample,'yesno',identity,'Earth');assert.match(sharedNo.displayQuestion,/Is “Earth” the correct answer/);assert.equal(sharedNo.displayCorrect,'No','the shared UI uses the server-selected yes/no candidate');
+const decision=presentQuestion(sample,'decision',values=>[...values]);
+assert.equal(decision.displayAnswers.length,2);assert(decision.displayAnswers.includes(sample.correctAnswer));assert.equal(presentQuestion(sample,'quickdecision',values=>[...values]).displayAnswers.length,2);
+assert.equal(selectRoundQuestions(QUESTION_BANK,'general','quickdecision',identity).length,10);assert.equal(timeLimitFor('quickdecision',30),5,'Quick Decision has a five-second clock');
+assert.deepEqual(BOARD_GAME_KINDS,['snakes','ludo','carrom','blackjack','chess']);assert.equal(BOARD_GAME_LABELS.chess,'Chess');
+const snakes=reduceBoardGame('snakes',createBoardState('snakes',2),1,{type:'roll',value:2});
+assert.equal(snakes.state.players[0].position,38,'Snakes and Ladders moves through ladder squares');assert.deepEqual(snakes.sounds,['tick','click']);assert.equal(snakes.state.turnSeat,2);
+let ludo=reduceBoardGame('ludo',createBoardState('ludo',2),1,{type:'roll',value:6});assert(ludo.availableTokens.includes(0));assert.equal(ludo.sfx,'tick');
+ludo=reduceBoardGame('ludo',ludo.state,1,{type:'move',token:0});assert.equal(ludo.state.players[0].tokens[0],0);assert.equal(ludo.state.turnSeat,1,'a six gives a bonus roll');assert.equal(ludo.sfx,'click','Ludo token movement has its own cue');
+const chess0=createBoardState('chess',2,()=>.5);assert(legalChessMoves(chess0,[6,4]).some(m=>m.to[0]===4&&m.to[1]===4));
+const assignedChess=createBoardState('chess',2,()=>.5,{colors:{1:'black',2:'white'}});assert.deepEqual(assignedChess.colorSeats,{white:2,black:1});assert.equal(assignedChess.turnSeat,2,'Chess honors selected player colors');
+const assignedWhiteMove=reduceBoardGame('chess',assignedChess,2,{type:'move',from:[6,4],to:[4,4]});assert.equal(assignedWhiteMove.state.turnSeat,1,'the seat assigned White makes the first move');
+const chess1=reduceBoardGame('chess',chess0,1,{type:'move',from:[6,4],to:[4,4]});assert.equal(chess1.state.turnSeat,2);assert.equal(chess1.state.board[4][4],'P');assert.equal(chess1.sfx,'click');
+const chess2=reduceBoardGame('chess',chess1.state,2,{type:'move',from:[1,4],to:[3,4]});assert.equal(chess2.state.board[3][4],'p');assert.throws(()=>reduceBoardGame('chess',chess2.state,1,{type:'move',from:[4,4],to:[1,4]}),/illegal_chess_move/);
+const capture1=reduceBoardGame('chess',createBoardState('chess',2),1,{type:'move',from:[6,4],to:[4,4]});const capture2=reduceBoardGame('chess',capture1.state,2,{type:'move',from:[1,3],to:[3,3]});const capture3=reduceBoardGame('chess',capture2.state,1,{type:'move',from:[4,4],to:[3,3]});assert.equal(capture3.sfx,'coin','chess captures use the piece-capture sound');
+const blackjack=reduceBoardGame('blackjack',createBoardState('blackjack',1,()=>.5),1,{type:'stand'});assert(blackjack.state.finished,'solo Blackjack plays against the dealer');
+const carrom=reduceBoardGame('carrom',createBoardState('carrom',1),1,{type:'strike',aim:0,power:.6});assert(carrom.state.coins.length===8&&carrom.announcement,'Carrom simulates an aimed shot');
 
 const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
 for(const id of ['home','auth','game','settings','results','announcer','assertive-announcer'])assert(html.includes(`id="${id.startsWith('announcer')?id:`view-${id}`}"`)||html.includes(`id="${id}"`),`required UI landmark ${id}`);
@@ -55,6 +111,7 @@ const css=await readFile(new URL('../styles.css',import.meta.url),'utf8');
 assert(css.includes(':focus-visible'),'visible focus indicator');
 assert(css.includes('.high-contrast')&&css.includes('.large-text')&&css.includes('.reduce-motion'),'accessibility settings styles');
 const main=await readFile(new URL('../src/main.js',import.meta.url),'utf8');
+const gameLogic=await readFile(new URL('../src/game-logic.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator)/.test(main),'no synthetic Web Audio effects');
 const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8');
 assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
@@ -81,10 +138,13 @@ assert(!Object.values(audioManifest.assets).some(a=>a.provider==='Mixkit'&&a.kin
 const licences=await readFile(new URL('../AUDIO_LICENSES.md',import.meta.url),'utf8');
 for(const a of Object.values(audioManifest.assets))assert(licences.includes(a.file),`AUDIO_LICENSES.md documents ${a.file}`);
 assert(!/\btone\(/.test(main),'no leftover synthetic tone() calls (they crashed every round)');
-assert(main.includes('displayAnswers:shuffled(q.answers)'),'answer choices are shuffled independently');
+assert(main.includes('return presentQuestion(q,state.mode,shuffled)')&&gameLogic.includes('displayAnswers: shuffle(answers)'),'answer choices are shuffled independently in classic mode');
+assert(main.includes("typeof saved.correct==='boolean'?saved.correct:correct")&&main.includes('state.lastAnswerCorrect=serverVerdict')&&main.includes("verdict?'good':'bad'"),'server-verified answers stay in sync with score, Survival, and feedback');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');
 assert(!html.includes('id=\"backend-note\"'),'no technical backend status element');
-const backend=await readFile(new URL('../src/backend.js',import.meta.url),'utf8');
+const backend=await readFile(new URL('../src/backend.js',import.meta.url),'utf8'),publicConfig=await readFile(new URL('../src/config.js',import.meta.url),'utf8');
+assert(!/GEMINI_API_KEY|x-goog-api-key/.test(`${html}${main}${backend}${publicConfig}`),'Gemini credentials are never included in browser code');
+assert(backend.includes("action !== 'suggest-name'"),'AI suggestion calls do not send the authenticated session token');
 const uiSource=`${html}\n${main}\n${backend}`;
 assert(!/service reachable|function must be installed|account service is offline|service is not set up/i.test(uiSource),'no implementation-level backend messages in the UI');
 assert(!/BOOT_ERROR|backend_not_ready|service_error|invalid_request|unknown_action|origin_not_allowed|method_not_allowed|session_expired|Uncaught|SyntaxError|Deno|Edge Function|Supabase CLI/i.test(uiSource),'no backend implementation codes or runtime errors surfaced in the UI');
@@ -92,6 +152,7 @@ assert(/Something went wrong\. Please try again\./.test(main)&&/The name, Login 
 const categoryRender=main.slice(main.indexOf('function renderCategories'),main.indexOf('function renderModes'));
 assert(categoryRender.includes('<strong>${esc(c.name)}</strong>'),'category buttons contain the category name');
 assert(!/category-mark|category-count|c\.count/.test(categoryRender)&&categoryRender.includes('<small class=\"category-desc\">${esc(c.description)}</small>'),'category buttons show the name and a short description, never a question count');
+assert(['mathematics','health','literature','food','arts'].every(id=>main.includes(`${id}:`)),'all restored category cards have their own decorative icons and colors');
 assert(html.includes('id=\"game-start\"')&&main.includes('Get ready!')&&main.includes("['3','2','1']")&&main.includes("'GO!'"),'ready screen and spoken countdown remain available');
 assert(main.includes('Something went wrong. Please try again.')&&main.includes('Too many attempts. Please wait and try again.'),'client errors remain generic and rate limits are explained');
 const migration=await readFile(new URL('../supabase/migrations/202609260001_core.sql',import.meta.url),'utf8');
@@ -120,6 +181,11 @@ assert(!/\b(create|alter|drop|truncate|delete|update|grant|revoke)\s/i.test(migr
 for(const q of QUESTION_BANK.slice(725)){assert.equal(new Set(q.answers).size,4,`${q.id} has 4 unique options`);assert(q.answers.includes(q.correctAnswer),`${q.id} includes its answer`);assert(/https:\/\//.test(q.sourceNote),`${q.id} has a source`)}
 const fn=await readFile(new URL('../supabase/functions/blind-quiz-api/index.ts',import.meta.url),'utf8');
 for(const term of ['PBKDF2','310000','name_taken','loginId','bq_consume_attempt','token_hash','record-answer'])assert(fn.includes(term),`server feature ${term}`);
+assert(html.includes('id="signup-name-generate">Generate name</button>')&&!html.includes('id="signup-ai-status"')&&html.includes('aria-describedby="signup-name-status"'),'signup offers a simple Generate name button without provider status');
+assert(main.includes("callApi('suggest-name')")&&main.includes('async function generateSignupName()')&&main.includes('localSignupName()')&&!/AI name suggestions are unavailable|AI-generated name suggested|offline suggestion/.test(main),'signup silently generates names and keeps its local fallback');
+assert(fn.includes("body.action==='suggest-name'")&&fn.includes('geminiSignupName()'),'signup AI generation is routed through the Edge Function');
+const deployFunctionWorkflow=await readFile(new URL('../.github/workflows/deploy-function.yml',import.meta.url),'utf8'),liveApiTest=await readFile(new URL('../tests/live-api.mjs',import.meta.url),'utf8');
+assert(deployFunctionWorkflow.includes("BQ_EXPECT_AI_NAME: 'true'")&&liveApiTest.includes("process.env.BQ_EXPECT_AI_NAME === 'true'")&&liveApiTest.includes('aiSuggestionAwaitingDeploy'),'post-deployment AI verification is strict while read-only checks tolerate deploy races');
 assert.equal((fn.match(/^import \{ createClient \}/gm)||[]).length,1,'one Supabase client import');
 assert.equal((fn.match(/\bcreateClient\s*\(/g)||[]).length,1,'one admin client initialization');
 assert.equal((fn.match(/Deno\.serve\(handler\)/g)||[]).length,1,'one Edge Function entrypoint');
@@ -138,7 +204,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v22'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v29'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/voice-playback.js'")&&sw.includes("'./src/voice-dsp.js'")&&sw.includes("'./src/soundtouch-processor.js'")&&sw.includes("'./src/soundtouch-processor.js.map'")&&sw.includes("'./AUDIO_LICENSES.md'")&&sw.includes("'./licenses/MPL-2.0.txt'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features, voice playback controls and the offline Migration 025 modules');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -174,11 +240,24 @@ assert(sw.includes("const CACHE='blind-quiz-shell-v22'")&&sw.includes("'./src/al
   assert.equal(MIGRATION_016_ROWS.length,250,'Migration 016 has 250 questions');
   const per={};for(const r of MIGRATION_016_ROWS)per[r[0]]=(per[r[0]]||0)+1;
   assert(Object.keys(per).length===25&&Object.values(per).every(n=>n===10),'Migration 016 has 10 questions in each of the 25 categories');
-  assert.equal(QUESTION_BANK.at(-250).id,'bq-en-1167');assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1416');
+  assert.equal(QUESTION_BANK[825].id,'bq-en-1167');assert.equal(QUESTION_BANK[1074].id,'bq-en-1416');
   const m16=readFileSync(new URL('../supabase/migrations/202610060016_questions_and_word_reward.sql',import.meta.url),'utf8');
   assert.equal((m16.match(/^insert into public\.bq_questions/gm)||[]).length,250,'Migration 016 inserts 250 rows');
   assert(/on conflict \(id\) do nothing;\ncreate or replace function public\.bq_record_word/.test(m16)&&m16.includes('earned_xp := 5;\n  earned_coins := 1;')&&/grant execute on function public\.bq_record_word\(uuid, text\) to service_role;\ncommit;\n$/.test(m16),'Migration 016 pays 5 XP + 1 coin per first word find and stays service-role only');
   assert(!/to (anon|authenticated|public);/.test(m16),'Migration 016 grants nothing to clients');
+}
+{ // Migration 025 is a new additive migration; the applied PR #5 migrations above remain pinned.
+  const m25=await readFile(new URL('../supabase/migrations/202610080025_expand_question_bank.sql',import.meta.url),'utf8');
+  const rows=[...m25.matchAll(/values \('(bq-en-\d{4})','([a-z]+)'/g)].map(m=>({id:m[1],category:m[2]}));
+  assert.equal(rows.length,500,'Migration 025 inserts exactly 500 questions');
+  assert.equal(rows[0].id,'bq-en-1417');assert.equal(rows.at(-1).id,'bq-en-1916');
+  for(let i=0;i<rows.length;i++)assert.equal(rows[i].id,`bq-en-${String(1417+i).padStart(4,'0')}`,'Migration 025 IDs are sequential and do not overlap PR #5');
+  const counts=new Map();for(const row of rows)counts.set(row.category,(counts.get(row.category)||0)+1);
+  assert.equal(counts.size,25,'Migration 025 has exactly 25 categories');
+  assert([...counts.values()].every(n=>n===20),'Migration 025 has exactly 20 rows in every category');
+  assert.equal((m25.match(/ on conflict \(id\) do nothing;/g)||[]).length,500,'Migration 025 is additive and re-runnable');
+  assert(!/\b(create|alter|drop|truncate|delete|update|grant|revoke)\s/i.test(m25.replace(/'(?:[^']|'')*'/g,"''").replace(/--[^\n]*/g,'')),'Migration 025 contains only additive question inserts');
+  assert(/not applied remotely/.test(m25),'Migration 025 remains prepared, not applied');
 }
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');
@@ -209,8 +288,11 @@ assert(!/\sstyle="|<script(?![^>]*\ssrc=)[^>]*>|\son[a-z]+="/i.test(html),'no in
 assert(/<section class="legal-links"[\s\S]*<a href="privacy-policy\.html" id="privacy-link">Privacy Policy<\/a>[\s\S]*<a href="terms-and-conditions\.html" id="terms-link">Terms and Conditions<\/a>/.test(html),'Settings links to Privacy Policy and Terms and Conditions');
 for(const page of ['privacy-policy.html','terms-and-conditions.html']){const legal=await readFile(new URL(`../${page}`,import.meta.url),'utf8');assert(legal.includes('<html lang="en">')&&legal.includes('<main id="main"')&&(legal.match(/<h1>/g)||[]).length===1&&legal.includes('href="./"')&&legal.includes('Content-Security-Policy'),`${page} is a complete, accessible page`);assert(!/supabase\.co|sb_publishable|bq_[a-z]|service_role/i.test(legal),`${page} exposes no internal identifiers`)}
 assert(backend.includes('sessionStorage')&&!backend.includes('localStorage'),'session token is kept in sessionStorage only');
-assert(backend.includes('Date.parse(s.expiresAt)<=Date.now()'),'locally expired sessions are discarded');
-assert(backend.includes('res.status===401&&session?.token'),'server-rejected sessions are cleared');
+assert(backend.includes('Date.parse(parsed.expiresAt) <= Date.now()')&&backend.includes('Date.parse(memorySession.expiresAt) <= Date.now()'),'expired stored and in-memory sessions are discarded');
+assert(backend.includes('REQUEST_TIMEOUT_MS')&&backend.includes('controller.abort()'),'API requests time out instead of hanging indefinitely');
+assert(backend.includes('memorySession')&&backend.includes('sessionStorage'),'session storage failures have an in-memory fallback');
+assert(backend.includes('JSON.stringify({ ...payload, action })'),'callers cannot override the API action');
+assert(backend.includes('response.status === 401 && session?.token')&&backend.includes('setSession(null)'),'server-rejected sessions are cleared');
 assert(main.includes("async function restoreSession(){")&&main.includes("callApi('profile')"),'session is re-validated with the server after a reload');
 assert(main.includes("err.message==='invalid_credentials'?genericLogin:genericFailure"),'server failures are not reported as wrong credentials');
 assert(fn.includes("permitAccount('login'")&&fn.includes("permitAccount('recover'")&&fn.includes("permitAccount('question'")&&fn.includes("permitAccount('report'"),'IP-independent per-account rate limits');
@@ -220,7 +302,25 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
 // Migrations 001-014 are applied remotely and must stay byte-identical.
 {
   const { createHash }=await import('node:crypto');
-  const pinned={'202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6','202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58','202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138','202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1','202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075','202610050014_two_letter_words.sql':'5af7511582affd95e7804bb731a7f23ebc3aa15b2e113ad15ffd020d5bd7b417','202610050013_profile_changes_and_words.sql':'a959267f4b2eb9afe580280e22cd719022ca135196c892cf1e5ee670a0caead5'};
+  const pinned={
+    '202609260001_core.sql':'40df2f781cd3bcdc1787f6b5642761e628d597a9ba4ae0029de2d9b78fad58b6',
+    '202610030009_expand_question_bank.sql':'c5b814bd4c90395c2d784f82e3d9f09dba37fc628450720f459c41d2ec570c58',
+    '202610050010_add_200_questions.sql':'98e612b531be5d391b311603eb45aa66dde7c82dd44207b99809b02c839bf138',
+    '202610050011_add_200_more_questions.sql':'9ca537070278ac72a440bf0b43c5d0eaeafa0e1cad0d3a727aade29d2b0df9b1',
+    '202610050012_privilege_hardening.sql':'6a9420c4c444a47e47363fca48d331ea25014ec0db2954d047e6d9cc98732075',
+    '202610050013_profile_changes_and_words.sql':'a959267f4b2eb9afe580280e22cd719022ca135196c892cf1e5ee670a0caead5',
+    '202610050014_two_letter_words.sql':'5af7511582affd95e7804bb731a7f23ebc3aa15b2e113ad15ffd020d5bd7b417',
+    '202610050015_add_five_categories.sql':'b58116ff99e8c912d03962d02054b873aca1dda87c89d6446e4cc45fc4b9d612',
+    '202610060016_questions_and_word_reward.sql':'51ea13c7bc002a8f10eceed282cf7d3bfd03edd349235454f6f25223b167f288',
+    '202610060017_feedback_inbox.sql':'5c9b85a5f19b311ef89a1e55d7a09a71687670fddc21170f9e0370df754b8c4b',
+    '202610060018_sound_match_rewards.sql':'128f12e62dbcf77748d3ed1bd441086a8dbcbdb189f432be56d37899b5203b6d',
+    '202610060019_social_notifications.sql':'8d17bd135b7632611ad7f4ce567d50217c87214d3619d7abafb6a15af7fe7fb9',
+    '202610060020_private_messages.sql':'af5061157b6ea2b1805a762748725bc86c27da5386025472760e8388bc1399a2',
+    '202610060021_rooms.sql':'11f01a1657dc1f387ed83db97a2b27937c666f9734948c480be96db39d0e3f9f',
+    '202610060022_rooms_unlimited.sql':'97ad2b7e4e947779170c443192db0c5c6100244bdf781f736857c364b87b122b',
+    '202610060023_voice_signals.sql':'116c7686265ca160e5cc0637d38f0d3ee39fef108b1ab6b1d9328fb2ce854e7e',
+    '202610070024_app_notifications.sql':'25427f70a6c221d06e77dfa8261d7d17d5b22af773acb38b3c794c5b4ff9d8b6',
+  };
   for(const [f,h] of Object.entries(pinned))assert(createHash('sha256').update(await readFile(new URL('../supabase/migrations/'+f,import.meta.url))).digest('hex')===h,`migration ${f} must stay byte-identical`);
 }
 // Letters to Words dictionary: real SCOWL words, clean, and identical in the game and in the server seed (Migration 013).
@@ -292,7 +392,7 @@ console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST
   assert(/category-icon\\?" aria-hidden=\\?"true/.test(main2)&&main2.includes("CATEGORY_ICON={"),'category icons are aria-hidden');
   assert(/function updateHud\(\)/.test(main2)&&/state\.timeLeft--;updateHud\(\)/.test(main2),'timer is shown visually every second');
   assert(/dataset\.order/.test(lui)&&/prefers-reduced-motion:reduce/.test(css)&&/\.reduce-motion \*/.test(css),'pick order shown on tiles; animations honour reduced motion');
-  assert(html2.includes('<b id="total-categories">25</b> categories'),'home shows the current category count');
+  assert(html2.includes('<b id="total-categories">30</b> categories'),'home shows the current category count');
 }
 console.log('PASS: Task 15 sighted-player visuals are decorative and motion-safe.');
 
@@ -381,23 +481,29 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/Send \$\{p\.name\} a private message/.test(readFileSync(new URL('../src/social.js', import.meta.url), 'utf8')), 'friends can open a private chat from the card');
   console.log('PASS: Task 19 end-to-end encrypted private messages (real WebCrypto: seal, open, tamper and key-swap rejection, safety code, key pinning).');
 }
-// Task 19 stage D: rooms, room games, spectators hearing the player's sounds and announcements, comments.
+// Migration 026: shared quizzes, board games, numbered seats, invites, spectator sounds and threaded comments.
 {
   const { readFileSync } = await import('node:fs');
   const R = await import('../src/rooms.js');
   const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
-  const main = read('../src/main.js'), html = read('../index.html'), social = read('../src/social.js'), api = read('../supabase/functions/blind-quiz-api/index.ts'), rooms = read('../src/rooms.js');
-  assert(R.gameTitle('quiz', { category: 'history', mode: 'rapid' }, [{ id: 'history', name: 'History' }]) === 'Quiz: History, Rapid Fire' && R.gameTitle('soundmatch', { level: 'hard' }) === 'Sound Match: Hard' && R.gameTitle('letters') === 'Letters to Words', 'room game titles');
-  assert(R.eventText({ kind: 'say', name: 'Ann', body: 'Correct!' }) === "Ann's game: Correct!" && R.eventText({ kind: 'comment', name: 'Bo', body: 'Nice' }) === 'Bo commented: Nice' && R.eventText({ kind: 'sfx', name: 'Ann', body: 'correct' }) === null, 'spectator log lines (sound effects are heard, not listed)');
-  for (const id of ['view-room', 'view-watch', 'mp-rooms', 'mp-room-list', 'room-create-form', 'room-new-public', 'room-games', 'room-game-form', 'room-game-kind', 'room-game-category', 'room-game-mode', 'room-game-level', 'room-chat', 'room-chat-form', 'room-invite-form', 'watch-log', 'watch-scores', 'watch-comment-form', 'back-to-room']) assert(html.includes(`id="${id}"`), `rooms markup #${id}`);
-  assert(html.includes('data-mp-tab="rooms"'), 'Rooms tab in Multiplayer');
-  for (const a of ['rooms', 'room-create', 'room-remove', 'room-leave', 'room-state', 'room-say', 'room-invite', 'match-invite', 'game-create', 'game-join', 'game-watch', 'game-post']) assert(api.includes(`'${a}':['bq_`), `API action ${a}`);
-  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main) && /const announce=\(text,urgent=false\)=>\{livePush\('say',text\);/.test(main) && /function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main) && /function playMatchSound\(slot,\.\.\.a\)\{livePush\('match',slot\)/.test(main), 'room games broadcast announcements, sound effects and Sound Match sounds only while live');
-  assert(/playSfx:rawSfx,playMatchSound:rawMatch/.test(main), 'spectators replay with plain audio (never re-broadcast)');
-  assert(/state\.view==='room'&&\(view==='watch'\|\|\(live&&view===LIVE_VIEWS\[live\.kind\]\)\)/.test(main), 'starting or watching a room game does not ask to leave the room');
-  assert(/Send \$\{p\.name\} a match/.test(social) && /callApi\('match-invite'/.test(social) && /'room_invite', 'game_invite'\].includes\(n\.kind\) && n\.ref/.test(social), 'friends can send a match; invites open the room');
-  assert(!/loginId|login_id/.test(rooms), 'rooms never handle Login IDs');
-  console.log('PASS: Task 19 rooms (public and private rooms, chat, room games, live spectators, comments, match invites).');
+  const main=read('../src/main.js'),html=read('../index.html'),social=read('../src/social.js'),api=read('../supabase/functions/blind-quiz-api/index.ts'),rooms=read('../src/rooms.js'),play=read('../src/room-play.js'),migration=read('../supabase/migrations/202610090026_multiplayer_room_games.sql'),optionsMigration=read('../supabase/migrations/202610090027_room_lobby_options_and_game_modes.sql');
+  assert(R.gameTitle('quiz',{category:'history',mode:'rapid' },[{id:'history',name:'History'}])==='Quiz: History, Rapid Fire'&&R.gameTitle('soundmatch',{level:'hard'})==='Sound Match: Hard'&&R.gameTitle('letters')==='Letters to Words'&&R.gameTitle('chess')==='Chess','room game titles include the new board games');
+  assert(R.eventText({kind:'say',name:'Ann',body:'Correct!'})==="Ann's game: Correct!"&&R.eventText({kind:'comment',name:'Bo',body:'Nice'})==='Bo commented: Nice'&&R.eventText({kind:'comment',name:'Bo',body:'Nice',replyTo:2,replyName:'Ann'})==='Bo replied to Ann: Nice'&&R.eventText({kind:'sfx',name:'Ann',body:'correct'})===null,'spectator comments, threaded replies and sound-only events');
+  for(const id of ['view-room','view-room-game','view-watch','mp-rooms','mp-room-list','room-create-form','room-new-public','room-games','room-game-form','room-game-kind','room-game-category','room-game-mode','room-game-player-count','room-game-host','room-play-players','room-play-ready','room-play-start','room-play-join-form','room-play-join-color','room-play-assign-form','room-play-color','room-play-invite-form','room-play-comments','room-play-comment-form','room-play-word-form','room-play-sound-grid','watch-board','watch-join-form','watch-join-seat','watch-comment-form','watch-comments-toggle','room-chat','room-chat-form','room-invite-form','watch-log','watch-scores','watch-reply-cancel','signup-name-generate'])assert(html.includes(`id="${id}"`),`rooms markup #${id}`);
+  assert(html.includes('value="yesno"')||GAME_MODES.some(([id])=>id==='yesno'),'quiz mode registered');assert(html.includes('Snakes and Ladders')&&html.includes('value="chess"'),'all requested board-game choices exist');
+  for(const a of ['rooms','room-create','room-remove','room-leave','room-state','room-say','game-comment','room-invite','match-invite','game-create','game-join','game-assign','game-ready','game-comments','game-answer','game-letter-word','game-sound-flip','game-invite','game-invite-respond','game-state','game-watch','game-post'])assert(api.includes(`'${a}':['bq_`),`API action ${a}`);
+  assert(api.includes("if(body.action==='game-start')")&&api.includes("admin.rpc('bq_game_start'")&&api.includes('createBoardState(match.kind,Number(match.max_players),Math.random,{colors})')&&play.includes("initial={kind:'letters'}")&&play.includes("kind:'soundmatch',soundSlots"),'server initializes board games and synchronized Letters/Sound Match rather than accepting a client board');
+  assert(api.includes("if(body.action==='game-action')")&&api.includes('reduceBoardGame(match.kind,match.state,Number(player.seat),action)')&&api.includes('expectedState:match.state')&&!api.includes("'game-action':['bq_game_action'")&&play.includes("callApi('game-action',{gameId:game.id,move:action})"),'board moves are recomputed from a version-checked server snapshot; client-supplied states are ignored');
+  assert(read('../scripts/build.mjs').includes("'supabase/functions/_shared'"),'the trusted board reducer is included in the static web build');
+  assert(play.includes('id:options.id||options.gameId')&&play.includes("typeof d.hostMe==='boolean'?d.hostMe:!!d.host"),'room gameplay routes use the real game id and server-reported host permissions');
+  assert(/'quiz','snakes','ludo','carrom','blackjack','chess'/.test(migration)&&/bq_game_start/.test(migration)&&/bq_game_answer/.test(migration)&&migration.includes('left join public.bq_questions q')&&/server_keys/.test(migration)&&/reply_to/.test(migration)&&/not_room_member/.test(migration)&&/k='score' and g\.kind not in \('letters','soundmatch'\)/.test(migration)&&/expectedState.*is distinct from g\.state/.test(migration)&&migration.includes('yesNoCandidates')&&migration.includes('answerOptions'),'Migration 026 adds verified scoring, synchronized Yes or No prompts, version-checked board moves, and threaded comments');
+  assert(optionsMigration.includes("sync_kind:=p_kind in ('quiz','letters','soundmatch','snakes','ludo','carrom','blackjack','chess')")&&optionsMigration.includes('creator_id')&&optionsMigration.includes('bq_game_assign_member')&&optionsMigration.includes('bq_game_set_comments')&&optionsMigration.includes('bq_game_letter_word')&&optionsMigration.includes('bq_game_sound_flip')&&optionsMigration.includes("lastMatched'='false")&&optionsMigration.includes('create or replace function public.bq_room_state')&&optionsMigration.includes("'color',gp.color")&&optionsMigration.includes("g.phase<>'lobby' and p_color is not null")&&optionsMigration.includes("g.creator_id<>p_profile_id")&&optionsMigration.includes("'creatorMe',g.creator_id=p_profile_id"),'Migration 027 implements chosen hosts, room-member seats, creator/host comment moderation, and server-owned Letters/Sound Match turns');
+  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main)&&/const announce=\(text,urgent=false\)=>\{livePush\('say',text\);/.test(main)&&/function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main),'active room-game events can be broadcast to spectators');
+  assert(/playSfx:rawSfx/.test(main)&&/game-watch/.test(play)&&/game-answer/.test(play)&&/game-action/.test(play)&&/game-letter-word/.test(play)&&/game-sound-flip/.test(play),'shared room UI uses the server watch/action APIs and recorded local audio');
+  assert(/Questions stay hidden until the players are ready/.test(play)&&/players_not_ready/.test(migration)&&/waiting_for_players/.test(migration),'lobby gate blocks the shared start until all selected seats are ready');
+  assert(/game-invite-respond/.test(social)&&/Accept \$\{n\.actor/.test(social)&&/replyTo/.test(rooms),'friends can accept game invitations and spectators can reply');
+  assert(!/loginId|login_id/.test(rooms),'rooms never handle Login IDs');
+  console.log('PASS: Migration 026 room games (ready-up, shared score, board-game states, friend invites, public threaded comments, action-timed recorded sounds).');
 }
 // Ringtones and alert sounds; Android app background notifications; automatic update news.
 {
@@ -414,17 +520,28 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   store.set('bq-sound-alert', 'bogus'); assert.equal(A.alertSound('alert'), 'match_crystal_chime', 'a broken stored value falls back');
   assert.equal(A.appBridge(), null, 'no app bridge on the website');
   delete globalThis.localStorage;
-  const html = read('../index.html'), social = read('../src/social.js'), direct = read('../src/direct.js'), chat = read('../src/chat.js');
+  const html = read('../index.html'), social = read('../src/social.js'), direct = read('../src/direct.js'), chat = read('../src/chat.js'), mainApp = read('../src/main.js'), dartApp = read('../android-app/lib/main.dart'), activity = read('../android-app/native/MainActivity.kt');
   for (const id of ['sound-choice-rows', 'app-notify-box', 'app-notify-on', 'app-notify-sounds']) assert(html.includes(`id="${id}"`), `markup #${id}`);
   assert(/playSfx\(alertSound\(obj\.t === 'call' \? 'call' : 'alert'\)\)/.test(direct) && /setInterval\(ring, 4000\)/.test(direct) && (direct.match(/clearInterval\(sess\.ringLoop\)/g) || []).length === 2, 'incoming calls ring with the chosen ringtone until answered or ended');
   assert(chat.includes("playSfx(alertSound('message'))") && social.includes("playSfx(alertSound('alert'))"), 'messages and alerts use the chosen sounds');
   assert(/callApi\('notify-register'\)/.test(social) && /op: 'logout'/.test(social) && /op: 'disable'/.test(social) && /op: 'sounds'/.test(social), 'the app bridge enables, disables, signs out and opens phone sound settings');
+  assert(/function stop\(\)\s*\{[^}]*renderBell\(\);[^}]*\}/.test(social) && !/function stop\(\)\s*\{[^}]*appBridge/.test(social) && /function stopAppNotifications\(\)\s*\{[^}]*op:\s*'logout'/.test(social) && mainApp.includes('social?.stopAppNotifications();setSession(null)'), 'initial signed-out rendering preserves the persisted Android token; explicit logout removes it');
+  assert(mainApp.includes("globalThis.bqOpenNotificationById = id => social?.openNotification(id);") && mainApp.includes("globalThis.bqOpenHomeFromNotification = () => go('home',") && /function openNotification\(id\)[\s\S]*?loadNotifications\(n\)/.test(social) && social.includes('row.dataset.notificationId === String(focusId)'), 'notification clicks open the destination and focus the matching item');
   const news = JSON.parse(read('../news.json'));
   assert(typeof news.id === 'string' && news.id && /^\d{4}-\d{2}-\d{2}$/.test(news.date) && news.title && news.text && news.text.length <= 240, 'news.json drives the automatic update notification');
+  assert(news.text.includes('voice messages')&&news.text.includes('60 seconds')&&news.text.includes('Chipmunk')&&news.text.includes('effects keep the same length')&&news.text.includes('cycle speed')&&news.text.includes('emojis')&&news.text.includes('stickers')&&news.text.includes('files'),'update news highlights the voice-message controls and private-chat features');
+  assert(!/Gemini|AI|offline|API|secret|key/i.test(news.text),'update news contains only player-facing feature details');
   assert(read('../scripts/build.mjs').includes("'news.json'"), 'news.json is published with the site');
   const kt = read('../android-app/native/NotifyWorker.kt');
   assert(kt.includes('notify-check') && kt.includes('news.json') && !/import [^\n]*firebase/i.test(kt) && !/firebase/i.test(read('../.github/workflows/build-android.yml').replace(/no Firebase/g, '')), 'the app checks without Firebase');
-  console.log('PASS: ringtones and alert sounds (real recordings), Android background notifications bridge, and automatic update news.');
+  const checkNewsAt = kt.indexOf('try { checkNews(ctx, p) }'), tokenReadAt = kt.indexOf('val token = p.getString("token", null)', checkNewsAt);
+  assert(checkNewsAt >= 0 && tokenReadAt > checkNewsAt && kt.includes('setRequiredNetworkType(NetworkType.CONNECTED)'), 'feature news is fetched on an Android background worker without sign-in and retried when online');
+  assert(kt.includes('const val EXTRA_OPEN_TARGET') && kt.includes('const val EXTRA_NOTIFICATION_ID') && kt.includes('fun clickPayload(intent: Intent?)') && kt.includes('putExtra(EXTRA_NOTIFICATION_ID, notificationId)') && kt.includes('PendingIntent.getActivity(ctx, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)') && kt.includes('Intent.FLAG_ACTIVITY_SINGLE_TOP') && kt.includes('text, "notification", notificationId)'), 'Android notification PendingIntents carry each item\'s safe route and unique identity');
+  assert(activity.includes('pendingNotificationClick = BQNotify.clickPayload(intent)') && activity.includes('override fun onNewIntent(intent: Intent)') && activity.includes('"consumeLaunchNotification"') && activity.includes('invokeMethod("notificationClick", null)') && dartApp.includes('kNotify.setMethodCallHandler(_onNativeNotificationCall)') && dartApp.includes("invokeMapMethod<String, dynamic>('consumeLaunchNotification')") && dartApp.includes('notificationRouteOpenScript(route)'), 'cold and warm Android launches deliver the tapped route into the loaded WebView');
+  assert(kt.includes('if (!p.getBoolean("enabled", true) || !BQNotify.canNotify(ctx)) return') && activity.includes('"disable" -> { BQNotify.disable(this)') && activity.includes('"logout" -> { BQNotify.stop(this)'), 'phone-notification opt-out is honored while sign-out leaves public news enabled');
+  assert(kt.includes('ReceivedFileCleanupWorker') && kt.includes('bq-received-cleanup') && kt.includes('File(applicationContext.cacheDir, "received")') && kt.includes('3L * 60 * 60 * 1000'), 'Android cleans private received files in the background while offline or signed out');
+  assert(read('../android-app/native/proguard-rules.pro').includes('ReceivedFileCleanupWorker { public <init>'), 'the background cleanup worker survives Android release shrinking');
+  console.log('PASS: ringtones and alert sounds, background news for signed-out users, and update-notification controls.');
 }
 // Applied migrations never re-run: only Migration 023's own files trigger it; 019-022 are manual only.
 {
@@ -450,14 +567,35 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(await rejects(() => E.openData(boxes[b.deviceId], b, a.deviceId, eve.publicKey)), 'a forged sender is rejected');
   assert(await rejects(() => E.open(boxes[b.deviceId], b, a.deviceId, a.publicKey)), 'a signal can never be read as a chat message');
   assert(await rejects(() => E.openData(boxes[b.deviceId], b, a.deviceId, a.publicKey, Date.now() + 600000)), 'old signals cannot be replayed');
-  const html = read('../index.html'), main = read('../src/main.js'), rooms = read('../src/rooms.js'), direct = read('../src/direct.js'), api = read('../supabase/functions/blind-quiz-api/index.ts');
-  for (const id of ['room-voice-record', 'room-voice-cancel', 'direct-call-audio', 'direct-call-video', 'direct-send-file', 'direct-file-input', 'direct-panel', 'direct-progress', 'direct-remote', 'direct-local']) assert(html.includes(`id="${id}"`), `markup #${id}`);
+  const html = read('../index.html'), main = read('../src/main.js'), rooms = read('../src/rooms.js'), direct = read('../src/direct.js'), chat = read('../src/chat.js'), api = read('../supabase/functions/blind-quiz-api/index.ts');
+  for (const id of ['room-voice-style-control', 'chat-voice-style-control', 'room-voice-record', 'room-voice-cancel', 'room-voice-send', 'room-voice-review', 'room-voice-preview', 'room-voice-preview-controls', 'direct-call-audio', 'direct-call-video', 'direct-send-file', 'direct-file-input', 'direct-panel', 'direct-progress', 'direct-remote', 'direct-local', 'chat-emoji-toggle', 'chat-emoji-picker', 'chat-sticker-toggle', 'chat-sticker-picker', 'chat-voice-record', 'chat-voice-stop', 'chat-voice-cancel', 'chat-voice-review', 'chat-voice-preview', 'chat-voice-preview-controls', 'chat-voice-send', 'chat-voice-discard', 'direct-voice-playback', 'direct-voice-audio', 'direct-voice-controls', 'direct-expiry']) assert(html.includes(`id="${id}"`), `markup #${id}`);
   assert(!/startCall|createDirect|RTCPeerConnection/.test(rooms), 'rooms have no calls, only voice messages');
   assert(/'room-voice-send':\['bq_room_voice_send'/.test(api) && /'signal-send':\['bq_signal_send'/.test(api) && /'signals':\['bq_signals_poll'/.test(api), 'voice and signal API actions');
   assert(/sealData\(\{ \.\.\.obj, s: sess\.id \}, me, targets\)/.test(direct) && !/callApi\('signal-send', \{[^}]*sdp/.test(direct), 'only sealed boxes carry connection details');
   assert(!/turn:/i.test(direct), 'no paid relay server is used');
   assert(/direct\.startFile\(chat\.friend,f\)/.test(main) && /onRing:\(\)=>direct\.poll\(\)/.test(main), 'files and calls start from the friend chat; heartbeat rings');
-  console.log('PASS: Task 19 room voice messages and direct calls/files between online friends (sealed signals: open, forged sender, cross-use and replay rejected).');
+  assert(/chat=createChat\(\{[^\n]*direct\}\)/.test(main) && chat.includes('direct.startVoiceMessage(pending.to, pending.blob, pending.durationMs)') && chat.includes('voiceTimer = voiceTimeout(() => stopVoiceRecording(true), MAX_VOICE_MESSAGE_MS)') && chat.includes('voiceTimeout = (fn, ms) => setTimeout(fn, ms)'), 'private voice recordings stop at the limit and send only after explicit confirmation');
+  assert(chat.includes('PRIVATE_STICKERS') && /data-chat-emoji/.test(html) && /data-chat-sticker/.test(html), 'private chat sends emoji and encrypted sticker messages');
+  assert(direct.includes("t: 'voice'") && direct.includes("sess.kind !== 'call'") && direct.includes('RECEIVED_FILE_TTL_MS'), 'voice notes transfer only to an online peer and temporary received browser files expire');
+  assert(direct.includes('MAX_DIRECT_FILE_BYTES = 2 * 1024 * 1024 * 1024') && direct.includes('MAX_VOICE_MESSAGE_MS = 60_000'), 'file size and voice duration limits are enforced');
+  const voicePlayback = read('../src/voice-playback.js'), voiceDsp = read('../src/voice-dsp.js');
+  assert(['higher', 'lower', 'chipmunk', 'alien', 'robot'].every(effect => voicePlayback.includes(`id: '${effect}'`)) && voicePlayback.includes('audio.playbackRate') && /audio\[property\] = true/.test(voicePlayback) && voicePlayback.includes('SPEEDS[(index + 1) % SPEEDS.length]') && !/AudioContext|createOscillator|speechSynthesis/.test(voicePlayback), 'sender styles are separate from recipient playback, which cycles speed while preserving the recorded pitch');
+  assert(voiceDsp.includes('createMediaStreamSource(inputStream)') && voiceDsp.includes("setParam(shifter, 'playbackRate', 1)") && voiceDsp.includes('soundtouch-processor.js') && voiceDsp.includes('source.connect(filter)') && voiceDsp.includes('oscillator.connect(depth)'), 'voice effects process the real microphone stream locally at unity tempo');
+  const soundTouchMap = JSON.parse(read('../src/soundtouch-processor.js.map'));
+  assert(soundTouchMap.sourcesContent?.some(source => source?.includes('SoundTouchProcessorBase')) && read('../licenses/MPL-2.0.txt').startsWith('Mozilla Public License Version 2.0') && read('../scripts/build.mjs').includes("'licenses'"), 'the bundled DSP source and its MPL-2.0 license ship with the site');
+  const playbackControls = voicePlayback.slice(voicePlayback.indexOf('export function createVoicePlaybackControls'), voicePlayback.indexOf('export function voiceEffectLabel'));
+  const roomVoiceLine = rooms.slice(rooms.indexOf('function voiceLine'), rooms.indexOf('async function playVoice'));
+  assert(!direct.includes('createVoiceEffectSelector') && !roomVoiceLine.includes('createVoiceEffectSelector') && !playbackControls.includes('Voice style'), 'recipients cannot change a sender’s baked-in voice style');
+  const roomPrepare = rooms.slice(rooms.indexOf('function prepareRoomRecording'), rooms.indexOf('async function sendRoomRecording'));
+  assert(rooms.includes('rec.onstop = () => prepareRoomRecording(mime, effectId)') && rooms.includes('setTimeout(() => stopRoomRecording(true), 60000)') && rooms.includes("$('#room-voice-send')?.addEventListener('click', sendRoomRecording)") && !roomPrepare.includes("callApi('room-voice-send'"), 'room recordings stop at 60 seconds and are sent only by the explicit Send button');
+  assert(rooms.includes('audio.controls = true') && rooms.includes('activeRoomAudio.pause()') && rooms.includes('createVoicePlaybackControls') && direct.includes('createVoicePlaybackControls'), 'room and private voice players preserve pause/resume/seek position and expose playback controls');
+  assert(rooms.includes('Live room hello bq[0-9a-f]{12}') && html.includes('id="room-voice-status" class="muted" role="status" aria-live="off"'), 'legacy live-test echoes stay hidden and recording ticks do not interrupt TalkBack');
+  const liveApi=read('../tests/live-api.mjs');assert(liveApi.includes('name: `Live check ${tokenish()}`, isPublic: true')&&liveApi.includes('room-remove\', roomId: rTestRoom.body?.id'), 'live public-chat checks delete their disposable test room instead of polluting default rooms');
+  assert(chat.includes('voiceReview = { to, blob, durationMs, effectId }') && chat.includes('voiceSendButton?.addEventListener(\'click\', sendVoicePreview)'), 'private voice recordings are reviewed before the explicit Send action');
+  const dart = read('../android-app/lib/main.dart'), androidWorkflow = read('../.github/workflows/build-android.yml');
+  assert(dart.includes('kReceivedFileTtl = Duration(hours: 3)') && dart.includes('_scheduleReceivedExpiry(id, inc.file)') && dart.includes('didChangeAppLifecycleState'), 'Android temporary file copies expire after three hours, with startup and resume cleanup');
+  assert(androidWorkflow.includes('Verify APK package name and permanent signing identity') && androidWorkflow.includes('android-v1.0.29') && androidWorkflow.includes("EXPECTED_PACKAGE='io.github.mahicouragw.blind_quiz'") && androidWorkflow.includes("grep -i 'SHA-256'"), 'Android release verifies the stable package and public signing fingerprint before publishing');
+  console.log('PASS: private and room voice messages stop at 60 seconds, require explicit Send, and support pause/resume and speed-only playback for sender-processed voice styles; calls/files/stickers remain covered.');
 }
 // Task 19 stage E: exit confirmation for games, modes and rooms (buttons, brand link and Android/browser Back).
 {

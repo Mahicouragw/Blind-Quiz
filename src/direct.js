@@ -5,9 +5,14 @@
 // Flow: ring (to all the friend's devices) -> accept (from one device) -> offer -> answer -> connected.
 import { deviceKey, idbStore, sealData, openData, keyPins, MAX_SIGNAL } from './e2ee.js';
 import { alertSound } from './alerts.js';
+import { createVoicePlaybackControls } from './voice-playback.js';
 
 const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
-const CHUNK = 64 * 1024, HIGH_WATER = 8 * 1024 * 1024, MAX_FILE = 2 * 1024 * 1024 * 1024;
+export const MAX_DIRECT_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_VOICE_MESSAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_VOICE_MESSAGE_MS = 60_000;
+export const RECEIVED_FILE_TTL_MS = 3 * 60 * 60 * 1000;
+const CHUNK = 64 * 1024, HIGH_WATER = 8 * 1024 * 1024, MAX_FILE = MAX_DIRECT_FILE_BYTES;
 const RING_MS = 60000, CONNECT_MS = 30000, FAST_POLL_MS = 1000;
 
 export function formatSize(n) {
@@ -26,16 +31,30 @@ const safeName = n => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]/g, 
 export function createDirect({ $, announce, callApi, getSession, playSfx = () => {}, store = null, pinsStorage = null,
   RTC = globalThis.RTCPeerConnection, mediaDevices = () => globalThis.navigator?.mediaDevices, onCallState = () => {} }) {
   let me = null, registeredFor = '', after = null, pollTimer = null, active = null, polling = false;
+  let receivedUrl = '', receivedUrlTimer = null;
   const handled = new Set();
   const account = () => getSession()?.loginId || getSession()?.profile?.loginId || getSession()?.profile?.name || '';
   const pins = () => keyPins(pinsStorage || globalThis.localStorage, account());
   const panel = $('#direct-panel'), title = $('#direct-title'), text = $('#direct-text'), actions = $('#direct-actions'), progress = $('#direct-progress');
+  const voiceAudio = $('#direct-voice-audio'), voiceControls = $('#direct-voice-controls');
+  const voicePlayback = voiceAudio ? createVoicePlaybackControls(voiceAudio, { idPrefix: 'direct-voice', label: 'Received voice message', note: true }) : null;
+  if (voiceControls && voicePlayback) voiceControls.replaceChildren(voicePlayback.element);
   const el = (tag, cls, t) => { const e = document.createElement(tag); if (cls) e.className = cls; if (t != null) e.textContent = t; return e; };
   const button = (t, onClick, cls = 'button button-outline') => { const b = el('button', cls, t); b.type = 'button'; b.addEventListener('click', onClick); return b; };
   const uuid = () => globalThis.crypto.randomUUID();
   const supported = () => typeof RTC === 'function' && !!globalThis.crypto?.subtle;
 
   // ---- Panel -------------------------------------------------------------------------------
+  function clearReceivedContent(expired = false) {
+    clearTimeout(receivedUrlTimer); receivedUrlTimer = null;
+    if (receivedUrl) { try { URL.revokeObjectURL(receivedUrl); } catch { /* ignore */ } receivedUrl = ''; }
+    const player = $('#direct-voice-audio');
+    if (player) { try { player.pause(); } catch { /* ignore */ } player.removeAttribute('src'); try { player.load(); } catch { /* ignore */ } }
+    const playback = $('#direct-voice-playback'); if (playback) playback.hidden = true;
+    const expiry = $('#direct-expiry');
+    if (expiry) { expiry.hidden = !expired; expiry.textContent = expired ? 'This temporary copy expired after three hours.' : ''; }
+    if (expired) actions.querySelector('a[href^="blob:"]')?.remove();
+  }
   function show(heading, body, buttons = [], { alert = false, urgent = false, focus = true } = {}) {
     panel.hidden = false;
     panel.setAttribute('role', alert ? 'alertdialog' : 'region');
@@ -44,9 +63,19 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     if (body) announce(`${heading}. ${body}`, urgent);
     if (focus && buttons[0]) setTimeout(() => buttons[0].focus(), 40);
   }
-  function hidePanel() { panel.hidden = true; progress.hidden = true; $('#direct-videos').hidden = true; actions.replaceChildren(); }
+  function hidePanel() { clearReceivedContent(); panel.hidden = true; progress.hidden = true; $('#direct-videos').hidden = true; actions.replaceChildren(); }
   function setProgress(pct) { progress.hidden = false; progress.value = pct; progress.setAttribute('aria-valuetext', `${pct} percent`); }
   const closeButton = () => button('Close', hidePanel, 'button button-quiet');
+  function retainTemporaryUrl(url, onExpire) {
+    receivedUrl = url;
+    clearTimeout(receivedUrlTimer);
+    receivedUrlTimer = setTimeout(() => {
+      if (receivedUrl !== url) return;
+      if (typeof onExpire === 'function') onExpire();
+      clearReceivedContent(true);
+    }, RECEIVED_FILE_TTL_MS);
+  }
+  function resetTemporaryContent() { clearReceivedContent(); progress.hidden = true; }
 
   // ---- Keys and signals ----------------------------------------------------------------------
   async function ensureMe() {
@@ -89,7 +118,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   }
 
   function errorText(code, friend) {
-    return code === 'player_offline' ? `${friend} is not online right now. Calls and files work only when you are both online.`
+    return code === 'player_offline' ? `${friend} is not online right now. Calls, voice messages and files work only when you are both online.`
       : code === 'not_friends' ? `You need to be friends with ${friend} first.`
       : code === 'keys_changed_confirm' ? `${friend}'s security key changed. Open your chat with ${friend} and confirm the safety code first.`
       : code === 'no_devices' ? `${friend} has not opened private messages on any device yet, so a direct connection cannot be set up.`
@@ -106,24 +135,39 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     if (file.size > MAX_FILE) { show('File too large', `${file.name} is ${formatSize(file.size)}. Files up to 2 GB can be sent.`, [closeButton()]); return; }
     return ring(friend, { kind: 'file', file, meta: { t: 'file', name: safeName(file.name), size: file.size, mime: String(file.type || 'application/octet-stream').slice(0, 100) } });
   }
+  async function startVoiceMessage(friend, blob, durationMs) {
+    if (!blob || !Number.isFinite(blob.size) || blob.size < 1) { show('Voice message not sent', 'The recording is empty. Please record it again.', [closeButton()]); return false; }
+    if (blob.size > MAX_VOICE_MESSAGE_BYTES) { show('Voice message too large', `Voice messages must be no larger than ${formatSize(MAX_VOICE_MESSAGE_BYTES)}.`, [closeButton()]); return false; }
+    if (!Number.isFinite(durationMs) || durationMs < 250 || durationMs > MAX_VOICE_MESSAGE_MS) { show('Voice message too long', 'Record a voice message for up to 60 seconds.', [closeButton()]); return false; }
+    const mime = String(blob.type || 'audio/webm').slice(0, 100);
+    if (!mime.startsWith('audio/')) { show('Voice message not sent', 'This recording format cannot be sent. Please try again.', [closeButton()]); return false; }
+    const ext = /mp4|m4a/i.test(mime) ? '.m4a' : /ogg/i.test(mime) ? '.ogg' : '.webm';
+    const meta = { t: 'voice', name: `voice-message${ext}`, size: blob.size, mime, durationMs: Math.round(durationMs) };
+    return ring(friend, { kind: 'voice', file: blob, meta });
+  }
   function startCall(friend, video = false) { return ring(friend, { kind: 'call', video, meta: { t: 'call', video: !!video } }); }
 
   async function ring(friend, { kind, file = null, video = false, meta }) {
-    if (active) { show('Already busy', 'Finish the current call or transfer first.', [closeButton()]); return; }
+    if (active) { show('Already busy', 'Finish the current call or transfer first.', [closeButton()]); return false; }
+    resetTemporaryContent();
+    const heading = kind === 'file' ? 'Sending a file' : kind === 'voice' ? 'Sending a voice message' : video ? 'Video call' : 'Audio call';
     const sess = active = { id: uuid(), friend, role: 'caller', kind, file, video, meta, devices: [] };
-    show(kind === 'file' ? 'Sending a file' : video ? 'Video call' : 'Audio call', `Contacting ${friend}…`, [button('Cancel', () => cancel(sess), 'button button-quiet')], { focus: false });
+    show(heading, `Contacting ${friend}…`, [button('Cancel', () => cancel(sess), 'button button-quiet')], { focus: false });
     try {
       await ensureMe();
       if (kind === 'call') sess.stream = await getMedia(video);
       sess.devices = await friendDevices(friend);
       await send(sess, 'ring', meta, sess.devices);
-    } catch (err) { finish(sess, kind === 'file' ? 'File not sent' : 'Call not started', errorText(err.message === 'NotAllowedError' ? 'media' : err.message, friend)); return; }
-    if (active !== sess) return;
-    show(kind === 'file' ? 'Sending a file' : video ? 'Video call' : 'Audio call',
-      kind === 'file' ? `Waiting for ${friend} to accept ${meta.name}, ${formatSize(meta.size)}.` : `Calling ${friend}…`,
+    } catch (err) { finish(sess, kind === 'file' ? 'File not sent' : kind === 'voice' ? 'Voice message not sent' : 'Call not started', errorText(err.message === 'NotAllowedError' ? 'media' : err.message, friend)); return false; }
+    if (active !== sess) return false;
+    show(heading,
+      kind === 'file' ? `Waiting for ${friend} to accept ${meta.name}, ${formatSize(meta.size)}.`
+        : kind === 'voice' ? `Waiting for ${friend} to accept your ${Math.max(1, Math.round(meta.durationMs / 1000))}-second voice message.`
+        : `Calling ${friend}…`,
       [button('Cancel', () => cancel(sess), 'button button-quiet')]);
     sess.ringTimer = setTimeout(() => { if (active === sess && !sess.peerDevice) { cancel(sess, false); finish(sess, 'No answer', `${friend} did not answer.`); } }, RING_MS);
     schedulePoll();
+    return true;
   }
   async function getMedia(video) {
     const md = mediaDevices();
@@ -139,17 +183,26 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   // ---- Incoming (callee) ---------------------------------------------------------------------
   async function handle(s, obj) {
     const sess = active && active.id === s.session ? active : null;
-    if (s.kind === 'ring' && (obj.t === 'file' || obj.t === 'call')) {
+    if (s.kind === 'ring' && (obj.t === 'file' || obj.t === 'voice' || obj.t === 'call')) {
       const peer = { deviceId: s.senderDevice, publicKey: s.senderKey };
       if (active) { send({ id: s.session, friend: s.from }, 'signal', { t: 'busy' }, [peer]).catch(() => {}); return; }
+      if ((obj.t === 'file' && (!Number.isSafeInteger(Number(obj.size)) || Number(obj.size) < 0 || Number(obj.size) > MAX_FILE))
+        || (obj.t === 'voice' && (!Number.isSafeInteger(Number(obj.size)) || Number(obj.size) < 1 || Number(obj.size) > MAX_VOICE_MESSAGE_BYTES
+          || !Number.isFinite(Number(obj.durationMs)) || Number(obj.durationMs) < 250 || Number(obj.durationMs) > MAX_VOICE_MESSAGE_MS || !String(obj.mime || '').startsWith('audio/')))) {
+        send({ id: s.session, friend: s.from }, 'signal', { t: 'decline' }, [peer]).catch(() => {}); return;
+      }
       const inc = active = { id: s.session, friend: s.from, role: 'callee', kind: obj.t, video: !!obj.video, meta: obj, peerDevice: s.senderDevice, peerKey: s.senderKey };
-      if (obj.t === 'file') obj.name = safeName(obj.name);
-      const what = obj.t === 'file' ? `${s.from} wants to send you a file: ${obj.name}, ${formatSize(Number(obj.size) || 0)}.` : `${s.from} is calling you${obj.video ? ' with video' : ''}.`;
+      if (obj.t !== 'call') obj.name = safeName(obj.name);
+      const what = obj.t === 'file' ? `${s.from} wants to send you a file: ${obj.name}, ${formatSize(Number(obj.size) || 0)}.`
+        : obj.t === 'voice' ? `${s.from} sent a ${Math.max(1, Math.round(Number(obj.durationMs) / 1000))}-second voice message, ${formatSize(Number(obj.size))}.`
+        : `${s.from} is calling you${obj.video ? ' with video' : ''}.`;
       const ring = () => playSfx(alertSound(obj.t === 'call' ? 'call' : 'alert'));
       ring(); if (obj.t === 'call') inc.ringLoop = setInterval(ring, 4000);
-      show(obj.t === 'file' ? 'Incoming file' : obj.video ? 'Incoming video call' : 'Incoming call', what,
-        [button(obj.t === 'file' ? 'Accept file' : 'Answer', () => accept(inc), 'button button-hot'), button('Decline', () => decline(inc), 'button button-quiet')], { alert: true, urgent: true });
-      inc.ringTimer = setTimeout(() => { if (active === inc && !inc.accepted) finish(inc, 'Missed', `You missed ${obj.t === 'file' ? 'a file' : 'a call'} from ${s.from}.`); }, RING_MS);
+      const heading = obj.t === 'file' ? 'Incoming file' : obj.t === 'voice' ? 'Incoming voice message' : obj.video ? 'Incoming video call' : 'Incoming call';
+      const acceptLabel = obj.t === 'file' ? 'Accept file' : obj.t === 'voice' ? 'Listen' : 'Answer';
+      show(heading, what,
+        [button(acceptLabel, () => accept(inc), 'button button-hot'), button('Decline', () => decline(inc), 'button button-quiet')], { alert: true, urgent: true });
+      inc.ringTimer = setTimeout(() => { if (active === inc && !inc.accepted) finish(inc, 'Missed', `You missed ${obj.t === 'file' ? 'a file' : obj.t === 'voice' ? 'a voice message' : 'a call'} from ${s.from}.`); }, RING_MS);
       schedulePoll();
       return;
     }
@@ -163,18 +216,18 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
       case 'accept': if (sess.role === 'caller' && !sess.peerDevice) { sess.peerDevice = s.senderDevice; sess.peerKey = s.senderKey; clearTimeout(sess.ringTimer); makeOffer(sess); } break;
       case 'offer': if (sess.role === 'callee' && sess.accepted && typeof obj.sdp === 'string') makeAnswer(sess, obj.sdp); break;
       case 'answer': if (sess.role === 'caller' && sess.pc && typeof obj.sdp === 'string') { try { await sess.pc.setRemoteDescription({ type: 'answer', sdp: obj.sdp }); } catch { fail(sess); } } break;
-      case 'decline': finish(sess, sess.kind === 'file' ? 'File declined' : 'Call declined', `${sess.friend} declined.`); break;
+      case 'decline': finish(sess, sess.kind === 'file' ? 'File declined' : sess.kind === 'voice' ? 'Voice message declined' : 'Call declined', `${sess.friend} declined.`); break;
       case 'busy': finish(sess, 'Busy', `${sess.friend} is busy right now.`); break;
       case 'taken': finish(sess, 'Answered elsewhere', 'You answered on another device.'); break;
       case 'cancel': finish(sess, 'Cancelled', `${sess.friend} cancelled.`); break;
-      case 'end': finish(sess, sess.kind === 'call' ? 'Call ended' : 'Transfer ended', sess.kind === 'call' ? `${sess.friend} hung up.` : ''); break;
+      case 'end': finish(sess, sess.kind === 'call' ? 'Call ended' : sess.kind === 'voice' ? 'Voice message ended' : 'Transfer ended', sess.kind === 'call' ? `${sess.friend} hung up.` : ''); break;
       default: break;
     }
   }
   async function accept(sess) {
     if (sess.accepted) return;
     sess.accepted = true; clearTimeout(sess.ringTimer); clearInterval(sess.ringLoop);
-    show(sess.kind === 'file' ? 'Receiving a file' : 'Connecting', 'Connecting directly…', [button(sess.kind === 'file' ? 'Stop' : 'Hang up', () => hangUp(sess), 'button button-quiet')], { focus: false });
+    show(sess.kind === 'file' ? 'Receiving a file' : sess.kind === 'voice' ? 'Receiving a voice message' : 'Connecting', 'Connecting directly…', [button(sess.kind === 'call' ? 'Hang up' : 'Stop', () => hangUp(sess), 'button button-quiet')], { focus: false });
     try { if (sess.kind === 'call') sess.stream = await getMedia(sess.video); }
     catch { toPeer(sess, { t: 'decline' }); finish(sess, 'Call not answered', errorText('media', sess.friend)); return; }
     await toPeer(sess, { t: 'accept' });
@@ -211,9 +264,10 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   });
   async function makeOffer(sess) {
     try {
-      show(sess.kind === 'file' ? 'Sending a file' : 'Connecting', `${sess.friend} accepted. Connecting directly…`, [button(sess.kind === 'file' ? 'Stop' : 'Hang up', () => hangUp(sess), 'button button-quiet')], { focus: false });
+      const heading = sess.kind === 'file' ? 'Sending a file' : sess.kind === 'voice' ? 'Sending a voice message' : 'Connecting';
+      show(heading, `${sess.friend} accepted. Connecting directly…`, [button(sess.kind === 'call' ? 'Hang up' : 'Stop', () => hangUp(sess), 'button button-quiet')], { focus: false });
       const pc = newPc(sess);
-      if (sess.kind === 'file') fileSender(sess, pc.createDataChannel('file', { ordered: true }));
+      if (sess.kind !== 'call') fileSender(sess, pc.createDataChannel('file', { ordered: true }));
       else control(sess, pc.createDataChannel('ctl'));
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
@@ -253,7 +307,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     dc.onopen = async () => {
       try {
         const f = sess.file, total = f.size;
-        dc.send(JSON.stringify({ h: 1, name: sess.meta.name, size: total, mime: sess.meta.mime }));
+        dc.send(JSON.stringify({ h: 1, name: sess.meta.name, size: total, mime: sess.meta.mime, durationMs: sess.meta.durationMs }));
         tick(0, total);
         for (let o = 0; o < total; o += CHUNK) {
           if (active !== sess) return;
@@ -265,26 +319,30 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
         text.textContent = `Waiting for ${sess.friend} to confirm…`;
       } catch { fail(sess); }
     };
-    dc.onmessage = e => { try { const m = JSON.parse(e.data); if (m.got === sess.file.size) { playSfx('correct'); finish(sess, 'File sent', `${sess.friend} received ${sess.meta.name}.`); } } catch { /* ignore */ } };
+    dc.onmessage = e => { try { const m = JSON.parse(e.data); if (m.got === sess.file.size) { playSfx('correct'); finish(sess, sess.kind === 'voice' ? 'Voice message sent' : 'File sent', sess.kind === 'voice' ? `${sess.friend} received your voice message.` : `${sess.friend} received ${sess.meta.name}.`); } } catch { /* ignore */ } };
   }
   function fileReceiver(sess, dc) {
     sess.dc = dc; dc.binaryType = 'arraybuffer';
     let head = null, got = 0, parts = [], app = null;
     const tick = progressAnnouncer(sess, 'Receiving');
-    const appSink = globalThis.BQFiles && typeof globalThis.BQFiles.postMessage === 'function' ? globalThis.BQFiles : null;
+    const appSink = sess.kind !== 'voice' && globalThis.BQFiles && typeof globalThis.BQFiles.postMessage === 'function' ? globalThis.BQFiles : null;
     dc.onmessage = e => {
       if (typeof e.data === 'string') {
         let m; try { m = JSON.parse(e.data); } catch { return; }
         if (m.h && !head) {
-          head = { name: safeName(m.name), size: Number(m.size) || 0, mime: String(m.mime || 'application/octet-stream').slice(0, 100) };
-          if (head.size > MAX_FILE || head.size !== Number(sess.meta.size)) { fail(sess); return; }
+          head = { name: safeName(m.name), size: Number(m.size) || 0, mime: String(m.mime || 'application/octet-stream').slice(0, 100), durationMs: Number(m.durationMs) || 0 };
+          if (head.size > MAX_FILE || head.size !== Number(sess.meta.size) || head.name !== safeName(sess.meta.name)
+            || head.mime !== String(sess.meta.mime || 'application/octet-stream').slice(0, 100)
+            || (sess.kind === 'voice' && (head.size > MAX_VOICE_MESSAGE_BYTES || head.durationMs !== Number(sess.meta.durationMs)
+              || !head.mime.startsWith('audio/')))) { fail(sess); return; }
           if (appSink) { app = sess.id; appSink.postMessage(JSON.stringify({ op: 'open', id: app, name: head.name, mime: head.mime, size: head.size })); }
           tick(0, head.size);
         } else if (m.done && head) {
           if (got !== head.size) { fail(sess); return; }
           dc.send(JSON.stringify({ got }));
           playSfx('correct');
-          if (app) { appSink.postMessage(JSON.stringify({ op: 'close', id: app })); finish(sess, 'File received', `${head.name} from ${sess.friend} was received. Choose where to save or open it.`); }
+          if (sess.kind === 'voice') showVoiceInBrowser(sess, head, parts);
+          else if (app) { appSink.postMessage(JSON.stringify({ op: 'close', id: app })); finish(sess, 'File received', `${head.name} from ${sess.friend} was received. Choose where to save or open it. The temporary copy in Blind Quiz is removed after three hours.`); }
           else saveInBrowser(sess, head, parts);
           parts = [];
         }
@@ -302,7 +360,21 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     const url = URL.createObjectURL(new Blob(parts, { type: head.mime }));
     const a = el('a', 'button button-hot', `Save ${head.name}`); a.href = url; a.download = head.name;
     end(sess);
-    show('File received', `${head.name}, ${formatSize(head.size)}, from ${sess.friend}. It is not stored anywhere else, so save it now.`, [a, button('Close', () => { URL.revokeObjectURL(url); hidePanel(); }, 'button button-quiet')]);
+    retainTemporaryUrl(url);
+    $('#direct-expiry').hidden = false;
+    $('#direct-expiry').textContent = 'The temporary copy in Blind Quiz is removed after three hours. A copy you save elsewhere will not be removed.';
+    show('File received', `${head.name}, ${formatSize(head.size)}, from ${sess.friend}. Choose Save now. The temporary copy in Blind Quiz is removed after three hours.`, [a, closeButton()]);
+  }
+  function showVoiceInBrowser(sess, head, parts) {
+    const url = URL.createObjectURL(new Blob(parts, { type: head.mime }));
+    end(sess);
+    const player = $('#direct-voice-audio'), playback = $('#direct-voice-playback');
+    player.src = url; playback.hidden = false;
+    $('#direct-voice-caption').textContent = `Voice message from ${sess.friend}, ${Math.max(1, Math.round((head.durationMs || sess.meta.durationMs) / 1000))} seconds.`;
+    $('#direct-expiry').hidden = false;
+    $('#direct-expiry').textContent = 'This temporary voice message is removed from Blind Quiz after three hours.';
+    retainTemporaryUrl(url);
+    show('Voice message received', `${sess.friend} sent a ${Math.max(1, Math.round((head.durationMs || sess.meta.durationMs) / 1000))}-second voice message. Use the audio controls to listen. It is removed after three hours.`, [closeButton()]);
   }
 
   // ---- Calls ---------------------------------------------------------------------------------
@@ -323,7 +395,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   }
   // Inside a call, hang-up travels over the call connection itself, so it arrives at once (signals are not polled then).
   function control(sess, ch) { sess.ctl = ch; ch.onmessage = e => { if (e.data === 'end' && active === sess) finish(sess, 'Call ended', `${sess.friend} hung up.`); }; }
-  function hangUp(sess) { try { if (sess.ctl?.readyState === 'open') sess.ctl.send('end'); } catch { /* ignore */ } if (sess.peerDevice) toPeer(sess, { t: 'end' }); finish(sess, sess.kind === 'call' ? 'Call ended' : 'Stopped', ''); }
+  function hangUp(sess) { try { if (sess.ctl?.readyState === 'open') sess.ctl.send('end'); } catch { /* ignore */ } if (sess.peerDevice) toPeer(sess, { t: 'end' }); finish(sess, sess.kind === 'call' ? 'Call ended' : sess.kind === 'voice' ? 'Voice message stopped' : 'Stopped', ''); }
 
   // ---- Ending --------------------------------------------------------------------------------
   function end(sess) {
@@ -343,5 +415,5 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     show(heading, body, [closeButton()]);
   }
 
-  return { startFile, startCall, poll, supported, get busy() { return !!active; } };
+  return { startFile, startVoiceMessage, startCall, poll, supported, get busy() { return !!active; } };
 }
