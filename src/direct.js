@@ -5,6 +5,7 @@
 // Flow: ring (to all the friend's devices) -> accept (from one device) -> offer -> answer -> connected.
 import { deviceKey, idbStore, sealData, openData, keyPins, MAX_SIGNAL } from './e2ee.js';
 import { alertSound } from './alerts.js';
+import { createVoicePlaybackControls } from './voice-playback.js';
 
 const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 export const MAX_DIRECT_FILE_BYTES = 2 * 1024 * 1024 * 1024;
@@ -35,6 +36,9 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   const account = () => getSession()?.loginId || getSession()?.profile?.loginId || getSession()?.profile?.name || '';
   const pins = () => keyPins(pinsStorage || globalThis.localStorage, account());
   const panel = $('#direct-panel'), title = $('#direct-title'), text = $('#direct-text'), actions = $('#direct-actions'), progress = $('#direct-progress');
+  const voiceAudio = $('#direct-voice-audio'), voiceControls = $('#direct-voice-controls');
+  const voicePlayback = voiceAudio ? createVoicePlaybackControls(voiceAudio, { idPrefix: 'direct-voice', label: 'Received voice message', note: true }) : null;
+  if (voiceControls && voicePlayback) voiceControls.replaceChildren(voicePlayback.element);
   const el = (tag, cls, t) => { const e = document.createElement(tag); if (cls) e.className = cls; if (t != null) e.textContent = t; return e; };
   const button = (t, onClick, cls = 'button button-outline') => { const b = el('button', cls, t); b.type = 'button'; b.addEventListener('click', onClick); return b; };
   const uuid = () => globalThis.crypto.randomUUID();
@@ -132,11 +136,11 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     return ring(friend, { kind: 'file', file, meta: { t: 'file', name: safeName(file.name), size: file.size, mime: String(file.type || 'application/octet-stream').slice(0, 100) } });
   }
   async function startVoiceMessage(friend, blob, durationMs) {
-    if (!blob || !Number.isFinite(blob.size) || blob.size < 1) { show('Voice message not sent', 'The recording is empty. Please record it again.', [closeButton()]); return; }
-    if (blob.size > MAX_VOICE_MESSAGE_BYTES) { show('Voice message too large', `Voice messages must be no larger than ${formatSize(MAX_VOICE_MESSAGE_BYTES)}.`, [closeButton()]); return; }
-    if (!Number.isFinite(durationMs) || durationMs < 250 || durationMs > MAX_VOICE_MESSAGE_MS) { show('Voice message too long', 'Record a voice message for up to 60 seconds.', [closeButton()]); return; }
+    if (!blob || !Number.isFinite(blob.size) || blob.size < 1) { show('Voice message not sent', 'The recording is empty. Please record it again.', [closeButton()]); return false; }
+    if (blob.size > MAX_VOICE_MESSAGE_BYTES) { show('Voice message too large', `Voice messages must be no larger than ${formatSize(MAX_VOICE_MESSAGE_BYTES)}.`, [closeButton()]); return false; }
+    if (!Number.isFinite(durationMs) || durationMs < 250 || durationMs > MAX_VOICE_MESSAGE_MS) { show('Voice message too long', 'Record a voice message for up to 60 seconds.', [closeButton()]); return false; }
     const mime = String(blob.type || 'audio/webm').slice(0, 100);
-    if (!mime.startsWith('audio/')) { show('Voice message not sent', 'This recording format cannot be sent. Please try again.', [closeButton()]); return; }
+    if (!mime.startsWith('audio/')) { show('Voice message not sent', 'This recording format cannot be sent. Please try again.', [closeButton()]); return false; }
     const ext = /mp4|m4a/i.test(mime) ? '.m4a' : /ogg/i.test(mime) ? '.ogg' : '.webm';
     const meta = { t: 'voice', name: `voice-message${ext}`, size: blob.size, mime, durationMs: Math.round(durationMs) };
     return ring(friend, { kind: 'voice', file: blob, meta });
@@ -144,7 +148,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   function startCall(friend, video = false) { return ring(friend, { kind: 'call', video, meta: { t: 'call', video: !!video } }); }
 
   async function ring(friend, { kind, file = null, video = false, meta }) {
-    if (active) { show('Already busy', 'Finish the current call or transfer first.', [closeButton()]); return; }
+    if (active) { show('Already busy', 'Finish the current call or transfer first.', [closeButton()]); return false; }
     resetTemporaryContent();
     const heading = kind === 'file' ? 'Sending a file' : kind === 'voice' ? 'Sending a voice message' : video ? 'Video call' : 'Audio call';
     const sess = active = { id: uuid(), friend, role: 'caller', kind, file, video, meta, devices: [] };
@@ -154,8 +158,8 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
       if (kind === 'call') sess.stream = await getMedia(video);
       sess.devices = await friendDevices(friend);
       await send(sess, 'ring', meta, sess.devices);
-    } catch (err) { finish(sess, kind === 'file' ? 'File not sent' : kind === 'voice' ? 'Voice message not sent' : 'Call not started', errorText(err.message === 'NotAllowedError' ? 'media' : err.message, friend)); return; }
-    if (active !== sess) return;
+    } catch (err) { finish(sess, kind === 'file' ? 'File not sent' : kind === 'voice' ? 'Voice message not sent' : 'Call not started', errorText(err.message === 'NotAllowedError' ? 'media' : err.message, friend)); return false; }
+    if (active !== sess) return false;
     show(heading,
       kind === 'file' ? `Waiting for ${friend} to accept ${meta.name}, ${formatSize(meta.size)}.`
         : kind === 'voice' ? `Waiting for ${friend} to accept your ${Math.max(1, Math.round(meta.durationMs / 1000))}-second voice message.`
@@ -163,6 +167,7 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
       [button('Cancel', () => cancel(sess), 'button button-quiet')]);
     sess.ringTimer = setTimeout(() => { if (active === sess && !sess.peerDevice) { cancel(sess, false); finish(sess, 'No answer', `${friend} did not answer.`); } }, RING_MS);
     schedulePoll();
+    return true;
   }
   async function getMedia(video) {
     const md = mediaDevices();

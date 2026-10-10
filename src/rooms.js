@@ -3,6 +3,7 @@
 // Other players are only ever shown by display name.
 import { GAME_MODES, presentQuestion } from './game-logic.js';
 import { BOARD_GAME_LABELS, SNAKES_AND_LADDERS } from './board-games.js';
+import { createVoicePlaybackControls } from './voice-playback.js';
 
 const ROOM_POLL_MS = 3000, WATCH_POLL_MS = 1500, HIDDEN_POLL_MS = 15000;
 export const GAME_KINDS = { quiz: 'Quiz', letters: 'Letters to Words', soundmatch: 'Sound Match', ...BOARD_GAME_LABELS };
@@ -36,12 +37,16 @@ export function eventText(e) {
 }
 
 export function createRooms({ $, announce, callApi, getSession, go, playSfx = () => {}, playMatchSound = () => {}, currentView = () => '', categories = [], questionBank = [], startLive = () => {}, openSignIn = () => {} }) {
-  let rec = null, recChunks = [], recStart = 0, recTimer = null, recStream = null, recCancelled = false;
+  let rec = null, recChunks = [], recStart = 0, recStoppedAt = 0, recTimer = null, recTicker = null, recStream = null, recCancelled = false, recAutoStopped = false;
+  let pendingRoomVoice = null, roomVoicePreviewUrl = '', activeRoomAudio = null;
   const seenVoices = new Set(), voiceCache = new Map();
   let roomId = null, room = null, roomPeople = [], chatAfter = null, roomTimer = null, watchId = null, watchGame = null, watchAfter = null, watchTimer = null, watchFirst = true, lastPeople = '', pendingGameId = null, watchReplyTo = null;
   const signedIn = () => !!getSession()?.profile;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (text, onClick, cls = 'button button-quiet') => { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
+  const roomVoicePreview = $('#room-voice-preview'), roomVoiceReview = $('#room-voice-review'), roomVoicePreviewControls = $('#room-voice-preview-controls');
+  const roomVoicePlayback = roomVoicePreview ? createVoicePlaybackControls(roomVoicePreview, { idPrefix: 'room-voice-preview', label: 'Room voice message preview', note: true }) : null;
+  if (roomVoicePreviewControls && roomVoicePlayback) roomVoicePreviewControls.replaceChildren(roomVoicePlayback.element);
   const say = (node, text, urgent = false) => { if (!node) return; node.textContent = text; if (text) announce(text, urgent); };
   const errorText = code => code === 'rate_limited' ? 'Too many requests. Please wait a little and try again.'
     : code === 'network' ? 'No internet connection. Please check it and try again.'
@@ -97,7 +102,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   function openRoom(id, gameId = null) {
     if (!signedIn()) { openSignIn(); return; }
     pendingGameId = gameId || null;
-    if (roomId !== id) { roomId = id; room = null; roomPeople = []; chatAfter = null; lastPeople = ''; $('#room-chat').replaceChildren(); seenVoices.clear(); $('#room-games').replaceChildren(); $('#room-people').replaceChildren(); $('#room-title').textContent = 'Room'; }
+    if (roomId !== id) { cancelRecording(); if (activeRoomAudio) { try { activeRoomAudio.pause(); } catch { /* ignore */ } activeRoomAudio = null; } roomId = id; room = null; roomPeople = []; chatAfter = null; lastPeople = ''; $('#room-chat').replaceChildren(); seenVoices.clear(); voiceCache.clear(); $('#room-games').replaceChildren(); $('#room-people').replaceChildren(); $('#room-title').textContent = 'Room'; }
     if (currentView() !== 'room') go('room', { focus: '#room-title' });
     $('#room-status').textContent = 'Entering the room…';
     pollRoom(true);
@@ -165,58 +170,141 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   // ---- Voice messages (kept 24 hours on the server) ----------------------------------------
   function voiceLine(v) {
     const secs = Math.max(1, Math.round(v.durationMs / 1000));
-    const li = el('li', 'room-chat-line room-voice'); li.append(el('strong', '', `${v.name}: `), document.createTextNode(`voice message, ${secs} second${secs === 1 ? '' : 's'}. `));
-    const b = button(`Play voice message from ${v.name}`, () => playVoice(v, b), 'text-button'); li.append(b);
+    const li = el('li', 'room-chat-line room-voice');
+    li.append(el('strong', '', `${v.name}: `), document.createTextNode(`voice message, ${secs} second${secs === 1 ? '' : 's'}. `));
+    const load = button(`Load voice message from ${v.name}`, () => playVoice(v, load, audio, controls.element), 'text-button');
+    const audio = el('audio', 'room-voice-player'); audio.controls = true; audio.preload = 'metadata'; audio.hidden = true;
+    audio.setAttribute('aria-label', `Voice message from ${v.name}, ${secs} seconds`);
+    const controls = createVoicePlaybackControls(audio, { idPrefix: `room-voice-${v.id}`, label: `Voice message from ${v.name}` });
+    controls.element.hidden = true;
+    audio.addEventListener('play', () => {
+      if (activeRoomAudio && activeRoomAudio !== audio) { try { activeRoomAudio.pause(); } catch { /* ignore */ } }
+      activeRoomAudio = audio;
+    });
+    audio.addEventListener('ended', () => { if (activeRoomAudio === audio) activeRoomAudio = null; });
+    li.append(load, audio, controls.element);
     return li;
   }
-  async function playVoice(v, b) {
+  async function playVoice(v, load, audio, controls) {
     try {
       let src = voiceCache.get(v.id);
-      if (!src) { b.textContent = 'Loading…'; src = (await callApi('room-voice', { id: v.id })).audio; voiceCache.set(v.id, src); }
-      const a = new Audio(src); b.textContent = 'Playing…';
-      a.onended = a.onerror = () => { b.textContent = `Play voice message from ${v.name}`; };
-      await a.play();
-    } catch (err) { b.textContent = `Play voice message from ${v.name}`; say($('#room-voice-status'), err.message === 'room_unavailable' ? 'This voice message has expired. Voice messages are deleted after 24 hours.' : errorText(err.message), true); }
+      if (!src) {
+        load.disabled = true; load.textContent = 'Loading…';
+        src = (await callApi('room-voice', { id: v.id })).audio;
+        if (typeof src !== 'string' || !src.startsWith('data:audio/')) throw new Error('room_unavailable');
+        voiceCache.set(v.id, src);
+      }
+      audio.src = src; audio.hidden = false; controls.hidden = false; audio.load();
+      load.hidden = true;
+      try { await audio.play(); }
+      catch { say($('#room-voice-status'), 'Voice message loaded. Press Play on its audio controls to listen.'); }
+    } catch (err) {
+      load.disabled = false; load.hidden = false; load.textContent = `Load voice message from ${v.name}`;
+      say($('#room-voice-status'), err.message === 'room_unavailable' ? 'This voice message has expired. Voice messages are deleted after 24 hours.' : errorText(err.message), true);
+    }
   }
   const recMime = () => { const R = globalThis.MediaRecorder; for (const m of ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm']) if (R?.isTypeSupported?.(m)) return m; return ''; };
+  function stopRoomRecording(auto = false) {
+    if (!rec || rec.state === 'inactive') return;
+    clearTimeout(recTimer); recTimer = null; recStoppedAt = Date.now();
+    recAutoStopped = auto || recStoppedAt - recStart >= 60000;
+    try { rec.stop(); }
+    catch { resetRecorder(); say($('#room-voice-status'), 'The recording could not be completed. Please try again.', true); }
+  }
   async function toggleRecord() {
     const btn = $('#room-voice-record'), status = $('#room-voice-status');
-    if (rec) { rec.stop(); return; }
-    if (!roomId) return;
-    if (!globalThis.MediaRecorder || !navigator.mediaDevices?.getUserMedia) { say(status, 'Voice messages cannot be recorded on this device or app version. Please update the browser or the app.', true); return; }
-    try { recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-    catch { say(status, 'The microphone could not be used. Please allow it and try again.', true); return; }
-    announce('Recording starts after this message. Press Stop and send when you finish. Up to 60 seconds.', true);
-    await new Promise(r => setTimeout(r, 2600));
+    if (rec) { stopRoomRecording(); return; }
+    if (!roomId || pendingRoomVoice || btn.disabled) return;
+    const targetRoom = roomId, Recorder = globalThis.MediaRecorder;
+    if (!Recorder || !navigator.mediaDevices?.getUserMedia) { say(status, 'Voice messages cannot be recorded on this device or app version. Please update the browser or the app.', true); return; }
+    btn.disabled = true;
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch { btn.disabled = false; say(status, 'The microphone could not be used. Please allow it and try again.', true); return; }
+    if (targetRoom !== roomId || currentView() !== 'room') { for (const track of stream.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } } btn.disabled = false; return; }
     const mime = recMime();
-    rec = new MediaRecorder(recStream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
-    recChunks = []; recCancelled = false; recStart = Date.now();
-    rec.ondataavailable = e => { if (e.data?.size) recChunks.push(e.data); };
-    rec.onstop = () => sendRecording(mime);
-    rec.start(1000);
-    btn.textContent = 'Stop and send'; $('#room-voice-cancel').hidden = false; status.textContent = 'Recording…';
-    recTimer = setTimeout(() => rec?.stop(), 60000);
+    try {
+      rec = new Recorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+      recChunks = []; recCancelled = false; recAutoStopped = false; recStart = Date.now(); recStoppedAt = 0; recStream = stream;
+      rec.ondataavailable = e => { if (e.data?.size) recChunks.push(e.data); };
+      rec.onstop = () => prepareRoomRecording(mime);
+      rec.start(1000);
+    } catch {
+      for (const track of stream.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } }
+      rec = null; recStream = null; btn.disabled = false; say(status, 'Recording could not start. Please try again.', true); return;
+    }
+    btn.disabled = false; btn.textContent = 'Stop recording'; $('#room-voice-cancel').textContent = 'Cancel recording'; $('#room-voice-cancel').hidden = false;
+    roomVoiceReview.hidden = true; status.textContent = 'Recording… 0 seconds. Maximum 60 seconds.';
+    announce('Recording started. At 60 seconds it will stop without sending; preview it and choose Send or Discard.', true);
+    recTicker = setInterval(() => { if (rec) status.textContent = `Recording… ${Math.min(60, Math.floor((Date.now() - recStart) / 1000))} seconds. Maximum 60 seconds.`; }, 1000);
+    recTimer = setTimeout(() => stopRoomRecording(true), 60000);
   }
   function resetRecorder() {
-    clearTimeout(recTimer); for (const t of recStream?.getTracks() || []) t.stop();
-    rec = null; recStream = null; $('#room-voice-record').textContent = 'Record a voice message'; $('#room-voice-cancel').hidden = true;
+    clearTimeout(recTimer); clearInterval(recTicker); recTimer = null; recTicker = null;
+    for (const track of recStream?.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } }
+    rec = null; recStream = null; recChunks = []; recStart = 0; recStoppedAt = 0; recAutoStopped = false; recCancelled = false;
+    const btn = $('#room-voice-record'), cancel = $('#room-voice-cancel'), send = $('#room-voice-send');
+    btn.textContent = 'Record a voice message'; btn.disabled = !!pendingRoomVoice;
+    cancel.hidden = true; cancel.disabled = false; cancel.textContent = 'Cancel recording';
+    send.hidden = true; send.disabled = false;
   }
-  async function sendRecording(mime) {
-    const durationMs = Math.min(60000, Date.now() - recStart), status = $('#room-voice-status'), chunks = recChunks, cancelled = recCancelled;
+  function clearRoomVoiceReview(announceDiscard = false) {
+    if (roomVoicePreviewUrl) { try { URL.revokeObjectURL(roomVoicePreviewUrl); } catch { /* ignore */ } roomVoicePreviewUrl = ''; }
+    if (roomVoicePreview) { try { roomVoicePreview.pause(); } catch { /* ignore */ } roomVoicePreview.removeAttribute('src'); try { roomVoicePreview.load(); } catch { /* ignore */ } }
+    pendingRoomVoice = null; roomVoiceReview.hidden = true;
+    const cancel = $('#room-voice-cancel'), send = $('#room-voice-send'), record = $('#room-voice-record');
+    cancel.hidden = true; cancel.textContent = 'Cancel recording'; cancel.disabled = false;
+    send.hidden = true; send.disabled = false; record.disabled = !roomId; record.textContent = 'Record a voice message';
+    if (announceDiscard) say($('#room-voice-status'), 'Recording discarded.');
+  }
+  function prepareRoomRecording(mime) {
+    const stoppedAt = recStoppedAt || Date.now(), elapsed = Math.max(0, stoppedAt - recStart);
+    const autoStopped = recAutoStopped, cancelled = recCancelled, chunks = recChunks;
+    const blobType = chunks.find(chunk => chunk.type)?.type || mime || 'audio/webm';
     resetRecorder();
-    if (cancelled) { say(status, 'Recording cancelled.'); return; }
-    if (durationMs < 500 || !chunks.length) { say(status, 'That recording was too short. Please try again.', true); return; }
-    const blob = new Blob(chunks, { type: (chunks[0].type || mime || 'audio/webm') });
-    const type = (blob.type || 'audio/webm').replace(/\s+/g, '').toLowerCase();
-    const bytes = new Uint8Array(await blob.arrayBuffer()); let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    const audio = `data:${type};base64,${btoa(bin)}`;
-    if (audio.length > 400000) { say(status, 'That voice message is too long. Please record a shorter one.', true); return; }
-    status.textContent = 'Sending voice message…';
-    try { await callApi('room-voice-send', { roomId, audio, durationMs: Math.max(500, durationMs) }); say(status, 'Voice message sent.'); playSfx('click'); pollRoom(false); }
-    catch (err) { say(status, errorText(err.message), true); }
+    if (cancelled) { say($('#room-voice-status'), 'Recording cancelled.'); return; }
+    if (elapsed > 61000) { say($('#room-voice-status'), 'The recording exceeded 60 seconds, so it was not sent. Please record a shorter one.', true); return; }
+    const durationMs = Math.min(60000, Math.round(elapsed));
+    if (durationMs < 500 || !chunks.length) { say($('#room-voice-status'), 'That recording was too short. Please try again.', true); return; }
+    const blob = new Blob(chunks, { type: blobType });
+    if (blob.size < 1) { say($('#room-voice-status'), 'The recording was empty. Please try again.', true); return; }
+    pendingRoomVoice = { blob, durationMs };
+    roomVoicePreviewUrl = URL.createObjectURL(blob); roomVoicePreview.src = roomVoicePreviewUrl;
+    roomVoiceReview.hidden = false; roomVoicePlayback?.apply();
+    $('#room-voice-send').hidden = false; $('#room-voice-send').disabled = false;
+    $('#room-voice-cancel').hidden = false; $('#room-voice-cancel').textContent = 'Discard recording';
+    $('#room-voice-record').disabled = true;
+    say($('#room-voice-status'), autoStopped
+      ? 'Maximum length reached. Your recording is ready to review; it has not been sent.'
+      : 'Recording stopped. Preview it, then press Send voice message or Discard recording.');
   }
-  function cancelRecording() { if (rec) { recCancelled = true; rec.stop(); } }
+  async function sendRoomRecording() {
+    const pending = pendingRoomVoice, status = $('#room-voice-status'), send = $('#room-voice-send'), cancel = $('#room-voice-cancel');
+    if (!pending || !roomId) return;
+    send.disabled = true; cancel.disabled = true; $('#room-voice-record').disabled = true;
+    status.textContent = 'Preparing your voice message…';
+    try {
+      const bytes = new Uint8Array(await pending.blob.arrayBuffer()); let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      const type = String(pending.blob.type || 'audio/webm').replace(/\s+/g, '').toLowerCase();
+      const audio = `data:${type};base64,${btoa(bin)}`;
+      if (audio.length > 400000) {
+        send.disabled = false; cancel.disabled = false; $('#room-voice-record').disabled = true;
+        say(status, 'That recording is too large for a room message. It was not sent; please discard it and record a shorter one.', true); return;
+      }
+      status.textContent = 'Sending voice message…';
+      await callApi('room-voice-send', { roomId, audio, durationMs: pending.durationMs });
+      clearRoomVoiceReview(false); say(status, 'Voice message sent to the room.'); playSfx('click'); pollRoom(false);
+    } catch (err) {
+      send.disabled = false; cancel.disabled = false; $('#room-voice-record').disabled = true;
+      say(status, errorText(err.message), true);
+    }
+  }
+  function cancelRecording() {
+    if (rec) { recCancelled = true; clearTimeout(recTimer); recTimer = null; try { rec.stop(); } catch { resetRecorder(); } return; }
+    if (pendingRoomVoice) clearRoomVoiceReview(true);
+  }
+
   function renderGames(games) {
     const host = $('#room-games');
     const focusedId = document.activeElement?.closest?.('[data-game-id]')?.dataset.gameId, focusedText = document.activeElement?.textContent;
@@ -429,6 +517,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   $('#room-remove')?.addEventListener('click', removeRoom);
   $('#room-voice-record')?.addEventListener('click', toggleRecord);
   $('#room-voice-cancel')?.addEventListener('click', cancelRecording);
+  $('#room-voice-send')?.addEventListener('click', sendRoomRecording);
   $('#room-refresh')?.addEventListener('click', () => pollRoom(true));
   $('#watch-comment-form')?.addEventListener('submit', comment);
   $('#watch-join-form')?.addEventListener('submit',joinFromWatch);

@@ -14,8 +14,8 @@ async function boot({session,fetchImpl,local}){
   const w=dom.window;WINDOWS.push(w);
   for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement','Event'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
-  // jsdom does not implement media playback; the audio-specific test replaces these stubs to record clips.
-  w.HTMLMediaElement.prototype.play=()=>Promise.resolve();w.HTMLMediaElement.prototype.pause=()=>{};
+  // jsdom does not implement media playback; native controls are represented by HTMLAudioElements in tests.
+  w.HTMLMediaElement.prototype.play=()=>Promise.resolve();w.HTMLMediaElement.prototype.pause=()=>{};w.HTMLMediaElement.prototype.load=()=>{};
   for(const [k,v] of Object.entries(local||{}))w.localStorage.setItem(k,JSON.stringify(v));
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
   // Presence heartbeats (Task 19 'touch') are recorded separately so older tests keep checking their own calls.
@@ -542,11 +542,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const addComment=(name,body,replyTo)=>{const parent=gameEvents.find(e=>e.id===replyTo);gameEvents.push({id:++eventId,name,kind:'comment',body,replyTo,replyName:parent?.name||null});};
   const roomState=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Google',level:2}],
     games:gameId?[{id:gameId,kind:gameKind,title:gameTitle,config:gameConfig,status:gamePhase==='finished'?'finished':'playing',phase:gamePhase,maxPlayers:gameMax,host:'Asha',hostMe:true,commentCount:gameEvents.filter(e=>e.kind==='comment').length,recentComments:gameEvents.filter(e=>e.kind==='comment').slice(-3),players:gamePlayers}]:[],
-    chat:[{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[]});
+    chat:[{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[{id:77,name:'Google',durationMs:2400}]});
   const stateFor=body=>({ok:true,phase:gamePhase,status:gamePhase==='finished'?'finished':'playing',kind:gameKind,title:gameTitle,roomId:ROOM,maxPlayers:gameMax,host:'Asha',hostMe:true,seat:gamePlayers.find(p=>p.name==='Asha')?.seat||1,players:gamePlayers,state:gameState,
     events:gameEvents.filter(e=>Number(e.id)>Number(body.afterId||0))});
   const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);let r;
     if(b.action==='room-state')r=roomState();
+    else if(b.action==='room-voice')r={ok:true,audio:'data:audio/webm;base64,QUFB'};
+    else if(b.action==='room-voice-send')r={ok:true,id:77};
     else if(b.action==='game-state')r=stateFor(b);
     else if(b.action==='game-watch')r={...stateFor(b),status:gamePhase==='finished'?'finished':'playing',hostMe:!watchAsCreator,creatorMe:watchAsCreator,commentsEnabled:true};
     else if(b.action==='game-create'){gameCount++;gameId=gameCount===1?QUIZ:BOARD;gameKind=b.kind;gameConfig=b.config;gameTitle=b.title;gameMax=Number(b.config.players)||2;gamePhase='lobby';gameState={};gameEvents=[];gamePlayers=[{seat:1,name:'Asha',ready:false,score:0,finished:false}];r={ok:true,id:gameId,maxPlayers:gameMax,phase:'lobby'};}
@@ -564,6 +566,39 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,1);rb[0].click();await tick();await tick();
   assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');assert.match(d.querySelector('#room-chat').textContent,/Google: hi room/);
   d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();assert(sent.some(b=>b.action==='room-say'&&b.text==='hello room'));
+  const roomVoiceLine=d.querySelector('.room-voice'),loadRoomVoice=roomVoiceLine.querySelector('button');loadRoomVoice.click();await tick();
+  const roomPlayer=roomVoiceLine.querySelector('audio');assert.equal(roomPlayer.controls,true);assert.equal(roomPlayer.hidden,false,'room recordings use a native player with pause, resume and seek controls');
+  roomVoiceLine.querySelector('#room-voice-77-effect').value='chipmunk';roomVoiceLine.querySelector('#room-voice-77-effect').dispatchEvent(new w.Event('change'));
+  assert.equal(roomPlayer.playbackRate,1.5);assert.equal(roomPlayer.preservesPitch,false,'voice style changes only local HTML audio playback');
+  roomVoiceLine.querySelector('#room-voice-77-speed').value='0.5';roomVoiceLine.querySelector('#room-voice-77-speed').dispatchEvent(new w.Event('change'));
+  assert.equal(roomPlayer.playbackRate,0.75,'playback speed combines with the selected voice style');
+  roomPlayer.currentTime=1.25;roomPlayer.pause();const pausedAt=roomPlayer.currentTime;await roomPlayer.play();assert.equal(roomPlayer.currentTime,pausedAt,'pause and resume retain the current playback position');
+  const priorRecorder=globalThis.MediaRecorder,priorSetTimeout=globalThis.setTimeout,priorClearTimeout=globalThis.clearTimeout,mediaDevicesDescriptor=Object.getOwnPropertyDescriptor(w.navigator,'mediaDevices');
+  const roomTimerToken={},roomTracks=[];let triggerRoomVoiceLimit=null;
+  globalThis.setTimeout=(fn,ms,...args)=>{if(ms===60000){triggerRoomVoiceLimit=()=>fn(...args);return roomTimerToken}return priorSetTimeout(fn,ms,...args)};
+  globalThis.clearTimeout=(id,...args)=>id===roomTimerToken?undefined:priorClearTimeout(id,...args);
+  class RoomRecorder{static isTypeSupported=()=>true;constructor(stream,options){this.stream=stream;this.mimeType=options?.mimeType||'audio/webm';this.state='inactive'}start(){this.state='recording'}stop(){this.state='inactive';this.ondataavailable?.({data:new Blob([new Uint8Array(1200)],{type:this.mimeType})});this.onstop?.()}}
+  Object.defineProperty(globalThis,'MediaRecorder',{value:RoomRecorder,configurable:true,writable:true});
+  Object.defineProperty(w.navigator,'mediaDevices',{value:{getUserMedia:async()=>{const tracks=[{stop(){this.stopped=true}}];roomTracks.push(tracks);return{getTracks:()=>tracks}}},configurable:true});
+  const recordRoomVoice=async()=>{d.querySelector('#room-voice-record').click();await new Promise(r=>setTimeout(r,10));assert.equal(d.querySelector('#room-voice-record').textContent,'Stop recording')};
+  await recordRoomVoice();await new Promise(r=>setTimeout(r,520));d.querySelector('#room-voice-record').click();
+  assert.equal(d.querySelector('#room-voice-review').hidden,false);assert.equal(d.querySelector('#room-voice-send').hidden,false);
+  assert(!sent.some(b=>b.action==='room-voice-send'),'stopping a room recording never sends it automatically');
+  assert.match(d.querySelector('#room-voice-status').textContent,/has not been sent|preview/i);
+  d.querySelector('#room-voice-cancel').click();assert.equal(d.querySelector('#room-voice-review').hidden,true,'a room preview can be discarded');assert.equal(d.querySelector('#room-voice-record').disabled,false);
+  await recordRoomVoice();assert.equal(typeof triggerRoomVoiceLimit,'function','room recording installs its 60-second stop timer');
+  const realNow=Date.now;Date.now=()=>realNow()+60000;triggerRoomVoiceLimit();Date.now=realNow;
+  assert.equal(d.querySelector('#room-voice-review').hidden,false);assert.equal(d.querySelector('#room-voice-send').hidden,false);
+  assert(!sent.some(b=>b.action==='room-voice-send'),'the 60-second room timer previews without sending');assert.match(d.querySelector('#room-voice-status').textContent,/Maximum length reached.*not been sent/i);
+  d.querySelector('#room-voice-send').click();
+  for(let i=0;i<100&&!sent.some(b=>b.action==='room-voice-send');i++)await new Promise(r=>setTimeout(r,5));
+  const sentRoomVoice=sent.find(b=>b.action==='room-voice-send');assert(sentRoomVoice?.audio.startsWith('data:audio/webm'));assert.equal(sentRoomVoice.durationMs,60000);assert(roomTracks.flat().every(t=>t.stopped));
+  await recordRoomVoice();await new Promise(r=>setTimeout(r,520));d.querySelector('#room-voice-record').click();d.querySelector('#room-voice-cancel').click();
+  assert.equal(d.querySelector('#room-voice-review').hidden,true);assert.equal(sent.filter(b=>b.action==='room-voice-send').length,1,'discarding a preview never sends it');
+  globalThis.setTimeout=priorSetTimeout;globalThis.clearTimeout=priorClearTimeout;
+  if(mediaDevicesDescriptor)Object.defineProperty(w.navigator,'mediaDevices',mediaDevicesDescriptor);else delete w.navigator.mediaDevices;
+  if(priorRecorder===undefined)delete globalThis.MediaRecorder;else Object.defineProperty(globalThis,'MediaRecorder',{value:priorRecorder,configurable:true,writable:true});
+  console.log('ok room voices stop at 60 seconds without sending, require explicit Send, support discard and resume at the paused position with local style/speed controls');
 
   // A new quiz opens a lobby; no questions appear while only one of two player slots is ready.
   d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));
@@ -661,7 +696,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const media = () => ({ getUserMedia: async ({ video }) => { const a = [track()], v = video ? [track()] : []; return { getTracks: () => [...a, ...v], getAudioTracks: () => a, getVideoTracks: () => v }; } });
   const party = who => {
     const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/' }); const d = dom.window.document; const said = [];
-    dom.window.HTMLMediaElement.prototype.pause = () => {}; dom.window.HTMLMediaElement.prototype.load = () => {};
+    dom.window.HTMLMediaElement.prototype.play = () => Promise.resolve(); dom.window.HTMLMediaElement.prototype.pause = () => {}; dom.window.HTMLMediaElement.prototype.load = () => {};
     const store = new Map(); const pinsStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
     const prevDoc = globalThis.document; globalThis.document = d;
     const direct = createDirect({ $: sel => d.querySelector(sel), announce: t => said.push(t), callApi: api(who), getSession: () => ({ loginId: who.toUpperCase().padEnd(8, 'X'), profile: { name: who } }), store: memoryStore(), pinsStorage, RTC: FakePC, mediaDevices: media });
@@ -691,7 +726,10 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   B.btn('Listen').click();
   await wait(() => /Voice message received/.test(B.text()) && /Voice message sent/.test(A.text()));
   assert.equal(B.d.querySelector('#direct-voice-playback').hidden, false);
-  assert(B.d.querySelector('#direct-voice-audio').src.startsWith('blob:'), 'received voice is played from a temporary local audio object');
+  const receivedVoice=B.d.querySelector('#direct-voice-audio');assert(receivedVoice.src.startsWith('blob:'),'received voice is played from a temporary local audio object');assert.equal(receivedVoice.controls,true);
+  receivedVoice.currentTime=1.25;receivedVoice.pause();const receivedPausedAt=receivedVoice.currentTime;await receivedVoice.play();assert.equal(receivedVoice.currentTime,receivedPausedAt,'private playback resumes at the same position');
+  const directStyle=B.d.querySelector('#direct-voice-effect'),directSpeed=B.d.querySelector('#direct-voice-speed');directSpeed.value='1';directSpeed.dispatchEvent(new B.d.defaultView.Event('change'));directStyle.value='alien';directStyle.dispatchEvent(new B.d.defaultView.Event('change'));assert.equal(receivedVoice.playbackRate,0.72);assert.equal(receivedVoice.preservesPitch,false);
+  directSpeed.value='2';directSpeed.dispatchEvent(new B.d.defaultView.Event('change'));assert.equal(receivedVoice.playbackRate,1.44);
   assert.match(B.d.querySelector('#direct-expiry').textContent, /three hours/);
   B.btn('Close').click(); A.btn('Close').click();
   // Video call, then Bob hangs up.
@@ -713,11 +751,11 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const { webcrypto } = await import('node:crypto');
   Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true, writable: true });
   const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/', pretendToBeVisual: true });
-  const d = dom.window.document; globalThis.document = d; globalThis.localStorage = dom.window.localStorage;
+  const d = dom.window.document;dom.window.HTMLMediaElement.prototype.play=()=>Promise.resolve();dom.window.HTMLMediaElement.prototype.pause=()=>{};dom.window.HTMLMediaElement.prototype.load=()=>{};globalThis.document = d; globalThis.localStorage = dom.window.localStorage;
   const { createChat } = await import(ROOT + 'src/chat.js');
   const E = await import(ROOT + 'src/e2ee.js'), store = E.memoryStore(), identity = 'ASHA1234';
   const bob = await E.deviceKey(store, 'bob-device');
-  let registered = null, sent = null, sendCount = 0; const said = [], recordings = [];
+  let registered = null, sent = null, sendCount = 0, triggerVoiceLimit = null; const said = [], recordings = [];
   const callApi = async (action, body) => {
     if (action === 'register-device') { registered = body; return { ok: true }; }
     if (action === 'message-keys') return { ok: true, theirs: [{ deviceId: bob.deviceId, publicKey: bob.publicKey }], mine: [] };
@@ -731,12 +769,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     start() { this.state = 'recording'; }
     stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['private voice clip'], { type: this.mimeType }) }); this.onstop?.(); }
   }
-  const direct = { supported: () => true, startVoiceMessage: async (...args) => { recordings.push(args); } };
+  const direct = { supported: () => true, startVoiceMessage: async (...args) => { recordings.push(args); return true; } };
   const chat = createChat({
     $: sel => d.querySelector(sel), announce: t => said.push(t), callApi,
     getSession: () => ({ loginId: identity, profile: { name: 'Asha', loginId: identity } }),
     go: view => assert.equal(view, 'chat'), playSfx: () => {}, currentView: () => 'chat',
     store, direct, Recorder: FakeRecorder,
+    voiceTimeout: fn => { triggerVoiceLimit = fn; return 1; }, clearVoiceTimeout: () => {},
     mediaDevices: () => ({ getUserMedia: async () => stream }),
     pinsStorage: { values: new Map(), getItem(k) { return this.values.get(k) ?? null; }, setItem(k, v) { this.values.set(k, v); } },
   });
@@ -752,12 +791,31 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5));
   assert.equal(d.querySelector('#chat-voice-controls').hidden, false, 'the recorder shows its stop and cancel controls');
   await new Promise(r => setTimeout(r, 280)); d.querySelector('#chat-voice-stop').click();
+  assert.equal(d.querySelector('#chat-voice-review').hidden, false, 'stopping a recording opens a review player');
+  assert.equal(recordings.length, 0, 'stopping never sends a private voice message automatically');
+  const preview=d.querySelector('#chat-voice-preview');assert(preview.src.startsWith('blob:'));assert.equal(preview.controls,true);
+  preview.currentTime=0.5;preview.pause();const previewPausedAt=preview.currentTime;await preview.play();assert.equal(preview.currentTime,previewPausedAt,'private preview resumes where playback was paused');
+  const effect=d.querySelector('#chat-voice-preview-effect'),speed=d.querySelector('#chat-voice-preview-speed');
+  effect.value='chipmunk';effect.dispatchEvent(new dom.window.Event('change'));assert.equal(preview.playbackRate,1.5);
+  speed.value='0.5';speed.dispatchEvent(new dom.window.Event('change'));assert.equal(preview.playbackRate,0.75);
+  d.querySelector('#chat-voice-send').click();
   for (let i = 0; i < 100 && recordings.length === 0; i++) await new Promise(r => setTimeout(r, 5));
+  for (let i = 0; i < 100 && d.querySelector('#chat-voice-record').disabled; i++) await new Promise(r => setTimeout(r, 5));
   assert.equal(recordings[0][0], 'Bob'); assert.equal(recordings[0][1].type, 'audio/webm'); assert(recordings[0][2] >= 250);
-  assert(tracks.every(t => t.stopped), 'the microphone track stops after sending');
+  assert(tracks.every(t => t.stopped), 'the microphone track stops after previewing');
+  d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5));
+  const realNow=Date.now;Date.now=()=>realNow()+60000;triggerVoiceLimit();Date.now=realNow;
+  assert.equal(d.querySelector('#chat-voice-review').hidden,false);assert.equal(recordings.length,1,'the 60-second limit stops and previews but does not send');
+  assert.match(d.querySelector('#chat-voice-status').textContent,/Maximum length reached/);
+  d.querySelector('#chat-voice-send').click();for(let i=0;i<100&&recordings.length<2;i++)await new Promise(r=>setTimeout(r,5));
+  for(let i=0;i<100&&d.querySelector('#chat-voice-record').disabled;i++)await new Promise(r=>setTimeout(r,5));
+  assert.equal(recordings[1][2],60000,'the 60-second recording is sent only after confirmation');
+  d.querySelector('#chat-voice-record').click();await new Promise(r=>setTimeout(r,5));await new Promise(r=>setTimeout(r,280));d.querySelector('#chat-voice-stop').click();
+  assert.equal(d.querySelector('#chat-voice-review').hidden,false);d.querySelector('#chat-voice-discard').click();
+  assert.equal(d.querySelector('#chat-voice-review').hidden,true,'a private preview can be discarded without sending');assert.equal(recordings.length,2);
   d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5)); d.querySelector('#chat-voice-cancel').click();
-  assert.equal(recordings.length, 1, 'cancelling a recording never sends it');
-  chat.stop(); dom.window.close(); console.log('ok private chat emoji/stickers are encrypted; recorded voice messages send directly, stop the microphone and can be cancelled');
+  assert.equal(recordings.length, 2, 'cancelling a recording never sends it');
+  chat.stop(); dom.window.close(); console.log('ok private chat voice recordings stop at 60 seconds, require Send, support discard/cancel and preview with voice-style and speed controls');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);
