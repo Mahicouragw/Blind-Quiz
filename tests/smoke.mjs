@@ -574,8 +574,9 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(chat.includes('PRIVATE_STICKERS') && /data-chat-emoji/.test(html) && /data-chat-sticker/.test(html), 'private chat sends emoji and encrypted sticker messages');
   assert(direct.includes("t: 'voice'") && direct.includes("sess.kind !== 'call'") && direct.includes('RECEIVED_FILE_TTL_MS'), 'voice notes transfer only to an online peer and temporary received browser files expire');
   assert(direct.includes('MAX_DIRECT_FILE_BYTES = 2 * 1024 * 1024 * 1024') && direct.includes('MAX_VOICE_MESSAGE_MS = 60_000'), 'file size and voice duration limits are enforced');
-  const dart = read('../android-app/lib/main.dart');
+  const dart = read('../android-app/lib/main.dart'), androidWorkflow = read('../.github/workflows/build-android.yml');
   assert(dart.includes('kReceivedFileTtl = Duration(hours: 3)') && dart.includes('_scheduleReceivedExpiry(id, inc.file)') && dart.includes('didChangeAppLifecycleState'), 'Android temporary file copies expire after three hours, with startup and resume cleanup');
+  assert(androidWorkflow.includes('Verify APK package name and permanent signing identity') && androidWorkflow.includes('android-v1.0.29') && androidWorkflow.includes("EXPECTED_PACKAGE='io.github.mahicouragw.blind_quiz'") && androidWorkflow.includes('Signer #1 certificate SHA-256 digest'), 'Android release verifies the stable package and public signing fingerprint before publishing');
   console.log('PASS: private chat emoji/stickers, direct voice messages/calls/files, and three-hour received-copy cleanup; room voice messages remain unchanged.');
 }
 // Task 19 stage E: exit confirmation for games, modes and rooms (buttons, brand link and Android/browser Back).

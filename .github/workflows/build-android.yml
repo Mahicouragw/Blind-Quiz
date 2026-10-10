@@ -6,7 +6,7 @@ name: Build Android APK
 #
 # Signing: uses ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
 # ANDROID_KEY_PASSWORD when present (stable identity, in-place updates). Otherwise a
-# temporary key is generated for the run; it is never uploaded or printed.
+# temporary key cannot match the permanent certificate check and the APK is not published.
 
 on:
   push:
@@ -204,6 +204,43 @@ jobs:
           SDKS=$("$BT/aapt2" dump badging "$APK_PATH" | grep -oiE "(minSdkVersion|sdkVersion|targetSdkVersion):'[0-9]+'" | sort -u | tr '\n' ' ')
           echo "SDK_INFO=$SDKS" >> "$GITHUB_ENV"
           echo "::notice title=APK audit::$SDKS Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
+
+      - name: Verify APK package name and permanent signing identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          EXPECTED_PACKAGE='io.github.mahicouragw.blind_quiz'
+          REF_DIR="$RUNNER_TEMP/signing-reference"
+          mkdir -p "$REF_DIR"
+          # This signed release is the permanent identity baseline; a different certificate blocks publication.
+          gh release download android-v1.0.29 --repo "$GITHUB_REPOSITORY" --pattern blind-quiz.apk --dir "$REF_DIR"
+          REF_APK="$REF_DIR/blind-quiz.apk"
+          for apk in "$APK_PATH" "$REF_APK"; do
+            BADGING=$("$BT/aapt2" dump badging "$apk")
+            if [[ "$BADGING" != *"package: name='$EXPECTED_PACKAGE' "* ]]; then
+              echo "::error title=APK package identity::Expected package $EXPECTED_PACKAGE in $(basename "$apk")."
+              exit 1
+            fi
+          done
+          fingerprint() {
+            "$BT/apksigner" verify --verbose --print-certs "$1" 2>&1 \
+              | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {gsub(/[[:space:]]/, "", $2); fp=$2} END {print fp}'
+          }
+          OLD_FP=$(fingerprint "$REF_APK")
+          NEW_FP=$(fingerprint "$APK_PATH")
+          if [ -z "$OLD_FP" ] || [ -z "$NEW_FP" ]; then
+            echo "::error title=APK signing identity::Could not read the public signing-certificate fingerprints."
+            exit 1
+          fi
+          echo "Reference signing certificate SHA-256: $OLD_FP"
+          echo "New signing certificate SHA-256: $NEW_FP"
+          if [ "$OLD_FP" != "$NEW_FP" ]; then
+            echo "::error title=APK signing identity::The new APK certificate does not match the permanent android-v1.0.29 identity; refusing to publish it."
+            exit 1
+          fi
+          echo "::notice title=APK identity::Package $EXPECTED_PACKAGE verified; public SHA-256 certificate fingerprint matches android-v1.0.29."
 
       - name: Enable KVM for the Android emulator
         run: |
