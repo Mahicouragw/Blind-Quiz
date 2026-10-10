@@ -830,6 +830,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 // Android notification lifecycle: initial signed-out rendering must not erase the native token;
 // explicit logout still does, and tapping a notification opens/focuses its inbox item.
 {
+  const waitFor=async(predicate,message)=>{const deadline=Date.now()+3000;while(!predicate()&&Date.now()<deadline)await new Promise(r=>setTimeout(r,10));assert(predicate(),message)};
   const initialMessages=[];
   await boot({fetchImpl:()=>{throw new Error('no request expected')},nativeBridge:{postMessage:raw=>initialMessages.push(JSON.parse(raw))}});
   assert.deepEqual(initialMessages,[],'the initial signed-out render does not send a native logout');
@@ -842,10 +843,9 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     if(action==='profile')return json(200,{ok:true,profile});
     return json(200,{ok:true,unread:0});
   }});
-  await new Promise(r=>setTimeout(r,80));
-  assert(nativeMessages.some(m=>m.op==='enable'),'a signed-in player registers Android background notifications');
-  t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,60));
-  assert.equal(nativeMessages.filter(m=>m.op==='logout').length,1,'explicit logout removes the native account-notification token exactly once');
+  await waitFor(()=>nativeMessages.some(m=>m.op==='enable'),'a signed-in player registers Android background notifications');
+  t.d.querySelector('#logout-button').click();
+  await waitFor(()=>nativeMessages.filter(m=>m.op==='logout').length===1,'explicit logout removes the native account-notification token exactly once');
 
   const item={id:42,kind:'message',actor:'Bob',body:'',createdAt:new Date().toISOString(),read:true};
   t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(u,init)=>{
@@ -853,11 +853,10 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     if(action==='notifications')return json(200,{ok:true,items:[item]});
     return json(200,{ok:true,unread:0,profile});
   }});
-  globalThis.bqOpenNotificationById('42');await new Promise(r=>setTimeout(r,100));
-  const row=t.d.querySelector('#notif-list [data-notification-id="42"]');
-  assert(row,'the notification click opens the inbox and loads its target item');
+  globalThis.bqOpenNotificationById('42');
+  let row;
+  await waitFor(()=>{row=t.d.querySelector('#notif-list [data-notification-id="42"]');return !!row&&t.d.activeElement===row},'the notification click loads and focuses its inbox item');
   assert.equal(t.d.querySelector('#view-notifications').hidden,false);
-  assert.equal(t.d.activeElement,row,'the target notification receives focus for keyboard and screen-reader users');
 
   t=await boot({fetchImpl:(u,init)=>{
     const action=JSON.parse(init.body).action;
@@ -865,12 +864,12 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     if(action==='notifications')return json(200,{ok:true,items:[item]});
     return json(200,{ok:true,unread:0,profile});
   }});
-  globalThis.bqOpenNotificationById('42');assert.equal(t.d.querySelector('#view-auth').hidden,false,'a signed-out tap asks the player to sign in');
+  globalThis.bqOpenNotificationById('42');
+  await waitFor(()=>!t.d.querySelector('#view-auth').hidden,'a signed-out tap asks the player to sign in');
   t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCD2345';t.d.querySelector('#login-answer').value='blue';
-  t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,220));
-  const afterLogin=t.d.querySelector('#notif-list [data-notification-id="42"]');
-  assert(afterLogin&&t.d.querySelector('#view-notifications').hidden===false,'the queued notification opens after sign-in');
-  assert.equal(t.d.activeElement,afterLogin,'the queued target receives focus after sign-in');
+  t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));
+  let afterLogin;
+  await waitFor(()=>{afterLogin=t.d.querySelector('#notif-list [data-notification-id="42"]');return !!afterLogin&&!t.d.querySelector('#view-notifications').hidden&&t.d.activeElement===afterLogin},'the queued notification opens and receives focus after sign-in');
   console.log('ok Android notification lifecycle preserves registration while signed out, unregisters only on explicit logout, and routes/focuses a tapped inbox item before or after sign-in');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
