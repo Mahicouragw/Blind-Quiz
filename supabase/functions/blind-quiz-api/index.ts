@@ -43,6 +43,19 @@ const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{
 const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
 const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline','seat_taken','game_started','players_not_ready','waiting_for_players','stale_question','stale_action','comment_unavailable','comments_disabled','not_your_turn','not_room_member','already_joined','color_taken','choose_color','invalid_word','illegal_chess_move','illegal_token_move','choose_token_first','invalid_action','invalid_move'];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Signup name suggestions send a fixed prompt only; no form fields or player data go to Gemini.
+const AI_NAME_WORD=/^\p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)*$/u;
+async function geminiSignupName(){
+ const key=Deno.env.get('GEMINI_API_KEY')?.trim()??'';if(!key)return null;
+ const model=clean(Deno.env.get('BQ_GEMINI_MODEL')??'gemini-2.5-flash',80);if(!/^gemini-[A-Za-z0-9._-]+$/.test(model))return null;
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),9000);let response:Response;
+ try{response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:'Invent a friendly, family-safe, anonymous nickname made from exactly two words: a playful adjective followed by an animal, nature, or object noun. Do not use a real person’s name, brand, location, contact information, profanity, slurs, or personal data. Return JSON only with one string field named name. No digits; no punctuation except an optional hyphen or apostrophe inside a word.'}]}],generationConfig:{temperature:.85,maxOutputTokens:48,responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{name:{type:'STRING'}},required:['name']}},safetySettings:[{category:'HARM_CATEGORY_HARASSMENT',threshold:'BLOCK_MEDIUM_AND_ABOVE'},{category:'HARM_CATEGORY_HATE_SPEECH',threshold:'BLOCK_MEDIUM_AND_ABOVE'},{category:'HARM_CATEGORY_SEXUALLY_EXPLICIT',threshold:'BLOCK_MEDIUM_AND_ABOVE'},{category:'HARM_CATEGORY_DANGEROUS_CONTENT',threshold:'BLOCK_MEDIUM_AND_ABOVE'}]}),signal:controller.signal})}catch{return null}finally{clearTimeout(timeout)}
+ if(!response.ok){console.warn('Signup-name Gemini request failed with status',response.status);return null}
+ let result:any;try{result=await response.json()}catch{return null}
+ const output=(result?.candidates?.[0]?.content?.parts??[]).map((part:any)=>typeof part.text==='string'?part.text:'').join('').trim();let parsed:any;try{parsed=JSON.parse(output)}catch{return null}
+ const name=typeof parsed?.name==='string'?parsed.name.normalize('NFKC').trim().replace(/\s+/g,' '):'',words=name.split(' ');if(name.length<4||name.length>32||words.length!==2||words.some((word:string)=>!AI_NAME_WORD.test(word)))return null;
+ return `${name} ${10+(randomBytes(1)[0]%90)}`;
+}
 // Encrypted messages: the server only checks the shape and size of the sealed boxes; it cannot read them.
 const boxesArg=(b:any)=>{const n=nameArg(b),d=String(b.deviceId??''),x=b.boxes;if(!n||!UUID.test(d)||!x||typeof x!=='object'||Array.isArray(x))return null;const k=Object.keys(x);if(!k.length||k.length>8||JSON.stringify(x).length>24000||!k.every(id=>UUID.test(id)&&['s','iv','ct'].every(f=>typeof x[id]?.[f]==='string')))return null;return {...n,p_sender_device:d,p_boxes:x}};
 // Rooms (Migration 021): ids are uuids; game settings are a small flat object of short strings/numbers; events are [{k,b}] checked again in bq_game_post.
@@ -92,6 +105,10 @@ async function handler(req:Request){
  const key=req.headers.get('apikey')??'';if(!key.startsWith('sb_publishable_'))return json({ok:false,code:'unauthorized'},401,origin);
  let body:any;try{body=await req.json()}catch{return json({ok:false,code:'invalid_request'},400,origin)}
  try{
+  if(body.action==='suggest-name'){
+   if(!await permit(req,'signup-name-ai','',12,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const name=await geminiSignupName();return name?json({ok:true,name},200,origin):json({ok:false,code:'ai_unavailable'},503,origin);
+  }
   if(body.action==='signup'){
    const name=clean(body.name,40),question=clean(body.question,120),answer=clean(body.answer,120),normalized=normalize(name);
    if(name.length<2||normalized.length<2||question.length<8||answer.length<2)return json({ok:false,code:'invalid_request'},400,origin);

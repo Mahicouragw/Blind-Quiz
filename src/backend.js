@@ -56,7 +56,7 @@ export async function callApi(action, payload = {}) {
         headers: {
           'Content-Type': 'application/json',
           apikey: SUPABASE_PUBLISHABLE_KEY,
-          ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
+          ...(session?.token && action !== 'suggest-name' ? { Authorization: `Bearer ${session.token}` } : {}),
         },
         // Put action last so a caller-supplied payload cannot replace the API action.
         body: JSON.stringify({ ...payload, action }),
@@ -75,7 +75,7 @@ export async function callApi(action, payload = {}) {
     const data = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
     // A rejected authenticated token is discarded so the player is asked to sign in again.
     if (response.status === 401 && session?.token
-      && !['login', 'signup', 'recover-id', 'secret-question', 'check-name'].includes(action)) {
+      && !['login', 'signup', 'recover-id', 'secret-question', 'check-name', 'suggest-name'].includes(action)) {
       setSession(null);
     }
     if (!response.ok || data.ok === false) throw new Error(data.code || 'request_failed');

@@ -142,7 +142,9 @@ assert(main.includes('return presentQuestion(q,state.mode,shuffled)')&&gameLogic
 assert(main.includes("typeof saved.correct==='boolean'?saved.correct:correct")&&main.includes('state.lastAnswerCorrect=serverVerdict')&&main.includes("verdict?'good':'bad'"),'server-verified answers stay in sync with score, Survival, and feedback');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');
 assert(!html.includes('id=\"backend-note\"'),'no technical backend status element');
-const backend=await readFile(new URL('../src/backend.js',import.meta.url),'utf8');
+const backend=await readFile(new URL('../src/backend.js',import.meta.url),'utf8'),publicConfig=await readFile(new URL('../src/config.js',import.meta.url),'utf8');
+assert(!/GEMINI_API_KEY|x-goog-api-key/.test(`${html}${main}${backend}${publicConfig}`),'Gemini credentials are never included in browser code');
+assert(backend.includes("action !== 'suggest-name'"),'AI suggestion calls do not send the authenticated session token');
 const uiSource=`${html}\n${main}\n${backend}`;
 assert(!/service reachable|function must be installed|account service is offline|service is not set up/i.test(uiSource),'no implementation-level backend messages in the UI');
 assert(!/BOOT_ERROR|backend_not_ready|service_error|invalid_request|unknown_action|origin_not_allowed|method_not_allowed|session_expired|Uncaught|SyntaxError|Deno|Edge Function|Supabase CLI/i.test(uiSource),'no backend implementation codes or runtime errors surfaced in the UI');
@@ -179,6 +181,9 @@ assert(!/\b(create|alter|drop|truncate|delete|update|grant|revoke)\s/i.test(migr
 for(const q of QUESTION_BANK.slice(725)){assert.equal(new Set(q.answers).size,4,`${q.id} has 4 unique options`);assert(q.answers.includes(q.correctAnswer),`${q.id} includes its answer`);assert(/https:\/\//.test(q.sourceNote),`${q.id} has a source`)}
 const fn=await readFile(new URL('../supabase/functions/blind-quiz-api/index.ts',import.meta.url),'utf8');
 for(const term of ['PBKDF2','310000','name_taken','loginId','bq_consume_attempt','token_hash','record-answer'])assert(fn.includes(term),`server feature ${term}`);
+assert(html.includes('id="signup-ai-status" role="status" aria-live="polite" hidden')&&html.includes('aria-describedby="signup-name-status"'),'signup name has an accessible AI suggestion status');
+assert(main.includes("callApi('suggest-name')")&&main.includes('AI-generated name suggested.')&&main.includes('offline suggestion'),'signup replaces its local fallback with AI and degrades gracefully');
+assert(fn.includes("body.action==='suggest-name'")&&fn.includes('geminiSignupName()'),'signup AI generation is routed through the Edge Function');
 assert.equal((fn.match(/^import \{ createClient \}/gm)||[]).length,1,'one Supabase client import');
 assert.equal((fn.match(/\bcreateClient\s*\(/g)||[]).length,1,'one admin client initialization');
 assert.equal((fn.match(/Deno\.serve\(handler\)/g)||[]).length,1,'one Edge Function entrypoint');
@@ -197,7 +202,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v23'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features and the offline Migration 025 modules');
+assert(sw.includes("const CACHE='blind-quiz-shell-v24'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features and the offline Migration 025 modules');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');

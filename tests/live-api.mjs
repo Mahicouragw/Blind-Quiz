@@ -25,6 +25,7 @@ const API = `${(process.env.SUPABASE_URL || SUPABASE_URL).replace(/\/$/, '')}/fu
 const APIKEY = process.env.SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
 const ORIGIN = process.env.BQ_VERIFY_ORIGIN || 'https://mahicouragw.github.io';
 const LOGIN_ID_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/; // 8 chars from the server alphabet (no I, O, 0, 1)
+const AI_NAME_PATTERN = /^\p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \d{2}$/u;
 const TIMEOUT_MS = 30_000;
 
 // Values that must never appear in anything this script prints.
@@ -137,6 +138,16 @@ if (boot.status === 546 || boot.status === 503 || boot.status === 0) {
 }
 if (boot.body === null) fail('Function returns JSON', `non-JSON response ${sanitize(boot.text)}`);
 check('Function boots without BOOT_ERROR', true, `status ${boot.status}, code ${codeOf(boot)}`);
+
+// --- 1a. Gemini name suggestions: validate the output, or accept safe fail-closed modes. ---
+const aiSuggestion = await post({ action: 'suggest-name' });
+const aiSuggestionValid = aiSuggestion.status === 200 && aiSuggestion.body?.ok === true
+  && typeof aiSuggestion.body.name === 'string' && AI_NAME_PATTERN.test(aiSuggestion.body.name);
+const aiSuggestionFallback = aiSuggestion.status === 503 && aiSuggestion.body?.code === 'ai_unavailable';
+const aiSuggestionLimited = aiSuggestion.status === 429 && aiSuggestion.body?.code === 'rate_limited';
+check('Signup AI suggestion is validated or safely unavailable/rate-limited',
+  aiSuggestionValid || aiSuggestionFallback || aiSuggestionLimited,
+  `status ${aiSuggestion.status}, code ${codeOf(aiSuggestion)}`);
 
 // --- 2. Signup with Name + Secret Question + Secret Answer. ------------------
 const signup = await post({ action: 'signup', name: NAME, question: QUESTION, answer: ANSWER });

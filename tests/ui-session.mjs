@@ -38,13 +38,23 @@ assert.equal(pl.href,'https://mahicouragw.github.io/Blind-Quiz/privacy-policy.ht
 assert(pl.closest('#view-settings')&&tl.closest('#view-settings'),'links in Settings');
 t.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,100));assert.equal(t.d.querySelector('#view-settings').hidden,false);
 console.log('ok 1 signed-out load, no internal counts, legal links in Settings');
-// Signup automatically suggests a name and offers a one-click replacement.
+// Signup keeps a usable offline suggestion if the AI endpoint is unavailable.
 t.d.querySelector('#account-open').click();t.d.querySelector('[data-auth-tab="signup"]').click();
-const signupName=t.d.querySelector('#signup-name'),suggestionPattern=/^[A-Z][a-z]+ [A-Z][a-z]+ \d{2}$/;
-assert.match(signupName.value,suggestionPattern,'opening account creation generates a suggested name');
+let signupName=t.d.querySelector('#signup-name');const suggestionPattern=/^[A-Z][a-z]+ [A-Z][a-z]+ \d{2}$/;
+assert.match(signupName.value,suggestionPattern,'opening account creation immediately supplies a fallback name');
+await new Promise(r=>setTimeout(r,10));assert.match(t.d.querySelector('#signup-ai-status').textContent,/offline suggestion/i);
 assert.equal(t.d.querySelector('#signup-name-generate').textContent,'Suggest another name');
-t.d.querySelector('#signup-name-generate').click();assert.match(signupName.value,suggestionPattern,'the regenerate button supplies another valid suggestion');await new Promise(r=>setTimeout(r,500));
-console.log('ok 1a signup suggests a name automatically and offers regeneration');
+t.d.querySelector('#signup-name-generate').click();assert.match(signupName.value,suggestionPattern,'regeneration immediately supplies a fallback name');await new Promise(r=>setTimeout(r,500));
+assert.match(t.d.querySelector('#signup-ai-status').textContent,/offline suggestion/i);
+console.log('ok 1a signup falls back offline and offers regeneration');
+// A successful Gemini-backed response replaces the fallback, while the request contains no player fields.
+const aiNames=['Bright Comet 42','Curious Fox 38'],suggestionPayloads=[];
+t=await boot({fetchImpl:(u,i)=>{const body=JSON.parse(i.body);if(body.action==='suggest-name'){suggestionPayloads.push(body);return json(200,{ok:true,name:aiNames.shift()})}return json(200,{ok:true,available:true})}});
+t.d.querySelector('#account-open').click();t.d.querySelector('[data-auth-tab="signup"]').click();await new Promise(r=>setTimeout(r,20));
+signupName=t.d.querySelector('#signup-name');assert.equal(signupName.value,'Bright Comet 42');assert.equal(t.d.querySelector('#signup-ai-status').textContent,'AI-generated name suggested.');
+t.d.querySelector('#signup-name-generate').click();await new Promise(r=>setTimeout(r,20));assert.equal(signupName.value,'Curious Fox 38');
+assert.deepEqual(suggestionPayloads,[{action:'suggest-name'},{action:'suggest-name'}],'AI request sends no name, secret answer, or other player data');await new Promise(r=>setTimeout(r,500));
+console.log('ok 1b AI name response replaces the fallback without sending signup data');
 // 2. Valid session survives reload
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(200,{ok:true,profile:{...profile,xp:20}})});
 assert.deepEqual(t.calls,['profile']);assert.match(t.d.querySelector('#top-meta').textContent,/Asha/);assert.equal(t.d.querySelector('#logout-button').hidden,false);
