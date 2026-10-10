@@ -1,7 +1,8 @@
-// Recorded sound effects and music (CC0 / Public domain recordings from Wikimedia Commons, see
-// AUDIO_LICENSES.md). Playback uses plain HTML audio elements: nothing is synthesised, and no
-// Web Audio oscillators or generated sounds are used. If a file is missing or the browser blocks
-// playback, the game simply continues silently; every sound also has a text/announcement equivalent.
+// Recorded game sound effects and music (CC0 / Public domain recordings from Wikimedia Commons,
+// see AUDIO_LICENSES.md). This module plays them with plain HTML audio elements; game audio is not
+// synthesized. Voice-message processing is handled separately in voice-dsp.js. If a file is missing
+// or the browser blocks playback, the game simply continues silently; every sound also has a
+// text/announcement equivalent.
 const BASE = './assets/audio/';
 const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify'];
 // Each category and mode gets its own music track from the available recordings.

@@ -568,10 +568,11 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();assert(sent.some(b=>b.action==='room-say'&&b.text==='hello room'));
   const roomVoiceLine=d.querySelector('.room-voice'),loadRoomVoice=roomVoiceLine.querySelector('button');loadRoomVoice.click();await tick();
   const roomPlayer=roomVoiceLine.querySelector('audio');assert.equal(roomPlayer.controls,true);assert.equal(roomPlayer.hidden,false,'room recordings use a native player with pause, resume and seek controls');
-  roomVoiceLine.querySelector('#room-voice-77-effect').value='chipmunk';roomVoiceLine.querySelector('#room-voice-77-effect').dispatchEvent(new w.Event('change'));
-  assert.equal(roomPlayer.playbackRate,1.5);assert.equal(roomPlayer.preservesPitch,false,'voice style changes only local HTML audio playback');
-  roomVoiceLine.querySelector('#room-voice-77-speed').value='0.5';roomVoiceLine.querySelector('#room-voice-77-speed').dispatchEvent(new w.Event('change'));
-  assert.equal(roomPlayer.playbackRate,0.75,'playback speed combines with the selected voice style');
+  const roomSpeed=roomVoiceLine.querySelector('#room-voice-77-speed');assert.equal(roomVoiceLine.querySelector('#room-voice-77-effect'),null,'listeners have no voice-style filter control');
+  assert.equal(roomSpeed.tagName,'BUTTON');assert.equal(roomPlayer.preservesPitch,true,'playback controls preserve the sender’s recorded pitch');
+  roomSpeed.click();assert.equal(roomPlayer.playbackRate,1.25,'the speed cycle starts with faster playback');
+  roomSpeed.click();assert.equal(roomPlayer.playbackRate,0.75,'the speed cycle then offers slower playback');
+  roomSpeed.click();assert.equal(roomPlayer.playbackRate,1,'the speed cycle returns to normal playback');
   roomPlayer.currentTime=1.25;roomPlayer.pause();const pausedAt=roomPlayer.currentTime;await roomPlayer.play();assert.equal(roomPlayer.currentTime,pausedAt,'pause and resume retain the current playback position');
   const priorRecorder=globalThis.MediaRecorder,priorSetTimeout=globalThis.setTimeout,priorClearTimeout=globalThis.clearTimeout,mediaDevicesDescriptor=Object.getOwnPropertyDescriptor(w.navigator,'mediaDevices');
   const roomTimerToken={},roomTracks=[];let triggerRoomVoiceLimit=null;
@@ -589,7 +590,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   await recordRoomVoice();assert.equal(typeof triggerRoomVoiceLimit,'function','room recording installs its 60-second stop timer');
   const realNow=Date.now;Date.now=()=>realNow()+60000;triggerRoomVoiceLimit();Date.now=realNow;
   assert.equal(d.querySelector('#room-voice-review').hidden,false);assert.equal(d.querySelector('#room-voice-send').hidden,false);
-  assert(!sent.some(b=>b.action==='room-voice-send'),'the 60-second room timer previews without sending');assert.match(d.querySelector('#room-voice-status').textContent,/Maximum length reached.*not been sent/i);
+  assert(!sent.some(b=>b.action==='room-voice-send'),'the 60-second room timer previews without sending');assert.match(d.querySelector('#room-voice-status').textContent,/Maximum length reached.*(not been sent|Nothing has been sent)/i);
   d.querySelector('#room-voice-send').click();
   for(let i=0;i<100&&!sent.some(b=>b.action==='room-voice-send');i++)await new Promise(r=>setTimeout(r,5));
   const sentRoomVoice=sent.find(b=>b.action==='room-voice-send');assert(sentRoomVoice?.audio.startsWith('data:audio/webm'));assert.equal(sentRoomVoice.durationMs,60000);assert(roomTracks.flat().every(t=>t.stopped));
@@ -598,7 +599,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   globalThis.setTimeout=priorSetTimeout;globalThis.clearTimeout=priorClearTimeout;
   if(mediaDevicesDescriptor)Object.defineProperty(w.navigator,'mediaDevices',mediaDevicesDescriptor);else delete w.navigator.mediaDevices;
   if(priorRecorder===undefined)delete globalThis.MediaRecorder;else Object.defineProperty(globalThis,'MediaRecorder',{value:priorRecorder,configurable:true,writable:true});
-  console.log('ok room voices stop at 60 seconds without sending, require explicit Send, support discard and resume at the paused position with local style/speed controls');
+  console.log('ok room voices stop at 60 seconds without sending, require explicit Send, support discard and resume at the paused position with speed-only playback controls');
 
   // A new quiz opens a lobby; no questions appear while only one of two player slots is ready.
   d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));
@@ -728,8 +729,9 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal(B.d.querySelector('#direct-voice-playback').hidden, false);
   const receivedVoice=B.d.querySelector('#direct-voice-audio');assert(receivedVoice.src.startsWith('blob:'),'received voice is played from a temporary local audio object');assert.equal(receivedVoice.controls,true);
   receivedVoice.currentTime=1.25;receivedVoice.pause();const receivedPausedAt=receivedVoice.currentTime;await receivedVoice.play();assert.equal(receivedVoice.currentTime,receivedPausedAt,'private playback resumes at the same position');
-  const directStyle=B.d.querySelector('#direct-voice-effect'),directSpeed=B.d.querySelector('#direct-voice-speed');directSpeed.value='1';directSpeed.dispatchEvent(new B.d.defaultView.Event('change'));directStyle.value='alien';directStyle.dispatchEvent(new B.d.defaultView.Event('change'));assert.equal(receivedVoice.playbackRate,0.72);assert.equal(receivedVoice.preservesPitch,false);
-  directSpeed.value='2';directSpeed.dispatchEvent(new B.d.defaultView.Event('change'));assert.equal(receivedVoice.playbackRate,1.44);
+  const directSpeed=B.d.querySelector('#direct-voice-speed');assert.equal(B.d.querySelector('#direct-voice-effect'),null,'private-message recipients cannot change the sender’s voice style');
+  assert.equal(receivedVoice.preservesPitch,true);directSpeed.click();assert.equal(receivedVoice.playbackRate,1.25);
+  directSpeed.click();assert.equal(receivedVoice.playbackRate,0.75);directSpeed.click();assert.equal(receivedVoice.playbackRate,1);
   assert.match(B.d.querySelector('#direct-expiry').textContent, /three hours/);
   B.btn('Close').click(); A.btn('Close').click();
   // Video call, then Bob hangs up.
@@ -764,8 +766,9 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     throw new Error(`unexpected chat action: ${action}`);
   };
   const tracks = [{ stop() { this.stopped = true; } }]; const stream = { getTracks: () => tracks };
+  const filteredTracks = [{ stop() { this.stopped = true; } }], filteredStream = { getTracks: () => filteredTracks }, effectRequests = [], fakeRecorders = [];
   class FakeRecorder {
-    constructor(s) { this.stream = s; this.mimeType = 'audio/webm'; this.state = 'inactive'; }
+    constructor(s) { this.stream = s; this.mimeType = 'audio/webm'; this.state = 'inactive'; fakeRecorders.push(this); }
     start() { this.state = 'recording'; }
     stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['private voice clip'], { type: this.mimeType }) }); this.onstop?.(); }
   }
@@ -777,9 +780,11 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     store, direct, Recorder: FakeRecorder,
     voiceTimeout: fn => { triggerVoiceLimit = fn; return 1; }, clearVoiceTimeout: () => {},
     mediaDevices: () => ({ getUserMedia: async () => stream }),
+    makeVoiceEffectPipeline: style => ({ prepare: async () => {}, connect: input => { assert.equal(input, stream); effectRequests.push(style); return filteredStream; }, dispose: () => { for (const track of filteredTracks) track.stop(); } }),
     pinsStorage: { values: new Map(), getItem(k) { return this.values.get(k) ?? null; }, setItem(k, v) { this.values.set(k, v); } },
   });
   await chat.openChat('Bob');
+  const styleSelect=d.querySelector('#chat-voice-style');styleSelect.value='chipmunk';styleSelect.dispatchEvent(new dom.window.Event('change'));
   const area = d.querySelector('#chat-text'); area.value = 'Hi '; area.setSelectionRange(3, 3);
   d.querySelector('#chat-emoji-toggle').click(); d.querySelector('[data-chat-emoji="😊"]').click();
   assert.equal(area.value, 'Hi 😊', 'the emoji picker inserts at the cursor');
@@ -795,14 +800,16 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal(recordings.length, 0, 'stopping never sends a private voice message automatically');
   const preview=d.querySelector('#chat-voice-preview');assert(preview.src.startsWith('blob:'));assert.equal(preview.controls,true);
   preview.currentTime=0.5;preview.pause();const previewPausedAt=preview.currentTime;await preview.play();assert.equal(preview.currentTime,previewPausedAt,'private preview resumes where playback was paused');
-  const effect=d.querySelector('#chat-voice-preview-effect'),speed=d.querySelector('#chat-voice-preview-speed');
-  effect.value='chipmunk';effect.dispatchEvent(new dom.window.Event('change'));assert.equal(preview.playbackRate,1.5);
-  speed.value='0.5';speed.dispatchEvent(new dom.window.Event('change'));assert.equal(preview.playbackRate,0.75);
+  assert.equal(d.querySelector('#chat-voice-preview-effect'),null,'the preview cannot apply a different effect after the recording is made');
+  assert.equal(styleSelect.disabled,true,'the chosen style is locked into the recording through review');
+  const speed=d.querySelector('#chat-voice-preview-speed');assert.equal(speed.tagName,'BUTTON');assert.equal(preview.preservesPitch,true);
+  speed.click();assert.equal(preview.playbackRate,1.25);speed.click();assert.equal(preview.playbackRate,0.75);speed.click();assert.equal(preview.playbackRate,1);
   d.querySelector('#chat-voice-send').click();
   for (let i = 0; i < 100 && recordings.length === 0; i++) await new Promise(r => setTimeout(r, 5));
   for (let i = 0; i < 100 && d.querySelector('#chat-voice-record').disabled; i++) await new Promise(r => setTimeout(r, 5));
   assert.equal(recordings[0][0], 'Bob'); assert.equal(recordings[0][1].type, 'audio/webm'); assert(recordings[0][2] >= 250);
-  assert(tracks.every(t => t.stopped), 'the microphone track stops after previewing');
+  assert.equal(effectRequests[0], 'chipmunk');assert.equal(fakeRecorders[0].stream,filteredStream,'the selected local effect is in the recording sent to the friend');
+  assert(tracks.every(t => t.stopped) && filteredTracks.every(t => t.stopped), 'the microphone and processed capture tracks stop after previewing');
   d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5));
   const realNow=Date.now;Date.now=()=>realNow()+60000;triggerVoiceLimit();Date.now=realNow;
   assert.equal(d.querySelector('#chat-voice-review').hidden,false);assert.equal(recordings.length,1,'the 60-second limit stops and previews but does not send');
@@ -815,7 +822,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal(d.querySelector('#chat-voice-review').hidden,true,'a private preview can be discarded without sending');assert.equal(recordings.length,2);
   d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5)); d.querySelector('#chat-voice-cancel').click();
   assert.equal(recordings.length, 2, 'cancelling a recording never sends it');
-  chat.stop(); dom.window.close(); console.log('ok private chat voice recordings stop at 60 seconds, require Send, support discard/cancel and preview with voice-style and speed controls');
+  chat.stop(); dom.window.close(); console.log('ok private chat voice recordings stop at 60 seconds, require Send, support discard/cancel, bake the selected effect into the microphone stream and preview with speed-only controls');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

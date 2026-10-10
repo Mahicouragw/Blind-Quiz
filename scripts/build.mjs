@@ -15,7 +15,7 @@ for(const page of ['privacy-policy.html','terms-and-conditions.html']){
 const out=new URL('../dist/',import.meta.url);
 await rm(out,{recursive:true,force:true});
 await mkdir(out,{recursive:true});
-for(const path of ['index.html','news.json','privacy-policy.html','terms-and-conditions.html','styles.css','manifest.webmanifest','sw.js','assets','src','supabase/functions/_shared']){
+for(const path of ['index.html','news.json','privacy-policy.html','terms-and-conditions.html','styles.css','manifest.webmanifest','sw.js','AUDIO_LICENSES.md','licenses','assets','src','supabase/functions/_shared']){
   await cp(new URL(`../${path}`,import.meta.url),new URL(path,out),{recursive:true,filter:src=>!src.includes('/assets/audio/incoming')});
 }
 console.log('Production static build written to dist/.');

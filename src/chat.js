@@ -4,7 +4,8 @@
 import { deviceKey, idbStore, seal, open, safetyCode, keyPins, MAX_MESSAGE } from './e2ee.js';
 import { alertSound } from './alerts.js';
 import { MAX_VOICE_MESSAGE_BYTES, MAX_VOICE_MESSAGE_MS } from './direct.js';
-import { createVoicePlaybackControls } from './voice-playback.js';
+import { createVoicePlaybackControls, createVoiceEffectSelector, voiceEffectLabel } from './voice-playback.js';
+import { createVoiceEffectPipeline } from './voice-dsp.js';
 
 const POLL_MS = 4000;
 const STICKER_PREFIX = '[[bq-sticker:';
@@ -19,9 +20,9 @@ export const PRIVATE_STICKERS = Object.freeze({
 
 export function createChat({ $, announce, callApi, getSession, go, playSfx = () => {}, currentView = () => '', store = null, pinsStorage = null,
   direct = null, mediaDevices = () => globalThis.navigator?.mediaDevices, Recorder = globalThis.MediaRecorder,
-  voiceTimeout = (fn, ms) => setTimeout(fn, ms), clearVoiceTimeout = id => clearTimeout(id) }) {
+  voiceTimeout = (fn, ms) => setTimeout(fn, ms), clearVoiceTimeout = id => clearTimeout(id), makeVoiceEffectPipeline = createVoiceEffectPipeline }) {
   let friend = '', me = null, keys = null, lastId = 0, timer = null, registeredFor = '', pendingTrust = null, busy = false;
-  let canSend = false, voiceRecorder = null, voiceStream = null, voiceChunks = [], voiceTimer = null, voiceTicker = null;
+  let canSend = false, voiceRecorder = null, voiceStream = null, voicePipeline = null, voiceStarting = false, voiceAttempt = 0, voiceChunks = [], voiceTimer = null, voiceTicker = null;
   let voiceStarted = 0, voiceStoppedAt = 0, voiceFriend = '', voiceCancelled = false, voiceAutoStopped = false;
   let voiceReview = null, voicePreviewUrl = '';
   const account = () => getSession()?.loginId || getSession()?.profile?.loginId || getSession()?.profile?.name || '';
@@ -32,6 +33,7 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
   const voiceRecordActions = $('#chat-voice-record-actions'), voiceReviewBox = $('#chat-voice-review');
   const voicePreview = $('#chat-voice-preview'), voicePreviewControls = $('#chat-voice-preview-controls');
   const voiceSendButton = $('#chat-voice-send'), voiceDiscardButton = $('#chat-voice-discard');
+  const voiceStyleControl = createVoiceEffectSelector($('#chat-voice-style-control'), { id: 'chat-voice-style', label: 'Voice style for next recording' });
   const voicePreviewPlayback = voicePreview ? createVoicePlaybackControls(voicePreview, { idPrefix: 'chat-voice-preview', label: 'Voice message preview', note: true }) : null;
   if (voicePreviewControls && voicePreviewPlayback) voicePreviewControls.replaceChildren(voicePreviewPlayback.element);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -103,7 +105,10 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
         say(items.length ? `${items.length} message${items.length === 1 ? '' : 's'} with ${friend}. Newest at the end.` : '');
       } else if (items.length) log.querySelector('.chat-empty')?.remove();
       canSend = d.relation === 'friends';
-      for (const id of ['#chat-send', '#chat-emoji-toggle', '#chat-sticker-toggle', '#chat-voice-record']) { const control = $(id); if (control) control.disabled = !canSend; }
+      for (const id of ['#chat-send', '#chat-emoji-toggle', '#chat-sticker-toggle']) { const control = $(id); if (control) control.disabled = !canSend; }
+      if (voiceStyleControl && !voiceStarting && !voiceRecorder && !voiceReview) voiceStyleControl.refresh();
+      voiceRecordButton.disabled = !canSend || voiceStarting || !!voiceRecorder || !!voiceReview;
+      if (voiceStyleControl) voiceStyleControl.disabled = !canSend || voiceStarting || !!voiceRecorder || !!voiceReview;
       for (const control of [...($('#chat-emoji-picker')?.querySelectorAll('button') || []), ...($('#chat-sticker-picker')?.querySelectorAll('button') || [])]) control.disabled = !canSend;
       if (!canSend) say(`You and ${friend} are no longer friends, so you cannot send new messages.`);
     } catch (err) { if (first) say(err.message === 'network' ? 'No internet connection.' : 'Messages could not be loaded. Please try again.', true); }
@@ -113,6 +118,7 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
 
   async function openChat(name) {
     cancelVoiceRecording(false); canSend = false;
+    if (voiceStyleControl) voiceStyleControl.disabled = true;
     for (const id of ['#chat-send', '#chat-emoji-toggle', '#chat-sticker-toggle', '#chat-voice-record']) { const control = $(id); if (control) control.disabled = true; }
     $('#chat-emoji-picker').hidden = true; $('#chat-sticker-picker').hidden = true;
     $('#chat-emoji-toggle').setAttribute('aria-expanded', 'false'); $('#chat-sticker-toggle').setAttribute('aria-expanded', 'false');
@@ -184,20 +190,41 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
     clearVoiceTimeout(voiceTimer); clearInterval(voiceTicker); voiceTimer = null; voiceTicker = null;
     const stream = voiceStream; voiceStream = null;
     for (const track of stream?.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } }
-    voiceRecorder = null; voiceChunks = []; voiceFriend = ''; voiceStarted = 0; voiceStoppedAt = 0; voiceAutoStopped = false;
+    const pipeline = voicePipeline; voicePipeline = null;
+    try { pipeline?.dispose?.(); } catch { /* Audio cleanup must not interrupt sending or discarding. */ }
+    voiceRecorder = null; voiceStarting = false; voiceChunks = []; voiceFriend = ''; voiceStarted = 0; voiceStoppedAt = 0; voiceAutoStopped = false;
     voiceRecordButton.disabled = !canSend || !!voiceReview;
+    if (voiceStyleControl) voiceStyleControl.disabled = !canSend || !!voiceReview;
   }
   function discardVoiceReview(announceDiscard = false) {
     if (voicePreviewUrl) { try { URL.revokeObjectURL(voicePreviewUrl); } catch { /* ignore */ } voicePreviewUrl = ''; }
     if (voicePreview) { try { voicePreview.pause(); } catch { /* ignore */ } voicePreview.removeAttribute('src'); try { voicePreview.load(); } catch { /* ignore */ } }
     voiceReview = null; voiceReviewBox.hidden = true; voiceRecordActions.hidden = false; voiceBox.hidden = true;
     voiceRecordButton.disabled = !canSend; voiceSendButton.disabled = false; voiceDiscardButton.disabled = false;
+    if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
     if (announceDiscard) say('Voice message discarded.');
   }
   function cancelVoiceRecording(announceCancel = false) {
+    if (voiceStarting && !voiceRecorder) {
+      voiceAttempt++;
+      voiceStarting = false;
+      const pipeline = voicePipeline; voicePipeline = null;
+      try { pipeline?.dispose?.(); } catch { /* Ignore cleanup errors. */ }
+      const stream = voiceStream; voiceStream = null;
+      for (const track of stream?.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } }
+      voiceBox.hidden = true; voiceRecordActions.hidden = false;
+      voiceRecordButton.disabled = !canSend;
+      if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+      if (announceCancel) say('Voice message recording cancelled.');
+      return;
+    }
     if (!voiceRecorder) {
       if (voiceReview) discardVoiceReview(announceCancel);
-      else { voiceBox.hidden = true; voiceRecordButton.disabled = !canSend; if (announceCancel) say('Voice message recording cancelled.'); }
+      else {
+        voiceBox.hidden = true; voiceRecordButton.disabled = !canSend;
+        if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+        if (announceCancel) say('Voice message recording cancelled.');
+      }
       return;
     }
     voiceCancelled = true;
@@ -212,7 +239,11 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
     voiceStoppedAt = Date.now();
     voiceAutoStopped = auto || voiceStoppedAt - voiceStarted >= MAX_VOICE_MESSAGE_MS;
     try { voiceRecorder.stop(); }
-    catch { stopVoiceMicrophone(); voiceBox.hidden = true; say('The recording could not be completed. Please try again.', true); }
+    catch {
+      stopVoiceMicrophone(); voiceBox.hidden = true;
+      if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+      say('The recording could not be completed. Please try again.', true);
+    }
   }
   async function sendVoicePreview() {
     const pending = voiceReview;
@@ -237,50 +268,127 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
     if (!Recorder || !mediaDevices()?.getUserMedia || !direct?.startVoiceMessage || !direct.supported?.()) {
       say('Voice messages are not supported in this browser. Please try a current version of the app or browser.', true); return;
     }
-    const target = friend, md = mediaDevices();
-    voiceRecordButton.disabled = true;
-    let stream;
+    const target = friend, md = mediaDevices(), effectId = voiceStyleControl?.value || 'natural';
+    const attempt = ++voiceAttempt;
+    voiceStarting = true; voiceRecordButton.disabled = true;
+    if (voiceStyleControl) voiceStyleControl.disabled = true;
+    voiceBox.hidden = false; voiceReviewBox.hidden = true; voiceRecordActions.hidden = false;
+    voiceStatus.textContent = 'Preparing your voice style and microphone…';
+    announce('Preparing your voice style and microphone. The recording will start shortly; you can cancel it.', false);
+    voiceBox.querySelector('#chat-voice-stop').disabled = true;
+    voiceBox.querySelector('#chat-voice-cancel').disabled = false;
+    let pipeline = null, stream = null;
+    const failStart = (message, urgent = true) => {
+      if (attempt !== voiceAttempt) return;
+      voiceStarting = false;
+      if (voicePipeline === pipeline) voicePipeline = null;
+      try { pipeline?.dispose?.(); } catch { /* Ignore cleanup errors. */ }
+      for (const track of stream?.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } }
+      if (voiceStream === stream) voiceStream = null;
+      voiceRecordButton.disabled = !canSend;
+      if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+      voiceBox.hidden = true; voiceRecordActions.hidden = false;
+      say(message, urgent);
+    };
+    try {
+      pipeline = makeVoiceEffectPipeline(effectId);
+      if (!pipeline?.prepare || !pipeline?.connect) throw new Error('voice_effect_unsupported');
+      voicePipeline = pipeline;
+      await pipeline.prepare();
+    } catch (error) {
+      if (attempt !== voiceAttempt) { try { pipeline?.dispose?.(); } catch { /* ignore */ } return; }
+      failStart(error?.message === 'voice_effect_unsupported'
+        ? 'This browser cannot apply that voice style. Choose Natural or try a current browser.'
+        : 'The voice style could not be prepared. Please choose another style and try again.');
+      return;
+    }
+    if (attempt !== voiceAttempt) { try { pipeline.dispose?.(); } catch { /* Ignore cleanup errors. */ } return; }
+    if (target !== friend || currentView() !== 'chat' || !canSend) {
+      voiceStarting = false; if (voicePipeline === pipeline) voicePipeline = null;
+      try { pipeline.dispose?.(); } catch { /* Ignore cleanup errors. */ }
+      voiceBox.hidden = true; voiceRecordButton.disabled = !canSend;
+      if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+      return;
+    }
     try { stream = await md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false }); }
-    catch { voiceRecordButton.disabled = !canSend; say('Allow microphone access to record a voice message, then try again.', true); return; }
-    if (target !== friend || currentView() !== 'chat') {
+    catch {
+      failStart('Allow microphone access to record a voice message, then try again.'); return;
+    }
+    if (attempt !== voiceAttempt || target !== friend || currentView() !== 'chat' || !canSend) {
       for (const track of stream.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } }
-      voiceRecordButton.disabled = !canSend; return;
+      try { pipeline.dispose?.(); } catch { /* ignore */ }
+      if (voicePipeline === pipeline) voicePipeline = null;
+      if (attempt === voiceAttempt) { voiceStarting = false; voiceRecordButton.disabled = !canSend; if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; } voiceBox.hidden = true; voiceRecordActions.hidden = false; }
+      return;
     }
     let recorder;
-    try { recorder = new Recorder(stream); recorder.start(250); }
-    catch { for (const track of stream.getTracks?.() || []) { try { track.stop(); } catch { /* ignore */ } } voiceRecordButton.disabled = !canSend; say('Recording could not start. Please try again.', true); return; }
-    voiceRecorder = recorder; voiceStream = stream; voiceChunks = []; voiceFriend = target; voiceStarted = Date.now(); voiceStoppedAt = 0; voiceCancelled = false; voiceAutoStopped = false;
-    recorder.ondataavailable = e => { if (e.data && e.data.size) voiceChunks.push(e.data); };
-    recorder.onerror = () => { voiceCancelled = true; stopVoiceMicrophone(); voiceBox.hidden = true; say('The recording stopped unexpectedly. Please try again.', true); };
-    recorder.onstop = () => {
-      const cancelled = voiceCancelled, autoStopped = voiceAutoStopped, to = voiceFriend;
-      const elapsed = Math.max(0, (voiceStoppedAt || Date.now()) - voiceStarted);
-      const durationMs = Math.min(MAX_VOICE_MESSAGE_MS, Math.round(elapsed));
-      const chunks = voiceChunks, type = recorder.mimeType || chunks.find(c => c.type)?.type || 'audio/webm';
-      voiceCancelled = false; stopVoiceMicrophone();
-      if (cancelled) { voiceBox.hidden = true; voiceRecordActions.hidden = false; return; }
-      if (elapsed > MAX_VOICE_MESSAGE_MS + 1000) { voiceBox.hidden = true; say('The recording exceeded 60 seconds, so it was not sent. Please record a shorter message.', true); return; }
-      if (to !== friend || currentView() !== 'chat' || !canSend) { voiceBox.hidden = true; return; }
-      const blob = new Blob(chunks, { type });
-      if (durationMs < 250 || blob.size < 1) { voiceBox.hidden = true; say('The recording was too short. Please record it again.', true); return; }
-      if (blob.size > MAX_VOICE_MESSAGE_BYTES) { voiceBox.hidden = true; say('Voice messages can be up to 60 seconds and 10 MB. This recording was not sent; please record a shorter one.', true); return; }
-      voiceReview = { to, blob, durationMs };
-      voicePreviewUrl = URL.createObjectURL(blob); voicePreview.src = voicePreviewUrl;
-      voiceReviewBox.hidden = false; voiceRecordActions.hidden = true; voiceBox.hidden = false;
-      voiceRecordButton.disabled = true; voiceSendButton.disabled = false; voiceDiscardButton.disabled = false;
-      voicePreviewPlayback?.apply();
-      voiceStatus.textContent = autoStopped
-        ? 'Maximum length reached. Your recording is ready to review; it has not been sent.'
-        : 'Recording stopped. Your voice message has not been sent yet.';
-      announce(`${voiceStatus.textContent} Listen, then choose Send voice message or Discard recording.`, true);
-    };
+    try {
+      const recorderStream = pipeline.connect(stream);
+      recorder = new Recorder(recorderStream);
+      voiceRecorder = recorder; voiceStream = stream; voicePipeline = pipeline;
+      voiceChunks = []; voiceFriend = target; voiceStarted = Date.now(); voiceStoppedAt = 0; voiceCancelled = false; voiceAutoStopped = false;
+      recorder.ondataavailable = e => { if (e.data && e.data.size) voiceChunks.push(e.data); };
+      recorder.onerror = () => {
+        voiceCancelled = true; stopVoiceMicrophone(); voiceBox.hidden = true;
+        if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+        say('The recording stopped unexpectedly. Please try again.', true);
+      };
+      recorder.onstop = () => {
+        const cancelled = voiceCancelled, autoStopped = voiceAutoStopped, to = voiceFriend;
+        const elapsed = Math.max(0, (voiceStoppedAt || Date.now()) - voiceStarted);
+        const durationMs = Math.min(MAX_VOICE_MESSAGE_MS, Math.round(elapsed));
+        const chunks = voiceChunks, type = recorder.mimeType || chunks.find(c => c.type)?.type || 'audio/webm';
+        voiceCancelled = false; stopVoiceMicrophone();
+        if (cancelled) {
+          voiceBox.hidden = true; voiceRecordActions.hidden = false;
+          if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+          return;
+        }
+        if (elapsed > MAX_VOICE_MESSAGE_MS + 1000) {
+          voiceBox.hidden = true; if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+          say('The recording exceeded 60 seconds, so it was not sent. Please record a shorter message.', true); return;
+        }
+        if (to !== friend || currentView() !== 'chat' || !canSend) { voiceBox.hidden = true; return; }
+        const blob = new Blob(chunks, { type });
+        if (durationMs < 250 || blob.size < 1) {
+          voiceBox.hidden = true; if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+          say('The recording was too short. Please record it again.', true); return;
+        }
+        if (blob.size > MAX_VOICE_MESSAGE_BYTES) {
+          voiceBox.hidden = true; if (voiceStyleControl) { voiceStyleControl.refresh(); voiceStyleControl.disabled = !canSend; }
+          say('Voice messages can be up to 60 seconds and 10 MB. This recording was not sent; please record a shorter one.', true); return;
+        }
+        voiceReview = { to, blob, durationMs, effectId };
+        voicePreviewUrl = URL.createObjectURL(blob); voicePreview.src = voicePreviewUrl;
+        voiceReviewBox.hidden = false; voiceRecordActions.hidden = true; voiceBox.hidden = false;
+        voiceRecordButton.disabled = true; voiceSendButton.disabled = false; voiceDiscardButton.disabled = false;
+        if (voiceStyleControl) voiceStyleControl.disabled = true;
+        voicePreviewPlayback?.apply();
+        const chosenStyle = effectId === 'natural' ? 'Natural voice selected.' : `${voiceEffectLabel(effectId)} style applied.`;
+        voiceStatus.textContent = autoStopped
+          ? `Maximum length reached. ${chosenStyle} Preview your recording, then choose Send or Discard. Nothing has been sent.`
+          : `Recording stopped. ${chosenStyle} Preview your recording, then choose Send or Discard.`;
+        announce(voiceStatus.textContent, true);
+      };
+      recorder.start(250);
+    } catch (error) {
+      voiceRecorder = recorder || null;
+      voiceStream = stream; voicePipeline = pipeline;
+      stopVoiceMicrophone(); voiceBox.hidden = true;
+      if (voiceStyleControl) voiceStyleControl.disabled = !canSend;
+      say(error?.message === 'voice_effect_unsupported'
+        ? 'This browser cannot apply that voice style. Choose Natural or try a current browser.'
+        : 'Recording could not start. Please try again.', true);
+      return;
+    }
+    voiceStarting = false;
     voiceBox.hidden = false; voiceReviewBox.hidden = true; voiceRecordActions.hidden = false;
     voiceStatus.textContent = 'Recording… 0 seconds. Maximum 60 seconds.';
     voiceBox.querySelector('#chat-voice-stop').disabled = false;
     voiceBox.querySelector('#chat-voice-cancel').disabled = false;
     voiceTicker = setInterval(() => { if (voiceRecorder) voiceStatus.textContent = `Recording… ${Math.min(60, Math.floor((Date.now() - voiceStarted) / 1000))} seconds. Maximum 60 seconds.`; }, 1000);
     voiceTimer = voiceTimeout(() => stopVoiceRecording(true), MAX_VOICE_MESSAGE_MS);
-    say('Recording started. At 60 seconds it will stop without sending; preview it and choose Send or Discard.');
+    say(`Recording started with ${voiceEffectLabel(effectId)} style. At 60 seconds it will stop without sending; preview it and choose Send or Discard.`);
   }
 
   $('#chat-form')?.addEventListener('submit', async e => {
