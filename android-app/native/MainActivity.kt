@@ -67,7 +67,8 @@ class MainActivity : FlutterActivity() {
                         result.error("NOTIFY_START_FAILED", "Notifications could not be enabled.", null)
                     }
                 }
-                "disable", "logout" -> { BQNotify.stop(this); result.success(true) }
+                "disable" -> { BQNotify.disable(this); result.success(true) }
+                "logout" -> { BQNotify.stop(this); result.success(true) }
                 "sounds" -> { openSoundSettings(); result.success(true) }
                 else -> result.notImplemented()
             }

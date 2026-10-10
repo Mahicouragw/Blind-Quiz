@@ -6,7 +6,11 @@ new questions and fixes arrive without reinstalling; Reload clears the WebView H
 reloads, and the site's network-first service worker serves the newest files.
 
 The installable PWA keeps working independently: open the site in Chrome and choose
-"Install app" / "Add to Home screen".
+"Install app" / "Add to Home screen". In the Android app, temporary files received in a
+private chat are cleaned up after three hours, including by a background cleanup job when
+the app is closed; a copy you save or share elsewhere remains under your control. Public
+feature-news checks continue after sign-out and retry when the phone reconnects, provided
+notifications are allowed.
 
 ## Security
 

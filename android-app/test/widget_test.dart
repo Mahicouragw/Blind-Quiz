@@ -66,5 +66,6 @@ void main() {
     expect(safeReceivedName(''), 'file');
     expect(safeReceivedName('x' * 200).length, 120);
     expect(kMaxReceivedBytes, 2 * 1024 * 1024 * 1024);
+    expect(kReceivedFileTtl, const Duration(hours: 3));
   });
 }

@@ -661,6 +661,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const media = () => ({ getUserMedia: async ({ video }) => { const a = [track()], v = video ? [track()] : []; return { getTracks: () => [...a, ...v], getAudioTracks: () => a, getVideoTracks: () => v }; } });
   const party = who => {
     const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/' }); const d = dom.window.document; const said = [];
+    dom.window.HTMLMediaElement.prototype.pause = () => {}; dom.window.HTMLMediaElement.prototype.load = () => {};
     const store = new Map(); const pinsStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
     const prevDoc = globalThis.document; globalThis.document = d;
     const direct = createDirect({ $: sel => d.querySelector(sel), announce: t => said.push(t), callApi: api(who), getSession: () => ({ loginId: who.toUpperCase().padEnd(8, 'X'), profile: { name: who } }), store: memoryStore(), pinsStorage, RTC: FakePC, mediaDevices: media });
@@ -679,9 +680,19 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(B.text(), /Asha wants to send you a file: notes\.pdf, 200 KB\./); assert.equal(B.d.querySelector('#direct-panel').getAttribute('role'), 'alertdialog');
   B.btn('Accept file').click();
   await wait(() => /File received/.test(B.text()) && /File sent/.test(A.text()));
-  assert.match(B.text(), /notes\.pdf, 200 KB, from Asha\. It is not stored anywhere else, so save it now\./); assert(B.btn('Save notes.pdf').href.startsWith('blob:'));
+  assert.match(B.text(), /notes\.pdf, 200 KB, from Asha\. Choose Save now\. The temporary copy in Blind Quiz is removed after three hours/); assert(B.btn('Save notes.pdf').href.startsWith('blob:'));
   assert.match(A.text(), /Bob received notes\.pdf\./); assert(A.said.some(t => /percent/.test(t)), 'progress is spoken');
   assert(!relayLog.join('\n').includes('notes.pdf') && !relayLog.join('\n').includes('fake-offer'), 'the relay never sees the file name or the connection description');
+  B.btn('Close').click(); A.btn('Close').click();
+  // A short recorded voice message uses a direct, online-only transfer and is playable for three hours.
+  globalThis.document = A.d; await A.direct.startVoiceMessage('Bob', new Blob([bytes], { type: 'audio/webm' }), 1800);
+  assert.match(A.text(), /Waiting for Bob to accept your 2-second voice message\./);
+  globalThis.document = B.d; await B.direct.poll(); assert.match(B.text(), /Asha sent a 2-second voice message/);
+  B.btn('Listen').click();
+  await wait(() => /Voice message received/.test(B.text()) && /Voice message sent/.test(A.text()));
+  assert.equal(B.d.querySelector('#direct-voice-playback').hidden, false);
+  assert(B.d.querySelector('#direct-voice-audio').src.startsWith('blob:'), 'received voice is played from a temporary local audio object');
+  assert.match(B.d.querySelector('#direct-expiry').textContent, /three hours/);
   B.btn('Close').click(); A.btn('Close').click();
   // Video call, then Bob hangs up.
   globalThis.document = A.d; await A.direct.startCall('Bob', true); assert.match(A.text(), /Calling Bob…/);
@@ -696,7 +707,57 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Declining.
   globalThis.document = A.d; await A.direct.startCall('Bob', false); globalThis.document = B.d; await B.direct.poll(); B.btn('Decline').click();
   await wait(() => /Bob declined\./.test(A.text()));
-  console.log('ok 23 direct file transfer and calls: sealed ring/accept/offer/answer, chunked file with confirmation and spoken progress, relay sees no file names, video call with mute and hang up, decline');
+  console.log('ok 23 direct files, private voice messages and calls: sealed ring/accept/offer/answer, chunked transfer, expiring voice playback, video call with mute and hang up, decline');
+}
+{ // Private chat extras: emoji insertion, encrypted stickers, microphone recording, send and cancel.
+  const { webcrypto } = await import('node:crypto');
+  Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true, writable: true });
+  const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/', pretendToBeVisual: true });
+  const d = dom.window.document; globalThis.document = d; globalThis.localStorage = dom.window.localStorage;
+  const { createChat } = await import(ROOT + 'src/chat.js');
+  const E = await import(ROOT + 'src/e2ee.js'), store = E.memoryStore(), identity = 'ASHA1234';
+  const bob = await E.deviceKey(store, 'bob-device');
+  let registered = null, sent = null, sendCount = 0; const said = [], recordings = [];
+  const callApi = async (action, body) => {
+    if (action === 'register-device') { registered = body; return { ok: true }; }
+    if (action === 'message-keys') return { ok: true, theirs: [{ deviceId: bob.deviceId, publicKey: bob.publicKey }], mine: [] };
+    if (action === 'messages') return { ok: true, relation: 'friends', messages: sent ? [{ id: sendCount, fromMe: true, createdAt: new Date().toISOString(), read: true, senderDevice: registered.deviceId, senderKey: registered.publicKey, box: sent.boxes[registered.deviceId] }] : [] };
+    if (action === 'send-message') { sent = body; sendCount++; return { ok: true, id: sendCount }; }
+    throw new Error(`unexpected chat action: ${action}`);
+  };
+  const tracks = [{ stop() { this.stopped = true; } }]; const stream = { getTracks: () => tracks };
+  class FakeRecorder {
+    constructor(s) { this.stream = s; this.mimeType = 'audio/webm'; this.state = 'inactive'; }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['private voice clip'], { type: this.mimeType }) }); this.onstop?.(); }
+  }
+  const direct = { supported: () => true, startVoiceMessage: async (...args) => { recordings.push(args); } };
+  const chat = createChat({
+    $: sel => d.querySelector(sel), announce: t => said.push(t), callApi,
+    getSession: () => ({ loginId: identity, profile: { name: 'Asha', loginId: identity } }),
+    go: view => assert.equal(view, 'chat'), playSfx: () => {}, currentView: () => 'chat',
+    store, direct, Recorder: FakeRecorder,
+    mediaDevices: () => ({ getUserMedia: async () => stream }),
+    pinsStorage: { values: new Map(), getItem(k) { return this.values.get(k) ?? null; }, setItem(k, v) { this.values.set(k, v); } },
+  });
+  await chat.openChat('Bob');
+  const area = d.querySelector('#chat-text'); area.value = 'Hi '; area.setSelectionRange(3, 3);
+  d.querySelector('#chat-emoji-toggle').click(); d.querySelector('[data-chat-emoji="😊"]').click();
+  assert.equal(area.value, 'Hi 😊', 'the emoji picker inserts at the cursor');
+  d.querySelector('#chat-sticker-toggle').click(); d.querySelector('[data-chat-sticker="party"]').click();
+  for (let i = 0; i < 100 && !d.querySelector('.chat-msg-sticker'); i++) await new Promise(r => setTimeout(r, 5));
+  assert.equal(d.querySelector('.chat-sticker-caption').textContent, 'Celebrate');
+  const self = await E.deviceKey(store, identity);
+  assert.equal((await E.open(sent.boxes[self.deviceId], self, self.deviceId, self.publicKey)).t, '[[bq-sticker:party]]', 'stickers stay inside the end-to-end encrypted message');
+  d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5));
+  assert.equal(d.querySelector('#chat-voice-controls').hidden, false, 'the recorder shows its stop and cancel controls');
+  await new Promise(r => setTimeout(r, 280)); d.querySelector('#chat-voice-stop').click();
+  for (let i = 0; i < 100 && recordings.length === 0; i++) await new Promise(r => setTimeout(r, 5));
+  assert.equal(recordings[0][0], 'Bob'); assert.equal(recordings[0][1].type, 'audio/webm'); assert(recordings[0][2] >= 250);
+  assert(tracks.every(t => t.stopped), 'the microphone track stops after sending');
+  d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5)); d.querySelector('#chat-voice-cancel').click();
+  assert.equal(recordings.length, 1, 'cancelling a recording never sends it');
+  chat.stop(); dom.window.close(); console.log('ok private chat emoji/stickers are encrypted; recorded voice messages send directly, stop the microphone and can be cancelled');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

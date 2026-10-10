@@ -204,7 +204,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v25'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features and the offline Migration 025 modules');
+assert(sw.includes("const CACHE='blind-quiz-shell-v26'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features and the offline Migration 025 modules');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -527,12 +527,17 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(/callApi\('notify-register'\)/.test(social) && /op: 'logout'/.test(social) && /op: 'disable'/.test(social) && /op: 'sounds'/.test(social), 'the app bridge enables, disables, signs out and opens phone sound settings');
   const news = JSON.parse(read('../news.json'));
   assert(typeof news.id === 'string' && news.id && /^\d{4}-\d{2}-\d{2}$/.test(news.date) && news.title && news.text && news.text.length <= 240, 'news.json drives the automatic update notification');
-  assert(news.text.includes('Generate a fresh name at signup')&&/host-led rooms/i.test(news.text)&&news.text.includes('spectators')&&news.text.includes('comments'),'update news highlights recent player-facing features');
-  assert(!/Gemini|AI|offline|API|secret|key/i.test(news.text),'update news contains no provider, outage, or credential details');
+  assert(news.text.includes('voice messages')&&news.text.includes('emojis and stickers')&&news.text.includes('PDFs')&&news.text.includes('three hours'),'update news highlights the new private-chat features');
+  assert(!/Gemini|AI|offline|API|secret|key/i.test(news.text),'update news contains only player-facing feature details');
   assert(read('../scripts/build.mjs').includes("'news.json'"), 'news.json is published with the site');
-  const kt = read('../android-app/native/NotifyWorker.kt');
+  const kt = read('../android-app/native/NotifyWorker.kt'), activity = read('../android-app/native/MainActivity.kt');
   assert(kt.includes('notify-check') && kt.includes('news.json') && !/import [^\n]*firebase/i.test(kt) && !/firebase/i.test(read('../.github/workflows/build-android.yml').replace(/no Firebase/g, '')), 'the app checks without Firebase');
-  console.log('PASS: ringtones and alert sounds (real recordings), Android background notifications bridge, and automatic update news.');
+  const checkNewsAt = kt.indexOf('try { checkNews(ctx, p) }'), tokenReadAt = kt.indexOf('val token = p.getString("token", null)', checkNewsAt);
+  assert(checkNewsAt >= 0 && tokenReadAt > checkNewsAt && kt.includes('setRequiredNetworkType(NetworkType.CONNECTED)'), 'feature news is fetched on an Android background worker without sign-in and retried when online');
+  assert(kt.includes('if (!p.getBoolean("enabled", true) || !BQNotify.canNotify(ctx)) return') && activity.includes('"disable" -> { BQNotify.disable(this)') && activity.includes('"logout" -> { BQNotify.stop(this)'), 'phone-notification opt-out is honored while sign-out leaves public news enabled');
+  assert(kt.includes('ReceivedFileCleanupWorker') && kt.includes('bq-received-cleanup') && kt.includes('File(applicationContext.cacheDir, "received")') && kt.includes('3L * 60 * 60 * 1000'), 'Android cleans private received files in the background while offline or signed out');
+  assert(read('../android-app/native/proguard-rules.pro').includes('ReceivedFileCleanupWorker { public <init>'), 'the background cleanup worker survives Android release shrinking');
+  console.log('PASS: ringtones and alert sounds, background news for signed-out users, and update-notification controls.');
 }
 // Applied migrations never re-run: only Migration 023's own files trigger it; 019-022 are manual only.
 {
@@ -558,14 +563,20 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(await rejects(() => E.openData(boxes[b.deviceId], b, a.deviceId, eve.publicKey)), 'a forged sender is rejected');
   assert(await rejects(() => E.open(boxes[b.deviceId], b, a.deviceId, a.publicKey)), 'a signal can never be read as a chat message');
   assert(await rejects(() => E.openData(boxes[b.deviceId], b, a.deviceId, a.publicKey, Date.now() + 600000)), 'old signals cannot be replayed');
-  const html = read('../index.html'), main = read('../src/main.js'), rooms = read('../src/rooms.js'), direct = read('../src/direct.js'), api = read('../supabase/functions/blind-quiz-api/index.ts');
-  for (const id of ['room-voice-record', 'room-voice-cancel', 'direct-call-audio', 'direct-call-video', 'direct-send-file', 'direct-file-input', 'direct-panel', 'direct-progress', 'direct-remote', 'direct-local']) assert(html.includes(`id="${id}"`), `markup #${id}`);
+  const html = read('../index.html'), main = read('../src/main.js'), rooms = read('../src/rooms.js'), direct = read('../src/direct.js'), chat = read('../src/chat.js'), api = read('../supabase/functions/blind-quiz-api/index.ts');
+  for (const id of ['room-voice-record', 'room-voice-cancel', 'direct-call-audio', 'direct-call-video', 'direct-send-file', 'direct-file-input', 'direct-panel', 'direct-progress', 'direct-remote', 'direct-local', 'chat-emoji-toggle', 'chat-emoji-picker', 'chat-sticker-toggle', 'chat-sticker-picker', 'chat-voice-record', 'chat-voice-stop', 'chat-voice-cancel', 'direct-voice-playback', 'direct-voice-audio', 'direct-expiry']) assert(html.includes(`id="${id}"`), `markup #${id}`);
   assert(!/startCall|createDirect|RTCPeerConnection/.test(rooms), 'rooms have no calls, only voice messages');
   assert(/'room-voice-send':\['bq_room_voice_send'/.test(api) && /'signal-send':\['bq_signal_send'/.test(api) && /'signals':\['bq_signals_poll'/.test(api), 'voice and signal API actions');
   assert(/sealData\(\{ \.\.\.obj, s: sess\.id \}, me, targets\)/.test(direct) && !/callApi\('signal-send', \{[^}]*sdp/.test(direct), 'only sealed boxes carry connection details');
   assert(!/turn:/i.test(direct), 'no paid relay server is used');
   assert(/direct\.startFile\(chat\.friend,f\)/.test(main) && /onRing:\(\)=>direct\.poll\(\)/.test(main), 'files and calls start from the friend chat; heartbeat rings');
-  console.log('PASS: Task 19 room voice messages and direct calls/files between online friends (sealed signals: open, forged sender, cross-use and replay rejected).');
+  assert(/chat=createChat\(\{[^\n]*direct\}\)/.test(main) && /startVoiceMessage/.test(chat) && /direct\.startVoiceMessage\(to, blob, durationMs\)/.test(chat), 'private voice recordings use the direct friend connection');
+  assert(chat.includes('PRIVATE_STICKERS') && /data-chat-emoji/.test(html) && /data-chat-sticker/.test(html), 'private chat sends emoji and encrypted sticker messages');
+  assert(direct.includes("t: 'voice'") && direct.includes("sess.kind !== 'call'") && direct.includes('RECEIVED_FILE_TTL_MS'), 'voice notes transfer only to an online peer and temporary received browser files expire');
+  assert(direct.includes('MAX_DIRECT_FILE_BYTES = 2 * 1024 * 1024 * 1024') && direct.includes('MAX_VOICE_MESSAGE_MS = 60_000'), 'file size and voice duration limits are enforced');
+  const dart = read('../android-app/lib/main.dart');
+  assert(dart.includes('kReceivedFileTtl = Duration(hours: 3)') && dart.includes('_scheduleReceivedExpiry(id, inc.file)') && dart.includes('didChangeAppLifecycleState'), 'Android temporary file copies expire after three hours, with startup and resume cleanup');
+  console.log('PASS: private chat emoji/stickers, direct voice messages/calls/files, and three-hour received-copy cleanup; room voice messages remain unchanged.');
 }
 // Task 19 stage E: exit confirmation for games, modes and rooms (buttons, brand link and Android/browser Back).
 {

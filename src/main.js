@@ -153,7 +153,7 @@ social=createSocial({$,announce,callApi,getSession,go,openSignIn:()=>{setAuthTab
 const direct=createDirect({$,announce,callApi,getSession,playSfx:rawSfx,onCallState:on=>{if(on)stopMusic();else playMusic(musicFor(state.view,state.category,state.mode))}});
 initAlertSettings({$,playSfx:rawSfx,announce});
 rooms=createRooms({$,announce,callApi,getSession,go,playSfx:rawSfx,playMatchSound:rawMatch,currentView:()=>state.view,categories:CATEGORY_LIST,questionBank:QUESTION_BANK,startLive,openSignIn:()=>{setAuthTab('login');go('auth',{focus:loginFocus()})}});
-chat=createChat({$,announce,callApi,getSession,go,playSfx,currentView:()=>state.view});
+chat=createChat({$,announce,callApi,getSession,go,playSfx,currentView:()=>state.view,direct});
 function openLetters(){unlockAudio();go('letters',{focus:'#letters-game-title'});lettersGame.start()}
 function wire(){
  $('.brand')?.addEventListener('click',e=>{e.preventDefault();go('home',{focus:'#play-featured'})});

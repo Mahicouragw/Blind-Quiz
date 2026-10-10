@@ -5,3 +5,7 @@
 
 # WorkManager also creates InputMerger implementations reflectively for jobs.
 -keep class * extends androidx.work.InputMerger { <init>(); }
+
+# WorkManager loads these app workers reflectively in release builds.
+-keep class io.github.mahicouragw.blind_quiz.NotifyWorker { public <init>(android.content.Context, androidx.work.WorkerParameters); }
+-keep class io.github.mahicouragw.blind_quiz.ReceivedFileCleanupWorker { public <init>(android.content.Context, androidx.work.WorkerParameters); }

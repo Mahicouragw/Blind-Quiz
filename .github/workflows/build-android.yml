@@ -71,8 +71,8 @@ jobs:
           # Android 11+ package visibility: let the Contact us link open the user's email app.
           grep -q 'android.intent.action.SENDTO' "$MANIFEST" || \
             sed -i 's#<application#<queries><intent><action android:name="android.intent.action.SENDTO"/><data android:scheme="mailto"/></intent></queries>\n    <application#' "$MANIFEST"
-          # Calls between friends and room voice messages: microphone, camera (video calls only) and call audio routing.
-          # Asked at runtime only when the player starts or answers a call or records. No storage permissions:
+          # Calls between friends and private/room voice messages: microphone, camera (video calls only) and call audio routing.
+          # Asked at runtime only when the player starts or answers a call or records a voice message. No storage permissions:
           # files are picked with the system picker and received files are handed to the share sheet.
           grep -q 'xmlns:tools' "$MANIFEST" || sed -i 's#<manifest #<manifest xmlns:tools="http://schemas.android.com/tools" #' "$MANIFEST"
           grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST" || \
@@ -251,7 +251,7 @@ jobs:
           cp "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk"
           NOTES="Blind Quiz for Android $VERSION_NAME, built from ${GITHUB_SHA::7} on $GITHUB_REF_NAME.
 
-          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; notifications (friend requests, messages, feedback replies, game invites, announcements and game updates, each with its own sound you can change in Android settings; checked about every 15 minutes, no Firebase); microphone and camera, asked only when you start or answer a call between friends or record a room voice message. Works on Android phones and tablets ($SDK_INFO). No storage or contacts access: files you send are picked with the Android file picker, and files friends send are offered to save or open.
+          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; notifications (friend requests, messages, feedback replies, game invites, announcements and game updates, each with its own sound you can change in Android settings; checked in the background when online, including after sign-out; Android may delay checks, no Firebase); microphone and camera, asked only when you start or answer a call between friends or record a private or room voice message. Works on Android phones and tablets ($SDK_INFO). No storage or contacts access: files you send are picked with the Android file picker, and temporary received copies expire after three hours (copies saved elsewhere are not deleted).
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
           gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

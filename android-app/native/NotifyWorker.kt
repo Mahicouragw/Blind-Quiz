@@ -20,10 +20,9 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 // Background notifications without Firebase or any paid service: Android runs this check about every
@@ -61,17 +60,21 @@ object BQNotify {
         val request = PeriodicWorkRequest.Builder(NotifyWorker::class.java, 15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
-        WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("bq-notify", ExistingPeriodicWorkPolicy.KEEP, request)
+        val work = WorkManager.getInstance(ctx)
+        work.enqueueUniquePeriodicWork("bq-notify", ExistingPeriodicWorkPolicy.KEEP, request)
+        // Cleanup does not require internet or an account; it still runs if the recipient is signed out.
+        val cleanup = PeriodicWorkRequest.Builder(ReceivedFileCleanupWorker::class.java, 15, TimeUnit.MINUTES).build()
+        work.enqueueUniquePeriodicWork("bq-received-cleanup", ExistingPeriodicWorkPolicy.KEEP, cleanup)
     }
 
     fun enable(ctx: Context, token: String) {
         if (token.length < 35 || token.length > 64) return
-        prefs(ctx).edit().putString("token", token).apply()
+        prefs(ctx).edit().putString("token", token).putBoolean("enabled", true).apply()
         createChannels(ctx)
         schedule(ctx)
     }
 
-    // Sign out or turn off: forget the key here and remove it on the server.
+    // Signing out removes account notifications but deliberately keeps public news updates enabled.
     fun stop(ctx: Context) {
         val p = prefs(ctx)
         val token = p.getString("token", null)
@@ -79,6 +82,12 @@ object BQNotify {
         if (token != null) Thread {
             try { post(JSONObject().put("action", "notify-check").put("token", token).put("afterId", 0).put("stop", true)) } catch (_: Exception) {}
         }.start()
+    }
+
+    // Turning off phone notifications is different from signing out: honor the opt-out for news too.
+    fun disable(ctx: Context) {
+        prefs(ctx).edit().putBoolean("enabled", false).apply()
+        stop(ctx)
     }
 
     fun post(body: JSONObject): Pair<Int, JSONObject?> {
@@ -164,8 +173,9 @@ class NotifyWorker(context: Context, params: WorkerParameters) : Worker(context,
         BQNotify.show(ctx, channel, 1000 + (n.optLong("id") % 1000000L).toInt(), title, text)
     }
 
-    // Automatic update notification: whenever news.json on the website gets a new id (within two weeks of its date).
+    // Public feature news is checked even after account sign-out; a disconnected phone retries once online.
     private fun checkNews(ctx: Context, p: SharedPreferences) {
+        if (!p.getBoolean("enabled", true) || !BQNotify.canNotify(ctx)) return
         val c = URL("${BQNotify.NEWS}?t=${System.currentTimeMillis() / 600000L}").openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 15000
@@ -179,8 +189,20 @@ class NotifyWorker(context: Context, params: WorkerParameters) : Worker(context,
         val id = n.optString("id")
         if (id.isEmpty() || id == p.getString("news", null)) return
         p.edit().putString("news", id).apply()
-        val date = try { SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(n.optString("date"))?.time ?: 0L } catch (_: Exception) { 0L }
-        if (System.currentTimeMillis() - date > 14L * 24 * 3600 * 1000) return
         BQNotify.show(ctx, "bq_updates", 1, n.optString("title", "New in Blind Quiz").take(80), n.optString("text").take(240))
+    }
+}
+
+// Offline-capable fallback for app-private transfer copies when the app process is closed.
+class ReceivedFileCleanupWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+    override fun doWork(): Result = try {
+        val received = File(applicationContext.cacheDir, "received")
+        val cutoff = System.currentTimeMillis() - 3L * 60 * 60 * 1000
+        received.listFiles()?.forEach { file ->
+            if (file.isFile && file.lastModified() < cutoff) file.delete()
+        }
+        Result.success()
+    } catch (_: Exception) {
+        Result.retry()
     }
 }

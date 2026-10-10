@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -56,6 +57,9 @@ const Set<String> kNotifyOps = <String>{'enable', 'disable', 'logout', 'sounds'}
 /// Largest file a friend can send directly (matches src/direct.js).
 const int kMaxReceivedBytes = 2 * 1024 * 1024 * 1024;
 
+/// Temporary received copies are removed after three hours (matches src/direct.js).
+const Duration kReceivedFileTtl = Duration(hours: 3);
+
 NavDecision classifyNavigation(String url) {
   final uri = Uri.tryParse(url);
   if (uri == null) return NavDecision.block;
@@ -106,16 +110,18 @@ class QuizWebView extends StatefulWidget {
   State<QuizWebView> createState() => _QuizWebViewState();
 }
 
-class _QuizWebViewState extends State<QuizWebView> {
+class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
   late final WebViewController _controller;
   int _progress = 0;
   bool _failed = false;
   bool _reloading = false;
   final Map<String, _Incoming> _incoming = <String, _Incoming>{};
+  final Map<String, Timer> _receivedTimers = <String, Timer>{};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Calls and voice messages: the page asks for the microphone (and camera for video calls); Android asks the player.
     _controller = WebViewController(onPermissionRequest: _onPermissionRequest)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -164,6 +170,17 @@ class _QuizWebViewState extends State<QuizWebView> {
     _controller.addJavaScriptChannel('BQNotify', onMessageReceived: (m) => _onNotifyMessage(m.message));
     _cleanReceived();
     _controller.loadRequest(Uri.parse(kLiveUrl));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _cleanReceived();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _onPermissionRequest(WebViewPermissionRequest request) async {
@@ -224,15 +241,30 @@ class _QuizWebViewState extends State<QuizWebView> {
     return dir;
   }
 
-  /// Received files are only a hand-over to the share sheet; anything older than a day is removed.
+  /// The in-app hand-off copy expires after three hours; copies saved elsewhere belong to the recipient.
   Future<void> _cleanReceived() async {
     try {
       final dir = await _receivedDir();
-      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+      final cutoff = DateTime.now().subtract(kReceivedFileTtl);
+      final activePaths = _incoming.values.map((inc) => inc.file.path).toSet();
       await for (final f in dir.list()) {
-        if (f is File && (await f.lastModified()).isBefore(cutoff)) await f.delete();
+        if (f is File && !activePaths.contains(f.path) && (await f.lastModified()).isBefore(cutoff)) {
+          await f.delete();
+        }
       }
     } catch (_) {}
+  }
+
+  void _scheduleReceivedExpiry(String id, File file) {
+    _receivedTimers.remove(id)?.cancel();
+    _receivedTimers[id] = Timer(kReceivedFileTtl, () {
+      _receivedTimers.remove(id);
+      unawaited(_deleteReceived(file));
+    });
+  }
+
+  Future<void> _deleteReceived(File file) async {
+    try { if (await file.exists()) await file.delete(); } catch (_) {}
   }
 
   Future<void> _onFileMessage(String raw) async {
@@ -268,6 +300,7 @@ class _QuizWebViewState extends State<QuizWebView> {
             _say('The file did not arrive completely.');
             return;
           }
+          _scheduleReceivedExpiry(id, inc.file);
           await SharePlus.instance.share(ShareParams(files: <XFile>[XFile(inc.file.path, mimeType: inc.mime, name: inc.name)], subject: inc.name));
       }
     } catch (_) {

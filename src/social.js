@@ -103,7 +103,7 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   // The app answers with { op: 'enabled', granted } after Android's notification permission question.
   globalThis.bqAppNotify = msg => {
     const status = $('#notif-settings-status'); if (!status || !msg) return;
-    if (msg.op === 'enabled') say(status, msg.granted ? 'Phone notifications are on. Blind Quiz checks about every 15 minutes, even when it is closed.' : 'Notifications are blocked for Blind Quiz. You can allow them in your phone settings.', !msg.granted);
+    if (msg.op === 'enabled') say(status, msg.granted ? 'Phone notifications are on. Feature news is checked in the background even after you sign out; an offline phone checks again after reconnecting.' : 'Notifications are blocked for Blind Quiz. You can allow them in your phone settings.', !msg.granted);
   };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && signedIn()) { touch(); schedule(); } });
 
