@@ -225,15 +225,18 @@ jobs:
             fi
           done
           fingerprint() {
-            "$BT/apksigner" verify --verbose --print-certs "$1" 2>&1 \
-              | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {gsub(/[[:space:]]/, "", $2); fp=$2} END {print fp}'
+            local output digest_line digest
+            output=$("$BT/apksigner" verify --verbose --print-certs "$1" 2>&1)
+            digest_line=$(printf '%s\n' "$output" | grep -i 'SHA-256' | sed -n '1p' || true)
+            digest=$(printf '%s\n' "$digest_line" | sed -E 's/.*digest:[[:space:]]*//I' | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')
+            if [ "${#digest}" -ne 64 ]; then
+              echo "::error title=APK signing identity::Could not parse a SHA-256 certificate fingerprint for $(basename "$1"): $(printf '%s' "$digest_line" | cut -c1-240)"
+              return 1
+            fi
+            printf '%s' "$digest"
           }
-          OLD_FP=$(fingerprint "$REF_APK")
-          NEW_FP=$(fingerprint "$APK_PATH")
-          if [ -z "$OLD_FP" ] || [ -z "$NEW_FP" ]; then
-            echo "::error title=APK signing identity::Could not read the public signing-certificate fingerprints."
-            exit 1
-          fi
+          if ! OLD_FP=$(fingerprint "$REF_APK"); then exit 1; fi
+          if ! NEW_FP=$(fingerprint "$APK_PATH"); then exit 1; fi
           echo "Reference signing certificate SHA-256: $OLD_FP"
           echo "New signing certificate SHA-256: $NEW_FP"
           if [ "$OLD_FP" != "$NEW_FP" ]; then
