@@ -371,9 +371,13 @@ const rList = await post({ action: 'rooms' }, { token: wtok });
 const pubRoom = (rList.body?.items || []).find(r => r.name === 'Blind Quiz' && r.isDefault);
 check('Rooms: three default public rooms with game and user counts', (rList.body?.items || []).filter(r => r.isDefault).length === 3 && !!pubRoom && typeof pubRoom.games === 'number' && typeof pubRoom.users === 'number', `${codeOf(rList)}, ${(rList.body?.items || []).length} rooms`);
 const rState = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: wtok });
-const rSay = await post({ action: 'room-say', roomId: pubRoom?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
-const rSeen = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: otok });
-check('Rooms: entering shows the people there and room chat reaches others', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text), `${codeOf(rState)}/${codeOf(rSay)}/${codeOf(rSeen)}`);
+// Exercise public chat in a disposable room so live checks never leave test messages in a default room.
+const rTestRoom = await post({ action: 'room-create', name: `Live check ${tokenish()}`, isPublic: true }, { token: wtok });
+const rTestState = await post({ action: 'room-state', roomId: rTestRoom.body?.id, afterId: null }, { token: wtok });
+const rSay = await post({ action: 'room-say', roomId: rTestRoom.body?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
+const rSeen = await post({ action: 'room-state', roomId: rTestRoom.body?.id, afterId: null }, { token: otok });
+const rTestRemoved = await post({ action: 'room-remove', roomId: rTestRoom.body?.id }, { token: wtok });
+check('Rooms: public chat reaches another player and its temporary test room is removed', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rTestState.body?.ok === true && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text) && rTestRemoved.body?.ok === true, `${codeOf(rState)}/${codeOf(rTestState)}/${codeOf(rSay)}/${codeOf(rSeen)}/${codeOf(rTestRemoved)}`);
 const rPriv = await post({ action: 'room-create', name: `Live ${tokenish()}`, isPublic: false }, { token: wtok });
 const rClosed = await post({ action: 'room-state', roomId: rPriv.body?.id, afterId: null }, { token: otok });
 const rInvite = await post({ action: 'room-invite', roomId: rPriv.body?.id, name: OTHER_NAME }, { token: wtok });

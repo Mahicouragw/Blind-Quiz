@@ -542,7 +542,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const addComment=(name,body,replyTo)=>{const parent=gameEvents.find(e=>e.id===replyTo);gameEvents.push({id:++eventId,name,kind:'comment',body,replyTo,replyName:parent?.name||null});};
   const roomState=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Google',level:2}],
     games:gameId?[{id:gameId,kind:gameKind,title:gameTitle,config:gameConfig,status:gamePhase==='finished'?'finished':'playing',phase:gamePhase,maxPlayers:gameMax,host:'Asha',hostMe:true,commentCount:gameEvents.filter(e=>e.kind==='comment').length,recentComments:gameEvents.filter(e=>e.kind==='comment').slice(-3),players:gamePlayers}]:[],
-    chat:[{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[{id:77,name:'Google',durationMs:2400}]});
+    chat:[{id:4,name:'BQ Renamed bqabcdef012345',body:'Live room hello bqff61103a9107',createdAt:future},{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[{id:77,name:'Google',durationMs:2400}]});
   const stateFor=body=>({ok:true,phase:gamePhase,status:gamePhase==='finished'?'finished':'playing',kind:gameKind,title:gameTitle,roomId:ROOM,maxPlayers:gameMax,host:'Asha',hostMe:true,seat:gamePlayers.find(p=>p.name==='Asha')?.seat||1,players:gamePlayers,state:gameState,
     events:gameEvents.filter(e=>Number(e.id)>Number(body.afterId||0))});
   const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);let r;
@@ -564,7 +564,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const {d,w}=t22;await tick();
   d.querySelector('#mp-open').click();await tick();d.querySelector('[data-mp-tab="rooms"]').click();await tick();await tick();
   const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,1);rb[0].click();await tick();await tick();
-  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');assert.match(d.querySelector('#room-chat').textContent,/Google: hi room/);
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');assert.match(d.querySelector('#room-chat').textContent,/Google: hi room/);assert.doesNotMatch(d.querySelector('#room-chat').textContent,/Live room hello bqff61103a9107|BQ Renamed bqabcdef012345/,'legacy live-test chat echoes are hidden from public rooms');assert.equal(d.querySelector('#room-voice-status').getAttribute('aria-live'),'off','recording-duration updates do not repeatedly interrupt TalkBack');
   d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();assert(sent.some(b=>b.action==='room-say'&&b.text==='hello room'));
   const roomVoiceLine=d.querySelector('.room-voice'),loadRoomVoice=roomVoiceLine.querySelector('button');loadRoomVoice.click();await tick();
   const roomPlayer=roomVoiceLine.querySelector('audio');assert.equal(roomPlayer.controls,true);assert.equal(roomPlayer.hidden,false,'room recordings use a native player with pause, resume and seek controls');

@@ -149,6 +149,8 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
     const log = $('#room-chat');
     for (const c of d.chat || []) {
       chatAfter = Math.max(chatAfter || 0, c.id);
+      // Hide legacy live-check echoes that earlier tests accidentally posted to public rooms.
+      if (room.isPublic && /^Live room hello bq[0-9a-f]{12}$/i.test(String(c.body || ''))) continue;
       const li = el('li', 'room-chat-line'); li.append(el('strong', '', `${c.name}: `), document.createTextNode(c.body)); log.append(li);
       if (!first && c.name !== getSession()?.profile?.name) { announce(`${c.name} says: ${c.body}`); playSfx('notify'); }
     }
