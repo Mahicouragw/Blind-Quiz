@@ -179,6 +179,48 @@ async function handler(req:Request){
    if(!await permitAccount('admin-monitor',profileId,180,3600))return json({ok:false,code:'rate_limited'},429,origin);
    const snapshot=await adminMonitorSnapshot();return snapshot?json(snapshot,200,origin):json({ok:false,code:'service_error'},503,origin);
   }
+  // Players can erase only the account attached to this verified session; the current secret answer and exact name are required.
+  if(body.action==='delete-account'){
+   if(!await permit(req,'delete-account',profileId,5,3600)||!await permitAccount('delete-account',profileId,5,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);
+   if(!confirmName||confirmName!==auth.profile.display_name||answer.length<2)return json({ok:false,code:'confirmation_required'},400,origin);
+   const {data:p,error:readError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();
+   if(readError){console.error('Account deletion credential read failed',readError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
+   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:profileId});
+   if(error){console.error('Account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(result?.ok===false)return json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin);
+   return json({ok:true,deletedSelf:true},200,origin);
+  }
+  // The admin directory exposes only account id, display name, and registration date; all secrets and activity stay out.
+  if(body.action==='admin-account-directory'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount('admin-account-directory',profileId,240,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const page=Number(body.page??0),search=clean(body.search,40);
+   if(!Number.isSafeInteger(page)||page<0||page>100000)return json({ok:false,code:'invalid_request'},400,origin);
+   let query=admin.from('bq_profiles').select('id,display_name,created_at',{count:'exact'}).order('created_at',{ascending:false}).range(page*50,page*50+49);
+   if(search)query=query.ilike('display_name',`%${search.replace(/[\\%_]/g,'\\$&')}%`);
+   const {data,error,count}=await query;
+   if(error){console.error('Admin account directory failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   return json({ok:true,items:(data||[]).map((p:any)=>({id:p.id,name:p.display_name,createdAt:p.created_at})),totalAccounts:count??0,page,pageSize:50},200,origin);
+  }
+  // Admin deletion also requires the admin's own secret answer and an exact typed match for the target account name.
+  if(body.action==='admin-delete-account'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permit(req,'admin-delete-account',profileId,5,3600)||!await permitAccount('admin-delete-account',profileId,5,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const targetId=id(body.targetId),confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);
+   if(!targetId||!confirmName||answer.length<2)return json({ok:false,code:'invalid_request'},400,origin);
+   const {data:target,error:targetError}=await admin.from('bq_profiles').select('display_name').eq('id',targetId).maybeSingle();
+   if(targetError){console.error('Admin deletion target read failed',targetError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!target||confirmName!==target.display_name)return json({ok:false,code:'confirmation_required'},400,origin);
+   const {data:p,error:credentialError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();
+   if(credentialError){console.error('Admin deletion credential read failed',credentialError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
+   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:targetId});
+   if(error){console.error('Admin account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(result?.ok===false)return json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin);
+   return json({ok:true,deletedSelf:targetId===profileId},200,origin);
+  }
   if(body.action==='notify-register'){const t=tokenText(randomBytes(32));const {data,error}=await admin.rpc('bq_notify_register',{p_profile_id:profileId,p_token_hash:await digest(t)});return error||data?.ok===false?json({ok:false,code:'service_error'},503,origin):json({ok:true,token:t},200,origin)}
   if(body.action==='logout'){await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('id',auth.row.id);return json({ok:true},200,origin)}
   if(body.action==='profile')return json({ok:true,profile:{...publicProfile(auth.profile),isAdmin:await isAdmin(profileId)}},200,origin);

@@ -361,6 +361,34 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 @media(max-width:560px){.monitor-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .high-contrast .monitor-stats>div,.high-contrast .monitor-player,.high-contrast .monitor-empty{background:#000;border-color:#fff}
 
+/* Account erasure: explicit reauthentication, target confirmation, and clear limits. */
+.button-danger{background:#922f3e;color:#fff;border:2px solid #ff9caa;font-weight:800}
+.button-danger:hover{background:#b2394d}
+.account-delete-box{margin-top:34px;padding:22px;border:2px solid var(--danger);border-radius:18px;background:#472c3438}
+.account-delete-box h2{margin:0 0 12px;color:var(--danger);font-size:1.2rem}
+.account-delete-box p{line-height:1.55}
+.account-delete-box form{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.account-delete-box form>button{margin-top:16px}
+.account-delete-box [role=status]{min-height:1.5em;margin-bottom:0}
+.admin-account-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:end;margin:20px 0}
+.admin-account-search label{grid-column:1/-1;margin:0}
+.admin-account-search input{grid-column:1;min-width:0}
+.admin-account-search button{grid-column:2;grid-row:2}
+.admin-account-list{display:grid;gap:12px;margin:16px 0;padding:0;list-style:none}
+.admin-account-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:16px;border:1px solid var(--line);border-radius:16px;background:#ffffff08}
+.admin-account-details{min-width:0}
+.admin-account-details strong,.admin-account-details small{display:block;overflow-wrap:anywhere}
+.admin-account-details small{margin-top:4px;color:var(--muted)}
+.admin-account-delete-form{grid-column:1/-1;padding:16px;border:1px solid var(--danger);border-radius:14px;background:#472c3444}
+.admin-account-delete-form label{margin-top:12px}
+.admin-account-delete-form input{margin-top:5px}
+.account-delete-actions,.admin-account-pagination{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.account-delete-form-status{min-height:1.5em;margin-bottom:0}
+.admin-account-pagination{justify-content:space-between}
+.high-contrast .account-delete-box,.high-contrast .admin-account-item,.high-contrast .admin-account-delete-form{background:#000;border:2px solid #fff}
+.high-contrast .button-danger{background:#000;color:#fff;border-color:#fff}
+@media(max-width:560px){.admin-account-search{grid-template-columns:1fr}.admin-account-search label,.admin-account-search input,.admin-account-search button{grid-column:1;grid-row:auto}.admin-account-item{grid-template-columns:1fr}.admin-account-delete-toggle{justify-self:start}.account-delete-actions .button,.admin-account-pagination .button{flex:1}}
+
 /* First-gesture audio gate: kept outside the app so it can unlock mobile playback. */
 .audio-gate{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;overflow:auto;padding:clamp(18px,5vw,42px);background:radial-gradient(ellipse at 50% 5%,#5b2a8a 0,transparent 55%),#120a28f7}
 .audio-gate-card{width:min(100%,620px);padding:clamp(26px,6vw,54px);border:4px solid var(--key-edge);border-radius:30px;background:var(--panel);box-shadow:0 12px 0 var(--key-edge);text-align:center}

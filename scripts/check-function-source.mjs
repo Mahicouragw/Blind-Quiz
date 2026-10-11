@@ -12,7 +12,7 @@
 import { readFile } from 'node:fs/promises';
 
 const TARGET = new URL('../supabase/functions/blind-quiz-api/index.ts', import.meta.url);
-const MAX_LINES = 320; // leave room for reviewed server-owned game actions while catching accidental concatenation
+const MAX_LINES = 380; // leave room for reviewed server-owned game and account-management actions while catching accidental concatenation
 
 const problems = [];
 const assert = (ok, message) => { if (!ok) problems.push(message); };
@@ -96,6 +96,10 @@ const required = [
   ['server-authoritative board moves', /reduceBoardGame\(match\.kind,match\.state,Number\(player\.seat\),action\)/],
   ['server-created board setup', /initialState=createBoardState\(match\.kind,Number\(match\.max_players\)/],
   ['stale board state rejected', /expectedState:match\.state/],
+  ['account deletion uses the service-only transactional database function', /admin\.rpc\('bq_delete_account',\{p_profile_id:/],
+  ['self-deletion target comes from the verified session', /if\(body\.action==='delete-account'\)[\s\S]*?p_profile_id:profileId/],
+  ['admin deletion rechecks admin authorization', /if\(body\.action==='admin-delete-account'\)[\s\S]*?if\(!await isAdmin\(profileId\)\)/],
+  ['admin directory returns a minimal account projection', /select\('id,display_name,created_at',\{count:'exact'\}\)/],
 ];
 for (const [label, pattern] of required) assert(pattern.test(source), `missing security behaviour: ${label}`);
 

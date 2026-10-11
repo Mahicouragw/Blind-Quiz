@@ -418,5 +418,13 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
   });
   $('#chat-safety-read')?.addEventListener('click', () => announce($('#chat-safety').textContent.replace(/(\d)/g, '$1 ') || 'No safety code yet.'));
 
-  return { openChat, stop: () => { clearTimeout(timer); canSend = false; cancelVoiceRecording(false); }, get friend() { return friend; } };
+  async function forgetAccount(loginId = account()) {
+    clearTimeout(timer); timer = null; canSend = false; cancelVoiceRecording(false); discardVoiceReview(false);
+    try { await keyStore().delete?.(`device:${loginId}`); } catch { /* IndexedDB may be unavailable; server keys are still removed. */ }
+    try { (pinsStorage || globalThis.localStorage)?.removeItem(`bq.e2ee.pins.${loginId}`); } catch { /* Storage may be unavailable. */ }
+    me = null; keys = null; lastId = 0; registeredFor = ''; pendingTrust = null; friend = '';
+    log?.replaceChildren(); if (warn) warn.hidden = true; if (status) status.textContent = '';
+  }
+
+  return { openChat, stop: () => { clearTimeout(timer); canSend = false; cancelVoiceRecording(false); }, forgetAccount, get friend() { return friend; } };
 }

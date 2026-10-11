@@ -505,6 +505,56 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
    assert.match(s.d.querySelector('#announce-audience-note').textContent,/does not measure active players/);}
   console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
 }
+{ // Account deletion reauthenticates self/admin, confirms the exact target, paginates, and clears current-device account secrets.
+  const answer='correct horse battery';
+  const selfProfile={...profile,name:'Asha',loginId:'ABCDEFGH',secretQuestion:'What is your favorite color?'};
+  const selfSent=[];
+  const selfApi=(url,init)=>{const b=JSON.parse(init.body);selfSent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...selfProfile,isAdmin:false}});if(b.action==='delete-account')return json(200,{ok:true,deletedSelf:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});return json(400,{ok:false,code:'invalid_request'})};
+  let s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:selfProfile},local:{'blindquiz.remembered.v1':{name:'Asha',loginId:'ABCDEFGH'},'bq.quizProgress.v1.ABCDEFGH':'4','bq.e2ee.pins.ABCDEFGH':{bob:['key']},'blindquiz.soundmatch.best.v1':9},fetchImpl:selfApi});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,80));
+  assert.equal(s.d.querySelector('#delete-account-box').hidden,false,'signed-in players see self-deletion in Settings');
+  assert.match(s.d.querySelector('#delete-account-question').textContent,/What is your favorite color/);
+  const selfForm=s.d.querySelector('#delete-account-form'),selfName=s.d.querySelector('#delete-account-name'),selfAnswer=s.d.querySelector('#delete-account-answer');
+  selfName.value='Someone Else';selfAnswer.value=answer;selfForm.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
+  assert.equal(selfSent.some(b=>b.action==='delete-account'),false,'wrong typed account name is rejected before submission');
+  selfName.value='Asha';selfForm.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,100));
+  const selfDelete=selfSent.find(b=>b.action==='delete-account');assert.deepEqual(selfDelete,{action:'delete-account',confirmName:'Asha',currentAnswer:answer},'self deletion sends no target id and requires the current answer');
+  assert.equal(s.w.sessionStorage.getItem('blindquiz.session.v1'),null,'deletion signs this device out');
+  assert.equal(s.w.localStorage.getItem('blindquiz.remembered.v1'),null,'deleted account is no longer remembered');
+  assert.equal(s.w.localStorage.getItem('bq.quizProgress.v1.ABCDEFGH'),null,'account-linked quiz progress is removed locally');
+  assert.equal(s.w.localStorage.getItem('bq.e2ee.pins.ABCDEFGH'),null,'local E2EE trust pins are removed');
+  assert.equal(s.w.localStorage.getItem('blindquiz.soundmatch.best.v1'),'9','device-global mini-game scores are preserved on shared devices');
+  assert.match(s.d.querySelector('#announcer').textContent,/account.*deleted/i);
+  console.log('ok 18a self deletion requires the exact account name and answer, signs out, and removes account-scoped local data only');
+
+  const accounts=Array.from({length:52},(_,i)=>({id:`account-${i}`,name:i===0?'Asha <img src=x onerror=alert(1)>':i===1?'Ravi':`Player ${String(i).padStart(2,'0')}`,createdAt:'2026-10-10T12:00:00Z'}));
+  const adminSent=[];
+  const adminApi=(url,init)=>{const b=JSON.parse(init.body);adminSent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH',secretQuestion:'Admin color?',isAdmin:true}});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});if(b.action==='admin-account-directory'){const found=accounts.filter(a=>a.name.toLowerCase().includes((b.search||'').toLowerCase()));return json(200,{ok:true,items:found.slice(b.page*50,b.page*50+50),totalAccounts:found.length,page:b.page,pageSize:50})}if(b.action==='admin-delete-account'){const at=accounts.findIndex(a=>a.id===b.targetId);if(at>=0)accounts.splice(at,1);return json(200,{ok:true,deletedSelf:false})}return json(400,{ok:false,code:'invalid_request'})};
+  s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:adminApi});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,100));
+  assert.equal(s.d.querySelector('#open-account-directory').closest('#admin-inbox-box').hidden,false,'only admin tools expose the account directory');
+  s.d.querySelector('#open-account-directory').click();await new Promise(r=>setTimeout(r,100));
+  assert.equal(s.d.querySelector('#view-admin-accounts').hidden,false);assert.equal(s.d.querySelectorAll('#admin-account-list li').length,50);
+  assert.equal(s.d.querySelector('#admin-account-page-status').textContent,'Page 1 of 2.');assert.equal(s.d.querySelector('#admin-account-next').disabled,false);
+  assert.equal(s.d.querySelector('#admin-account-list img'),null,'account names are rendered as text, never HTML');
+  assert.match(s.d.querySelector('#admin-accounts-title').textContent,/Account directory/);
+  assert.doesNotMatch(s.d.querySelector('#admin-account-list').textContent,/GOLDFISH|ABCDEFGH|answer_hash/i,'directory rows expose no Login IDs or secret hashes');
+  s.d.querySelector('#admin-account-next').click();await new Promise(r=>setTimeout(r,80));assert.equal(s.d.querySelectorAll('#admin-account-list li').length,2,'next page shows the remaining two accounts');
+  s.d.querySelector('#admin-account-previous').click();await new Promise(r=>setTimeout(r,80));
+  const search=s.d.querySelector('#admin-account-search');search.value='Asha';s.d.querySelector('#admin-account-search-form').dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+  assert.deepEqual(adminSent.filter(b=>b.action==='admin-account-directory').at(-1),{action:'admin-account-directory',page:0,search:'Asha'});
+  const toggle=s.d.querySelector('#admin-account-list [data-account-action="toggle"]');toggle.click();
+  const adminDeleteForm=s.d.querySelector('#admin-account-list form[data-account-delete-form]');
+  assert.match(adminDeleteForm.textContent,/Admin color/,'admin reauthentication uses the current account secret question');
+  const targetName=adminDeleteForm.querySelector('[name="confirmName"]'),adminAnswer=adminDeleteForm.querySelector('[name="currentAnswer"]');
+  targetName.value='Ravi';adminAnswer.value=answer;adminDeleteForm.dispatchEvent(new s.w.Event('submit',{cancelable:true,bubbles:true}));await new Promise(r=>setTimeout(r,10));
+  assert.equal(adminSent.some(b=>b.action==='admin-delete-account'),false,'admin cannot delete without confirming the exact target name');
+  const targetDisplayName=accounts[0].name;targetName.value=targetDisplayName;adminAnswer.value=answer;adminDeleteForm.dispatchEvent(new s.w.Event('submit',{cancelable:true,bubbles:true}));await new Promise(r=>setTimeout(r,100));
+  const adminDelete=adminSent.find(b=>b.action==='admin-delete-account');assert.deepEqual(adminDelete,{action:'admin-delete-account',targetId:'account-0',confirmName:targetDisplayName,currentAnswer:answer});
+  assert.equal(accounts.some(a=>a.id==='account-0'),false,'admin deletion removes the selected account');
+  assert.equal(s.d.querySelector('#admin-account-list [name="currentAnswer"]'),null,'the removed target no longer has a delete form or retained answer field');
+  console.log('ok 18b admin account directory is admin-only, searchable, paginated, text-safe, and requires target confirmation plus reauthentication');
+}
 { // Sound Match entry opens the setup, never an unrequested board.
   const s=await boot({fetchImpl:()=>{throw new Error('no network expected')}}),d=s.d;
   d.querySelector('#sm-open').click();assert.equal(d.querySelector('#view-soundmatch').hidden,false);

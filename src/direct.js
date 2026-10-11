@@ -30,7 +30,7 @@ const safeName = n => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]/g, 
 
 export function createDirect({ $, announce, callApi, getSession, playSfx = () => {}, store = null, pinsStorage = null,
   RTC = globalThis.RTCPeerConnection, mediaDevices = () => globalThis.navigator?.mediaDevices, onCallState = () => {} }) {
-  let me = null, registeredFor = '', after = null, pollTimer = null, active = null, polling = false;
+  let me = null, registeredFor = '', after = null, pollTimer = null, active = null, polling = false, forgettingFor = '';
   let receivedUrl = '', receivedUrlTimer = null;
   const handled = new Set();
   const account = () => getSession()?.loginId || getSession()?.profile?.loginId || getSession()?.profile?.name || '';
@@ -99,9 +99,9 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
   }
   const toPeer = (sess, obj) => send(sess, 'signal', obj, [{ deviceId: sess.peerDevice, publicKey: sess.peerKey }]).catch(() => {});
 
-  function schedulePoll() { clearTimeout(pollTimer); if (active) pollTimer = setTimeout(poll, FAST_POLL_MS); }
+  function schedulePoll() { clearTimeout(pollTimer); if (active && forgettingFor !== account()) pollTimer = setTimeout(poll, FAST_POLL_MS); }
   async function poll() {
-    if (polling || !getSession()?.profile) return;
+    if (polling || forgettingFor === account() || !getSession()?.profile) return;
     polling = true;
     try {
       await ensureMe();
@@ -415,5 +415,16 @@ export function createDirect({ $, announce, callApi, getSession, playSfx = () =>
     show(heading, body, [closeButton()]);
   }
 
-  return { startFile, startVoiceMessage, startCall, poll, supported, get busy() { return !!active; } };
+  async function forgetAccount(loginId = account()) {
+    forgettingFor = loginId;
+    clearTimeout(pollTimer); pollTimer = null;
+    if (active) end(active);
+    active = null; after = null; handled.clear();
+    clearReceivedContent(); hidePanel();
+    try { await (store || idbStore()).delete?.(`device:${loginId}`); } catch { /* IndexedDB may be unavailable; server keys are still removed. */ }
+    try { (pinsStorage || globalThis.localStorage)?.removeItem(`bq.e2ee.pins.${loginId}`); } catch { /* Storage may be unavailable. */ }
+    me = null; registeredFor = '';
+  }
+
+  return { startFile, startVoiceMessage, startCall, poll, supported, forgetAccount, get busy() { return !!active; } };
 }

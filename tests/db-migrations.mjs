@@ -330,5 +330,33 @@ if (await j(`select to_regclass('public.bq_signals') is not null`)) {
   ok((await j(`select bq_notify_check($1,0,true)`, [h1])).stopped && (await j(`select bq_notify_check($1,0,false)`, [h1])).code === 'session_expired', 'signing out on the phone removes its key');
   ok((await j(`select bq_notify_forget($1)`, [a])).ok && Number((await q(`select count(*) n from public.bq_notify_tokens where profile_id = $1`, [a]))[0].n) === 0, 'forget all phones');
 }
+// Migration 029: transactional account erasure, including rows whose foreign keys otherwise SET NULL.
+if (await j(`select to_regprocedure('public.bq_delete_account(uuid)') is not null`)) {
+  const erase = await mk('Erase Me');
+  const questionId = (await q(`select id from public.bq_questions order by id limit 1`))[0]?.id;
+  await q(`insert into public.bq_sessions(profile_id,token_hash,expires_at) values ($1,$2,now()+interval '1 day')`, [erase, 'erase-session-' + 'a'.repeat(48)]);
+  await q(`insert into public.bq_answer_events(profile_id,question_id,correct) values ($1,$2,true)`, [erase, questionId]);
+  await q(`insert into public.bq_feedback(profile_id,kind,message,name) values ($1,'problem','Please remove this report','Erase Me')`, [erase]);
+  await q(`insert into public.bq_question_reports(profile_id,question_id,reason,details) values ($1,$2,'other','Delete with the account')`, [erase, questionId]);
+  await q(`insert into public.bq_notifications(profile_id,kind,actor_id) values ($1,'announcement',$2)`, [erase, b]);
+  await q(`insert into public.bq_notifications(profile_id,kind,actor_id) values ($1,'friend_request',$2)`, [b, erase]);
+  await q(`insert into public.bq_notify_tokens(profile_id,token_hash) values ($1,$2)`, [erase, 'e'.repeat(64)]);
+  const ownedRoom = (await j(`select bq_room_create($1,'Erase room',false)`, [erase])).id;
+  const erased = await j(`select bq_delete_account($1)`, [erase]);
+  ok(erased.ok === true, 'account erasure succeeds transactionally');
+  ok(Number((await q(`select count(*) n from public.bq_profiles where id=$1`, [erase]))[0].n) === 0
+    && Number((await q(`select count(*) n from public.bq_sessions where profile_id=$1`, [erase]))[0].n) === 0
+    && Number((await q(`select count(*) n from public.bq_answer_events where profile_id=$1`, [erase]))[0].n) === 0, 'account, sessions, and saved quiz progress are deleted');
+  ok(Number((await q(`select count(*) n from public.bq_feedback where profile_id=$1`, [erase]))[0].n) === 0
+    && Number((await q(`select count(*) n from public.bq_question_reports where profile_id=$1`, [erase]))[0].n) === 0, 'player-linked feedback and reports are deleted instead of orphaned');
+  ok(Number((await q(`select count(*) n from public.bq_notifications where actor_id=$1`, [erase]))[0].n) === 0
+    && Number((await q(`select count(*) n from public.bq_notifications where profile_id=$1`, [erase]))[0].n) === 0
+    && Number((await q(`select count(*) n from public.bq_notify_tokens where profile_id=$1`, [erase]))[0].n) === 0, 'notifications and background-notification keys are erased');
+  ok(Number((await q(`select count(*) n from public.bq_rooms where id=$1`, [ownedRoom]))[0].n) === 0, 'rooms owned by the deleted account are removed');
+  const anotherAdmin = await mk('Second Admin');
+  await q(`insert into public.bq_admins(profile_id) values ($1)`, [anotherAdmin]);
+  ok((await j(`select bq_delete_account($1)`, [g])).ok === true, 'an admin can be deleted while another admin remains');
+  ok((await j(`select bq_delete_account($1)`, [anotherAdmin])).code === 'last_admin', 'the database protects the last admin account');
+}
 if (failed) process.exit(1);
 console.log('PASS database dry run');

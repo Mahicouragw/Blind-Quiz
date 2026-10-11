@@ -1,0 +1,67 @@
+name: Apply Migration 029 (guarded)
+
+# Applies ONLY supabase/migrations/202610110029_account_deletion.sql through the Supabase
+# Management API query endpoint. This adds one service_role-only transactional function.
+#
+# The existing remote migration history is deliberately not reconciled or replayed. In particular,
+# this workflow never applies or changes Migrations 025–028, including the prepared 025 and the
+# protected 026/027. It does not use the Supabase CLI migration commands or direct Postgres clients.
+#
+# Run manually only after reviewing the guarded static check and in-memory migration dry run.
+# Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migration-029
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+  MIGRATION_FILE: supabase/migrations/202610110029_account_deletion.sql
+
+jobs:
+  apply:
+    name: Apply Migration 029 only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard - this workflow never uses database or migration CLI tooling
+        run: |
+          set -euo pipefail
+          SELF=.github/workflows/apply-migration-029.yml
+          EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
+          if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
+            echo "::error::Only the guarded Management API query endpoint may be used."
+            exit 1
+          fi
+          if [ "$MIGRATION_FILE" != "supabase/migrations/202610110029_account_deletion.sql" ]; then
+            echo "::error::This workflow applies Migration 029 only."
+            exit 1
+          fi
+          echo "Confirmed: no CLI database tooling; target is Migration 029 only."
+
+      - name: Guard - validate content and Migration 029 statically
+        run: |
+          npm test
+          node --no-warnings scripts/apply-migration-029.mjs --check
+
+      - name: Dry run migrations in an in-memory Postgres with account-erasure checks
+        run: |
+          npm i --no-save --no-package-lock @electric-sql/pglite@0.2
+          node tests/db-migrations.mjs
+
+      - name: Apply Migration 029 and verify privileges and row counts
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node --no-warnings scripts/apply-migration-029.mjs --apply

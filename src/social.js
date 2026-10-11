@@ -40,7 +40,7 @@ export function notificationText(n) {
 
 export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {}, openRoom = () => {}, loadRooms = () => {}, onRing = () => {} }) {
   const bell = $('#notif-open');
-  let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online', pendingNotificationId = null;
+  let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online', pendingNotificationId = null, appNotifyGeneration = 0;
   const signedIn = () => !!getSession()?.profile;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (text, onClick, cls = 'button button-quiet') => { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
@@ -101,13 +101,14 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   // Only an explicit player sign-out removes the Android background-notification key.
   // The page also calls stop() during its initial signed-out render, which must not cancel
   // a key persisted by the native app while the WebView process was closed.
-  function stopAppNotifications() { appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
+  function stopAppNotifications() { appNotifyGeneration++; appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
 
   // ---- Android app: notifications while Blind Quiz is closed (checked about every 15 minutes, no Firebase) ----
   const appWanted = () => { try { return localStorage.getItem(APP_NOTIFY_KEY) !== 'off'; } catch { return true; } };
   async function appNotify() {
     const bridge = appBridge(); if (!bridge || !signedIn() || !appWanted()) return;
-    try { const d = await callApi('notify-register'); bridge.postMessage(JSON.stringify({ op: 'enable', token: d.token })); }
+    const generation = appNotifyGeneration;
+    try { const d = await callApi('notify-register'); if (generation !== appNotifyGeneration || !signedIn()) return; bridge.postMessage(JSON.stringify({ op: 'enable', token: d.token })); }
     catch {}
   }
   // The app answers with { op: 'enabled', granted } after Android's notification permission question.
