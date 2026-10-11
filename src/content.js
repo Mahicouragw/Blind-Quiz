@@ -1,6 +1,7 @@
 import { EXPANSION_ROWS, MIGRATION_010_ROWS, MIGRATION_011_ROWS, MIGRATION_015_ROWS, CATEGORY_SOURCES } from './expansion-questions.js';
 import { MIGRATION_016_ROWS } from './questions-016.js';
 import { EXPANSION_025_ROWS, CATEGORY_SOURCES_025 } from './expansion-questions-025.js';
+import { EXPANSION_028_ROWS, CATEGORY_SOURCES_028 } from './questions-028.js';
 
 // The original 73-question pack remains in its historical order so its stable IDs do not change.
 const starterRows = [
@@ -90,12 +91,16 @@ export const MIGRATION_015_COUNT = MIGRATION_015_ROWS.length;
 export const MIGRATION_016_COUNT = MIGRATION_016_ROWS.length;
 // Migration 025 adds the preserved PR #6 questions after PR #5 IDs 0001–1416.
 export const MIGRATION_025_COUNT = EXPANSION_025_ROWS.length;
-const rows = [...starterRows, ...EXPANSION_ROWS, ...MIGRATION_010_ROWS, ...MIGRATION_011_ROWS, ...MIGRATION_015_ROWS, ...MIGRATION_016_ROWS, ...EXPANSION_025_ROWS];
+// Migration 028 adds 600 more questions across the same 30 categories without changing any prior IDs.
+export const MIGRATION_028_COUNT = EXPANSION_028_ROWS.length;
+const rows = [...starterRows, ...EXPANSION_ROWS, ...MIGRATION_010_ROWS, ...MIGRATION_011_ROWS, ...MIGRATION_015_ROWS, ...MIGRATION_016_ROWS, ...EXPANSION_025_ROWS, ...EXPANSION_028_ROWS];
 const SOURCE_NOTES = { ...CATEGORY_SOURCES, ...CATEGORY_SOURCES_025 };
+const SOURCE_NOTES_028 = { ...SOURCE_NOTES, ...CATEGORY_SOURCES_028 };
+const START_028 = rows.length - EXPANSION_028_ROWS.length;
 const CATEGORIES = [
   ['animals','Animals','Wildlife and animal life'],['birds','Birds','Flight, habitats, and species'],['nature','Nature','Living systems and our planet'],['instruments','Musical instruments','Sounds, families, and traditions'],['science','Science','Physics, chemistry, biology, and space'],['geography','Geography','Places, landforms, and rivers'],['india','India','People, places, and civic life'],['history','History','Events, people, and the past'],['technology','Technology','Computers and the connected world'],['sports','Sports','Rules, play, and equipment'],['civics','Civics','Institutions and public life'],['economics','Economics','Choices, markets, and money'],['music','Music','Rhythm, sound, and ideas'],['abbreviations','Abbreviations','Decode the short form'],['vocabulary','Vocabulary','Meaning, usage, and spelling'],['braille','Braille','Read six-dot patterns'],['management','Management','Planning, teams, quality, and leadership'],['business','Business','Customers, operations, strategy, and enterprise'],['accounting','Accounting','Records, statements, and financial concepts'],['commerce','Commerce','Trade, payments, logistics, and retail'],['medical','Medical','Body, health, and medicine'],['math','Math','Numbers, shapes, and algebra'],['physics','Physics','Forces, energy, light, and electricity'],['chemistry','Chemistry','Elements, compounds, and reactions'],['biology','Biology','Cells, plants, genetics, and ecosystems'],['mathematics','Mathematics','Numbers, shapes, data, and algebra'],['health','Health','Health, wellness, and the human body'],['literature','Literature','Authors, works, and literary forms'],['food','Food','Ingredients, cooking, and food science'],['arts','Arts','Visual art, design, and creative traditions']
 ].map(([id,name,description])=>({id,name,description,count:rows.filter(r=>r[0]===id).length}));
-export const QUESTION_BANK = rows.map((r,i)=>({id:`bq-en-${String(i<starterRows.length?i+1:415+(i-starterRows.length)).padStart(4,'0')}`,category:r[0],subcategory:r[1],difficulty:r[2],mode:'classic',question:r[3],answers:r.slice(4,8),correctAnswer:r[4],explanation:r[8],xp:10,coins:2,tags:[r[1].toLowerCase()],language:'en',active:true,sourceNote:i<starterRows.length?'Initial authored content; editorial review recommended':SOURCE_NOTES[r[0]]}));
+export const QUESTION_BANK = rows.map((r,i)=>({id:`bq-en-${String(i<starterRows.length?i+1:415+(i-starterRows.length)).padStart(4,'0')}`,category:r[0],subcategory:r[1],difficulty:r[2],mode:'classic',question:r[3],answers:r.slice(4,8),correctAnswer:r[4],explanation:r[8],xp:10,coins:2,tags:[r[1].toLowerCase()],language:'en',active:true,sourceNote:i<starterRows.length?'Initial authored content; editorial review recommended':(i>=START_028?SOURCE_NOTES_028:SOURCE_NOTES)[r[0]]}));
 export const CATEGORY_LIST = CATEGORIES;
 export const DIFFICULTIES = ['easy','medium','hard','expert'];
 export function validateQuestionBank(bank=QUESTION_BANK){

@@ -1,27 +1,28 @@
 import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, MIGRATION_025_COUNT, validateQuestionBank } from '../src/content.js';
+import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, MIGRATION_025_COUNT, MIGRATION_028_COUNT, validateQuestionBank } from '../src/content.js';
 import { shuffled } from '../src/random.js';
 import { GAME_MODES, presentQuestion, poolFor, selectRoundQuestions, timeLimitFor, endsAfterMiss } from '../src/game-logic.js';
 import { BOARD_GAME_KINDS, BOARD_GAME_LABELS, createBoardState, reduceBoardGame, legalChessMoves } from '../src/board-games.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
 assert.equal(STARTER_QUESTION_COUNT,73,'historical starter IDs stay stable');
-assert.equal(QUESTION_BANK.length,1575,'1075 PR #5 questions plus 500 additive PR #6 questions');
+assert.equal(QUESTION_BANK.length,2175,'1075 PR #5 questions plus 500 Migration 025 questions and 600 additional Migration 028 questions');
 assert.equal(MIGRATION_009_COUNT,252,'Migration 009 keeps its 252 rows');
 assert.equal(MIGRATION_010_COUNT,200,'PR #5 Migration 010 stays intact');
 assert.equal(MIGRATION_011_COUNT,200,'PR #5 Migration 011 stays intact');
 assert.equal(MIGRATION_015_COUNT,100,'PR #5 Migration 015 stays intact');
 assert.equal(MIGRATION_016_COUNT,250,'PR #5 Migration 016 stays intact');
 assert.equal(MIGRATION_025_COUNT,500,'Migration 025 adds exactly 500 new questions');
+assert.equal(MIGRATION_028_COUNT,600,'Migration 028 adds exactly 600 new questions');
 assert.equal(CATEGORY_LIST.length,30,'25 PR #5 categories plus five additive PR #6 categories');
 const NEW_CATS=['medical','math','physics','chemistry','biology'];
 assert.deepEqual(CATEGORY_LIST.slice(20,25).map(c=>c.id),NEW_CATS,'PR #5 categories remain intact');
 const PR6_CATS=['mathematics','health','literature','food','arts'];
 assert.deepEqual(CATEGORY_LIST.slice(25).map(c=>c.id),PR6_CATS,'Migration 025 adds five distinct categories without remapping PR #5 data');
-for(const c of CATEGORY_LIST.slice(20,25))assert.equal(c.count,30,`${c.id} retains its 30 PR #5 questions`);
-for(const c of CATEGORY_LIST.slice(25))assert.equal(c.count,20,`${c.id} receives exactly 20 Migration 025 questions`);
+for(const c of CATEGORY_LIST.slice(20,25))assert.equal(c.count,50,`${c.id} retains 30 PR #5 questions and receives 20 Migration 028 questions`);
+for(const c of CATEGORY_LIST.slice(25))assert.equal(c.count,40,`${c.id} receives 20 questions each in Migrations 025 and 028`);
 for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(STARTER_QUESTION_COUNT,STARTER_QUESTION_COUNT+252).filter(q=>q.category===category.id);
   const expected=category.id==='braille'?24:12;
@@ -35,15 +36,25 @@ assert.equal(QUESTION_BANK[525].id,'bq-en-0867','first Migration 011 ID');
 assert.equal(QUESTION_BANK[724].id,'bq-en-1066','final Migration 011 ID');
 assert.equal(QUESTION_BANK[725].id,'bq-en-1067','first Migration 015 ID');
 assert.equal(QUESTION_BANK[1074].id,'bq-en-1416','PR #5 ends at its stable final ID');
-assert.equal(QUESTION_BANK.at(-1).id,'bq-en-1916','Migration 025 ends after PR #5 without reusing IDs');
-assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,1502,'1502 total expansion questions');
-const start025=QUESTION_BANK.length-MIGRATION_025_COUNT;
-const migration025Questions=QUESTION_BANK.slice(start025);
+assert.equal(QUESTION_BANK[1574].id,'bq-en-1916','Migration 025 ends after PR #5 without reusing IDs');
+assert.equal(QUESTION_BANK.at(-1).id,'bq-en-2516','Migration 028 ends after Migration 025 without reusing IDs');
+assert.equal(QUESTION_BANK.length-STARTER_QUESTION_COUNT,2102,'2102 total expansion questions');
+const start025=QUESTION_BANK.length-MIGRATION_028_COUNT-MIGRATION_025_COUNT;
+const migration025Questions=QUESTION_BANK.slice(start025,start025+MIGRATION_025_COUNT);
 assert.equal(migration025Questions[0].id,'bq-en-1417','Migration 025 starts after the PR #5 maximum ID');
 const migration025Counts=new Map();for(const q of migration025Questions)migration025Counts.set(q.category,(migration025Counts.get(q.category)||0)+1);
 assert.equal(migration025Counts.size,25,'Migration 025 contains 25 categories');
 assert.deepEqual([...migration025Counts.keys()].sort(),[...CATEGORY_LIST.slice(0,20).map(c=>c.id),...PR6_CATS].sort(),'Migration 025 preserves its 20 established categories and adds five new ones');
 for(const [category,count] of migration025Counts)assert.equal(count,20,`${category} receives exactly 20 Migration 025 questions`);
+const migration028Questions=QUESTION_BANK.slice(-MIGRATION_028_COUNT);
+assert.equal(migration028Questions.length,600,'Migration 028 contains exactly 600 rows');
+assert.equal(migration028Questions[0].id,'bq-en-1917','Migration 028 starts after the preserved Migration 025 IDs');
+assert.equal(migration028Questions.at(-1).id,'bq-en-2516','Migration 028 ends at the next stable maximum ID');
+for(let i=0;i<migration028Questions.length;i++)assert.equal(migration028Questions[i].id,`bq-en-${String(1917+i).padStart(4,'0')}`,'Migration 028 IDs are sequential and never remap older questions');
+const migration028Counts=new Map();for(const q of migration028Questions)migration028Counts.set(q.category,(migration028Counts.get(q.category)||0)+1);
+assert.equal(migration028Counts.size,30,'Migration 028 uses all 30 established categories');
+assert.deepEqual([...migration028Counts.keys()].sort(),CATEGORY_LIST.map(c=>c.id).sort(),'Migration 028 preserves all category IDs');
+for(const [category,count] of migration028Counts)assert.equal(count,20,`${category} receives exactly 20 Migration 028 questions`);
 for(const category of CATEGORY_LIST.slice(0,20)){
   const added=QUESTION_BANK.slice(325,525).filter(q=>q.category===category.id);
   assert.equal(added.length,10,`${category.id} has 10 Migration 010 questions`);
@@ -51,7 +62,7 @@ for(const category of CATEGORY_LIST.slice(0,20)){
   assert.equal(added011.length,10,`${category.id} has 10 Migration 011 questions`);
 }
 const normPrompt=s=>s.toLowerCase().replace(/[’']/g,"'").replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 1575 questions');
+assert.equal(new Set(QUESTION_BANK.map(q=>normPrompt(q.question))).size,QUESTION_BANK.length,'no duplicate prompts across all 2175 questions');
 const ids=new Set(QUESTION_BANK.map(q=>q.id));
 assert.equal(ids.size,QUESTION_BANK.length,'unique stable question ids');
 for(const q of QUESTION_BANK.slice(STARTER_QUESTION_COUNT))assert.match(q.sourceNote,/https:\/\//,`${q.id} source note`);
@@ -204,7 +215,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v29'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/voice-playback.js'")&&sw.includes("'./src/voice-dsp.js'")&&sw.includes("'./src/soundtouch-processor.js'")&&sw.includes("'./src/soundtouch-processor.js.map'")&&sw.includes("'./AUDIO_LICENSES.md'")&&sw.includes("'./licenses/MPL-2.0.txt'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features, voice playback controls and the offline Migration 025 modules');
+assert(sw.includes("const CACHE='blind-quiz-shell-v30'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/voice-playback.js'")&&sw.includes("'./src/voice-dsp.js'")&&sw.includes("'./src/soundtouch-processor.js'")&&sw.includes("'./src/soundtouch-processor.js.map'")&&sw.includes("'./AUDIO_LICENSES.md'")&&sw.includes("'./licenses/MPL-2.0.txt'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/questions-028.js'")&&sw.includes("'./src/questions-028-a.js'")&&sw.includes("'./src/questions-028-b.js'")&&sw.includes("'./src/questions-028-c.js'")&&sw.includes("'./src/questions-028-d.js'")&&sw.includes("'./src/questions-028-e.js'")&&sw.includes("'./src/questions-028-f.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features, voice playback controls, and both prepared question expansions');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -258,6 +269,29 @@ assert(sw.includes("const CACHE='blind-quiz-shell-v29'")&&sw.includes("'./src/al
   assert.equal((m25.match(/ on conflict \(id\) do nothing;/g)||[]).length,500,'Migration 025 is additive and re-runnable');
   assert(!/\b(create|alter|drop|truncate|delete|update|grant|revoke)\s/i.test(m25.replace(/'(?:[^']|'')*'/g,"''").replace(/--[^\n]*/g,'')),'Migration 025 contains only additive question inserts');
   assert(/not applied remotely/.test(m25),'Migration 025 remains prepared, not applied');
+}
+{ // Migration 028 is prepared as additive inserts and must not touch migrations 026 or 027.
+  const m28=await readFile(new URL('../supabase/migrations/202610110028_add_600_questions.sql',import.meta.url),'utf8');
+  const statements=m28.split('\n').map(line=>line.trim()).filter(line=>line&&!line.startsWith('--'));
+  assert.equal(statements.length,602,'Migration 028 has a transaction and exactly 600 insert statements');
+  assert.equal(statements[0],'begin;');assert.equal(statements.at(-1),'commit;');
+  const inserts=statements.slice(1,-1);
+  assert(inserts.every(line=>line.startsWith('insert into public.bq_questions')&&line.endsWith('on conflict (id) do nothing;')),'Migration 028 contains only additive question inserts');
+  const rows=inserts.map(line=>{
+    const values=line.split("values ('")[1];
+    assert(values,'Migration 028 insert has a values clause');
+    const [id,rest]=values.split("','");
+    return {id,category:rest.split("','")[0]};
+  });
+  assert.equal(rows.length,600,'Migration 028 inserts exactly 600 questions');
+  assert.equal(rows[0].id,'bq-en-1917');assert.equal(rows.at(-1).id,'bq-en-2516');
+  for(let i=0;i<rows.length;i++)assert.equal(rows[i].id,'bq-en-'+String(1917+i).padStart(4,'0'),'Migration 028 IDs are sequential and do not overlap Migration 025');
+  assert.deepEqual(rows.map(row=>row.id),migration028Questions.map(question=>question.id),'Migration 028 SQL preserves the bank IDs in order');
+  assert.deepEqual(rows.map(row=>row.category),migration028Questions.map(question=>question.category),'Migration 028 SQL matches the bank categories');
+  const counts=new Map();for(const row of rows)counts.set(row.category,(counts.get(row.category)||0)+1);
+  assert.equal(counts.size,30,'Migration 028 has exactly 30 categories');
+  assert([...counts.values()].every(n=>n===20),'Migration 028 has exactly 20 rows in every category');
+  assert(/not applied remotely/.test(m28),'Migration 028 remains prepared, not applied');
 }
 assert(sw.includes("'./privacy-policy.html'")&&sw.includes("'./terms-and-conditions.html'"),'legal pages are cached for offline use');
 assert(sw.includes('fetch(req)')&&sw.includes('caches.match(req)')&&sw.indexOf('fetch(req)')<sw.indexOf('caches.match(req)'),'service worker is network-first (fetch before cache)');

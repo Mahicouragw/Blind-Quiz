@@ -4,7 +4,7 @@ Blind Quiz is an accessible, audio-optional quiz game designed for blind, low-vi
 
 ## Current content and gameplay
 
-- **1575 validated multiple-choice questions across 30 combined categories**: the preserved 1075-question PR #5 bank plus 500 new questions prepared in Migration 025. Migration 025 adds exactly 20 questions in each of its 25 categories (20 shared categories plus Mathematics, Health, Literature, Food, and Arts); the new rows use IDs `bq-en-1417`–`bq-en-1916` and have not been applied remotely.
+- **2175 validated multiple-choice questions across 30 combined categories**: the preserved 1075-question PR #5 bank plus 500 questions prepared in Migration 025 and 600 additional questions prepared in Migration 028. Migration 025 adds 20 questions in each of its 25 categories; Migration 028 adds 20 in each of all 30 categories. Their stable IDs are `bq-en-1417`–`bq-en-1916` and `bq-en-1917`–`bq-en-2516`, respectively. Neither prepared question migration has been applied remotely.
 - The historical repository questions retain IDs `bq-en-0001`–`bq-en-0073`. A live database check on 3 October 2026 found 114 rows with a highest existing ID of `bq-en-0414`, so the expansion safely uses `bq-en-0415`–`bq-en-0666` without filling or overwriting ID gaps.
 - Eight quiz modes: balanced Classic, Rapid Fire, Time Attack, Survival, Random Mix, Vocabulary, Abbreviations, and Braille. Category rounds remain available in the category picker. Letters to Words and Sound Match are separate games; rooms add live multiplayer rounds.
 - Four answer buttons are independently shuffled with Fisher–Yates while correctness remains tied to answer text. Buttons expose only the answer itself, not radio/checkbox or “Option A” semantics.
@@ -29,7 +29,7 @@ npm run build
 python3 -m http.server 4173
 ```
 
-`npm run validate:content` validates the combined bank, regenerates `supabase/seed.sql`, and prepares Migration 025 without changing the already-applied PR #5 migrations. `npm run build` creates the static production output in the ignored `dist/` directory.
+`npm run validate:content` validates the combined bank, regenerates `supabase/seed.sql`, and prepares additive Migrations 025 and 028 without changing the already-applied PR #5 migrations or migrations 026–027. Neither prepared question migration is applied by this command. `npm run build` creates the static production output in the ignored `dist/` directory.
 
 `npm run test:live` exercises the deployed Edge Function with the public publishable key only. It creates a throwaway verification identity per run, and never prints secret answers, session tokens, apikeys, or Authorization headers — only HTTP status codes and non-sensitive response codes.
 
@@ -39,7 +39,7 @@ Automated accessibility checks are source-level checks, not a substitute for man
 
 The browser contains only the public project URL and publishable key in `src/config.js`. Never add a service-role key, database password, Supabase access token, or rate-limit pepper to client code or Git.
 
-The repository includes the historical core migration, seed output, the `blind-quiz-api` function, and PR #5 migrations 009–024. Preserve those existing migration files; do not rerun or rewrite already-applied migrations. PR #6's additional 500 questions are isolated in the new prepared migration `supabase/migrations/202610080025_expand_question_bank.sql`, IDs `bq-en-1417`–`bq-en-1916`, 20 in each of the 25 categories. Migration 025 is not applied or live-verified. It must be reviewed and approved before any separate migration apply; never use `supabase db push` for it.
+The repository includes the historical core migration, seed output, the `blind-quiz-api` function, and migrations 009–027. Preserve those existing migration files; do not rerun or rewrite already-applied migrations, especially migrations 026 and 027. The prepared question additions are isolated in `202610080025_expand_question_bank.sql` (500 rows, IDs `bq-en-1417`–`bq-en-1916`) and `202610110028_add_600_questions.sql` (600 rows, IDs `bq-en-1917`–`bq-en-2516`). They are additive, not applied or live-verified, and must be reviewed and approved before any separate migration apply; never use `supabase db push` for them.
 
 The Edge Function performs custom authentication, stores salted PBKDF2 secret-answer hashes, rate-limits attempts, uses opaque expiring sessions, and calls a database function that validates answers and awards XP/coins server-side. Its source in this repository has no `DAILY_BANK_SIZE` or daily-question selection feature. Deployment of the source cannot be inferred from a Git push.
 
