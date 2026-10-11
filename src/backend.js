@@ -2,44 +2,82 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 
 const API = `${SUPABASE_URL}/functions/v1/blind-quiz-api`;
 const SESSION_KEY = 'blindquiz.session.v1';
+const PERSISTENT_SESSION_KEY = 'blindquiz.persisted-session.v1';
 const REQUEST_TIMEOUT_MS = 15_000;
 let memorySession = null;
+let persistentSession = false;
 
-// The opaque session token is kept in sessionStorage (tab/app session), with an in-memory
-// fallback for browsers or WebViews that block storage. Expired sessions are discarded.
-export function getSession() {
-  try {
-    const stored = sessionStorage.getItem(SESSION_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        if (parsed.expiresAt && Date.parse(parsed.expiresAt) <= Date.now()) {
-          sessionStorage.removeItem(SESSION_KEY);
-          memorySession = null;
-          return null;
-        }
-        memorySession = parsed;
-        return parsed;
-      }
-      sessionStorage.removeItem(SESSION_KEY);
-    }
-  } catch {
-    // Fall back to the page-lifetime session when storage is blocked or malformed.
+function usableSession(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (value.expiresAt) {
+    const expiresAt = Date.parse(value.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
   }
-  if (memorySession?.expiresAt && Date.parse(memorySession.expiresAt) <= Date.now()) {
+  return true;
+}
+
+function getStorage(name) {
+  try { return globalThis[name] || null; } catch { return null; }
+}
+
+function readStoredSession(storage, key, persistent) {
+  try {
+    const stored = storage?.getItem(key);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (!usableSession(parsed)) {
+      storage.removeItem(key);
+      return null;
+    }
+    memorySession = parsed;
+    persistentSession = persistent;
+    return parsed;
+  } catch {
+    // Storage can be disabled or contain malformed data; try the other store / memory fallback.
+    return null;
+  }
+}
+
+// By default, sessions last for this tab/app session. A player can explicitly opt in to
+// this device's local storage; the server still enforces the same seven-day expiry.
+export function getSession() {
+  const tabSession = readStoredSession(getStorage('sessionStorage'), SESSION_KEY, false);
+  if (tabSession) return tabSession;
+  const savedSession = readStoredSession(getStorage('localStorage'), PERSISTENT_SESSION_KEY, true);
+  if (savedSession) return savedSession;
+  if (memorySession && !usableSession(memorySession)) {
     memorySession = null;
+    persistentSession = false;
   }
   return memorySession;
 }
 
-export function setSession(value) {
+export function setSession(value, { remember = persistentSession } = {}) {
   memorySession = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
-  try {
-    if (memorySession) sessionStorage.setItem(SESSION_KEY, JSON.stringify(memorySession));
-    else sessionStorage.removeItem(SESSION_KEY);
-  } catch {
-    // Authentication still works until this page is closed.
+  if (!memorySession) {
+    persistentSession = false;
+    try { globalThis.sessionStorage?.removeItem(SESSION_KEY); } catch {}
+    try { globalThis.localStorage?.removeItem(PERSISTENT_SESSION_KEY); } catch {}
+    return;
   }
+
+  persistentSession = remember === true;
+  if (persistentSession) {
+    try {
+      globalThis.localStorage?.setItem(PERSISTENT_SESSION_KEY, JSON.stringify(memorySession));
+      globalThis.sessionStorage?.removeItem(SESSION_KEY);
+    } catch {
+      // If persistent storage is blocked, keep the player signed in for this tab only.
+      persistentSession = false;
+      try { globalThis.sessionStorage?.setItem(SESSION_KEY, JSON.stringify(memorySession)); } catch {}
+    }
+    return;
+  }
+
+  try { globalThis.sessionStorage?.setItem(SESSION_KEY, JSON.stringify(memorySession)); } catch {
+    // Authentication still works until this page is closed if storage is blocked.
+  }
+  try { globalThis.localStorage?.removeItem(PERSISTENT_SESSION_KEY); } catch {}
 }
 
 export async function callApi(action, payload = {}) {

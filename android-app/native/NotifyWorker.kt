@@ -13,7 +13,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.Worker
@@ -64,6 +66,11 @@ object BQNotify {
             .build()
         val work = WorkManager.getInstance(ctx)
         work.enqueueUniquePeriodicWork("bq-notify", ExistingPeriodicWorkPolicy.KEEP, request)
+        // Catch up promptly after app startup; the periodic worker then keeps checking while the app is closed.
+        val immediate = OneTimeWorkRequest.Builder(NotifyWorker::class.java)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        work.enqueueUniqueWork("bq-notify-now", ExistingWorkPolicy.KEEP, immediate)
         // Cleanup does not require internet or an account; it still runs if the recipient is signed out.
         val cleanup = PeriodicWorkRequest.Builder(ReceivedFileCleanupWorker::class.java, 15, TimeUnit.MINUTES).build()
         work.enqueueUniquePeriodicWork("bq-received-cleanup", ExistingPeriodicWorkPolicy.KEEP, cleanup)

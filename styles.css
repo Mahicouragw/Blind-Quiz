@@ -327,3 +327,18 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .ludo-player.color-white{--seat-color:#eee}.ludo-player.color-black{--seat-color:#6d6576}
 @media(max-width:560px){.room-play-sound-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.room-play-sound-card{min-height:70px;padding:8px 4px;font-size:.88rem}#room-play-word-form{grid-template-columns:1fr}#room-play-word-form label{grid-column:auto}.signup-name-row{align-items:flex-start}}
 .high-contrast .room-play-sound-card{background:#000;color:#fff;border-color:#fff}.high-contrast .room-play-sound-card.is-open{background:#ff0;color:#000}.high-contrast .room-play-sound-card.is-matched{background:#063;color:#fff}
+
+/* Accessible quiz setup: native controls stay in reading order, with generous touch targets. */
+.quiz-setup.panel{max-width:none;margin:30px 0 0;padding:clamp(20px,4vw,34px);display:block;border:2px solid var(--key-edge);box-shadow:0 6px 0 var(--key-edge)}
+.quiz-setup h2{margin:0 0 18px;font-size:clamp(1.5rem,3vw,2.25rem)}
+.quiz-setup-grid{display:grid;grid-template-columns:minmax(145px,.8fr) minmax(180px,1.2fr);gap:10px 16px;align-items:center}
+.quiz-setup-grid label{margin:0;font-weight:750}
+.quiz-setup-grid select{min-height:56px;margin:0}
+.quiz-setup-grid #quiz-stage-status{grid-column:1/-1;margin:0;padding:10px 12px;border-left:4px solid var(--blue);background:#89d9e811;border-radius:4px 10px 10px 4px}
+#language-note,#telugu-content-note{margin:14px 0 0;line-height:1.5}
+.quiz-setup [hidden]{display:none!important}
+.remember-session-row{margin:18px 0!important;padding:12px;border:1px solid var(--line);border-radius:12px;background:#111e28}
+.remember-session-row span{display:grid;gap:4px}
+.remember-session-row small{font-weight:400;line-height:1.4}
+.category-button:disabled,.mode-button:disabled{opacity:.58;cursor:not-allowed;transform:none}
+@media(max-width:560px){.quiz-setup-grid{grid-template-columns:1fr;gap:7px}.quiz-setup-grid label{margin-top:10px}.quiz-setup-grid select{min-height:56px}}

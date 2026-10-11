@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { QUESTION_BANK, CATEGORY_LIST, STARTER_QUESTION_COUNT, MIGRATION_009_COUNT, MIGRATION_010_COUNT, MIGRATION_011_COUNT, MIGRATION_015_COUNT, MIGRATION_016_COUNT, MIGRATION_025_COUNT, MIGRATION_028_COUNT, validateQuestionBank } from '../src/content.js';
 import { shuffled } from '../src/random.js';
 import { GAME_MODES, presentQuestion, poolFor, selectRoundQuestions, timeLimitFor, endsAfterMiss } from '../src/game-logic.js';
+import { instructionText, localizedBank, localizedQuestion, TELUGU_QUESTIONS, uiText } from '../src/language.js';
+import { QUIZ_STAGES, questionMatchesDifficulty, stagePasses } from '../src/quiz-levels.js';
 import { BOARD_GAME_KINDS, BOARD_GAME_LABELS, createBoardState, reduceBoardGame, legalChessMoves } from '../src/board-games.js';
 
 assert.deepEqual(validateQuestionBank(),[],'question pack validation');
@@ -97,6 +99,18 @@ const sharedNo=presentQuestion(sample,'yesno',identity,'Earth');assert.match(sha
 const decision=presentQuestion(sample,'decision',values=>[...values]);
 assert.equal(decision.displayAnswers.length,2);assert(decision.displayAnswers.includes(sample.correctAnswer));assert.equal(presentQuestion(sample,'quickdecision',values=>[...values]).displayAnswers.length,2);
 assert.equal(selectRoundQuestions(QUESTION_BANK,'general','quickdecision',identity).length,10);assert.equal(timeLimitFor('quickdecision',30),5,'Quick Decision has a five-second clock');
+assert.equal(QUIZ_STAGES.length,12,'the progression contains twelve numbered stages');
+assert.deepEqual(QUIZ_STAGES.slice(0,4).map(s=>[s.difficulty,s.roundLength]),[['easy',5],['easy',10],['easy',15],['medium',5]],'stages combine difficulty and accessible short/standard/long rounds');
+assert(stagePasses(7,10)&&!stagePasses(6,10),'a stage unlocks at 70 percent, not below');
+const easyFive=selectRoundQuestions(QUESTION_BANK,'general','classic',identity,{difficulty:'easy',roundLength:5});assert.equal(easyFive.length,5);assert(easyFive.every(q=>q.difficulty==='easy'),'difficulty filters the round before selection');
+assert.equal(selectRoundQuestions(QUESTION_BANK,'general','classic',identity,{difficulty:'expert',roundLength:5}).length,5,'expert challenge can use the existing hard bank until more expert questions exist');
+const teluguBank=localizedBank(QUESTION_BANK,'te');assert.equal(teluguBank.length,Object.keys(TELUGU_QUESTIONS).length,'every Telugu starter translation resolves to an existing stable question');
+assert(teluguBank.every(q=>q.language==='te'&&q.answers.length===4&&q.answers.includes(q.correctAnswer)),'Telugu questions retain four valid answer choices');
+const englishQuestion=QUESTION_BANK.find(q=>q.id==='bq-en-0001'),teluguQuestion=localizedQuestion(englishQuestion,'te');
+assert.equal(teluguQuestion.correctAnswer,'ఆఫ్రికన్ ఏనుగు');
+const teluguPresented=presentQuestion(teluguQuestion,'classic',identity);assert.equal(teluguPresented.recordChoiceByDisplay[teluguPresented.displayCorrect],englishQuestion.correctAnswer,'a Telugu answer maps to the unchanged server answer for reward verification');
+const teluguYesNo=presentQuestion(teluguQuestion,'yesno',identity);assert.deepEqual(teluguYesNo.displayAnswers,['అవును','కాదు']);assert.equal(teluguYesNo.recordChoiceByDisplay['అవును'],englishQuestion.correctAnswer);
+assert(/బ్లైండ్ క్విజ్/.test(instructionText('te'))&&uiText('te','playNow')==='ఇప్పుడే ఆడండి','Telugu UI and voice instructions are present');
 assert.deepEqual(BOARD_GAME_KINDS,['snakes','ludo','carrom','blackjack','chess']);assert.equal(BOARD_GAME_LABELS.chess,'Chess');
 const snakes=reduceBoardGame('snakes',createBoardState('snakes',2),1,{type:'roll',value:2});
 assert.equal(snakes.state.players[0].position,38,'Snakes and Ladders moves through ladder squares');assert.deepEqual(snakes.sounds,['tick','click']);assert.equal(snakes.state.turnSeat,2);
@@ -149,7 +163,7 @@ assert(!Object.values(audioManifest.assets).some(a=>a.provider==='Mixkit'&&a.kin
 const licences=await readFile(new URL('../AUDIO_LICENSES.md',import.meta.url),'utf8');
 for(const a of Object.values(audioManifest.assets))assert(licences.includes(a.file),`AUDIO_LICENSES.md documents ${a.file}`);
 assert(!/\btone\(/.test(main),'no leftover synthetic tone() calls (they crashed every round)');
-assert(main.includes('return presentQuestion(q,state.mode,shuffled)')&&gameLogic.includes('displayAnswers: shuffle(answers)'),'answer choices are shuffled independently in classic mode');
+assert(main.includes('return presentQuestion(q,state.mode,shuffled)')&&gameLogic.includes('const displayAnswers = shuffle(answers)'),'answer choices are shuffled independently in classic mode');
 assert(main.includes("typeof saved.correct==='boolean'?saved.correct:correct")&&main.includes('state.lastAnswerCorrect=serverVerdict')&&main.includes("verdict?'good':'bad'"),'server-verified answers stay in sync with score, Survival, and feedback');
 assert(html.includes('id=\"play-featured\">Play now'),'primary action says Play now');
 assert(!html.includes('id=\"backend-note\"'),'no technical backend status element');
@@ -161,10 +175,10 @@ assert(!/service reachable|function must be installed|account service is offline
 assert(!/BOOT_ERROR|backend_not_ready|service_error|invalid_request|unknown_action|origin_not_allowed|method_not_allowed|session_expired|Uncaught|SyntaxError|Deno|Edge Function|Supabase CLI/i.test(uiSource),'no backend implementation codes or runtime errors surfaced in the UI');
 assert(/Something went wrong\. Please try again\./.test(main)&&/The name, Login ID, or secret answer is incorrect\. Please try again\./.test(main),'failures fall back to generic, human wording');
 const categoryRender=main.slice(main.indexOf('function renderCategories'),main.indexOf('function renderModes'));
-assert(categoryRender.includes('<strong>${esc(c.name)}</strong>'),'category buttons contain the category name');
-assert(!/category-mark|category-count|c\.count/.test(categoryRender)&&categoryRender.includes('<small class=\"category-desc\">${esc(c.description)}</small>'),'category buttons show the name and a short description, never a question count');
+assert(categoryRender.includes('<strong>${esc(name)}</strong>'),'category buttons contain the localized category name');
+assert(!/category-mark|category-count|c\.count/.test(categoryRender)&&categoryRender.includes('<small class=\"category-desc\">${esc(categoryDescription(state.settings.language,c))}</small>'),'category buttons show the name and a short description, never a question count');
 assert(['mathematics','health','literature','food','arts'].every(id=>main.includes(`${id}:`)),'all restored category cards have their own decorative icons and colors');
-assert(html.includes('id=\"game-start\"')&&main.includes('Get ready!')&&main.includes("['3','2','1']")&&main.includes("'GO!'"),'ready screen and spoken countdown remain available');
+assert(html.includes('id=\"game-start\"')&&main.includes("ui('getReady')")&&main.includes("['3','2','1']")&&main.includes("ui('go')"),'ready screen and spoken countdown remain available in both interface languages');
 assert(main.includes('Something went wrong. Please try again.')&&main.includes('Too many attempts. Please wait and try again.'),'client errors remain generic and rate limits are explained');
 const migration=await readFile(new URL('../supabase/migrations/202609260001_core.sql',import.meta.url),'utf8');
 for(const term of ['name_normalized text not null unique','login_id text not null unique','answer_hash text not null','enable row level security','bq_record_answer','unique(profile_id,question_id)'])assert(migration.includes(term),`schema requirement ${term}`);
@@ -215,7 +229,7 @@ assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload but
 assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
 assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v30'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/voice-playback.js'")&&sw.includes("'./src/voice-dsp.js'")&&sw.includes("'./src/soundtouch-processor.js'")&&sw.includes("'./src/soundtouch-processor.js.map'")&&sw.includes("'./AUDIO_LICENSES.md'")&&sw.includes("'./licenses/MPL-2.0.txt'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/questions-028.js'")&&sw.includes("'./src/questions-028-a.js'")&&sw.includes("'./src/questions-028-b.js'")&&sw.includes("'./src/questions-028-c.js'")&&sw.includes("'./src/questions-028-d.js'")&&sw.includes("'./src/questions-028-e.js'")&&sw.includes("'./src/questions-028-f.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features, voice playback controls, and both prepared question expansions');
+assert(sw.includes("const CACHE='blind-quiz-shell-v31'")&&sw.includes("'./src/language.js'")&&sw.includes("'./src/quiz-levels.js'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/voice-playback.js'")&&sw.includes("'./src/voice-dsp.js'")&&sw.includes("'./src/soundtouch-processor.js'")&&sw.includes("'./src/soundtouch-processor.js.map'")&&sw.includes("'./AUDIO_LICENSES.md'")&&sw.includes("'./licenses/MPL-2.0.txt'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/expansion-questions-025.js'")&&sw.includes("'./src/expansion-questions-025-e.js'")&&sw.includes("'./src/questions-028.js'")&&sw.includes("'./src/questions-028-a.js'")&&sw.includes("'./src/questions-028-b.js'")&&sw.includes("'./src/questions-028-c.js'")&&sw.includes("'./src/questions-028-d.js'")&&sw.includes("'./src/questions-028-e.js'")&&sw.includes("'./src/questions-028-f.js'")&&sw.includes("'./src/game-logic.js'"),'service worker cache includes PR #5 features, voice playback controls, and both prepared question expansions');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -321,8 +335,8 @@ assert(/<meta http-equiv="Content-Security-Policy" content="default-src 'self'; 
 assert(!/\sstyle="|<script(?![^>]*\ssrc=)[^>]*>|\son[a-z]+="/i.test(html),'no inline scripts, styles, or event handlers (CSP-compatible)');
 assert(/<section class="legal-links"[\s\S]*<a href="privacy-policy\.html" id="privacy-link">Privacy Policy<\/a>[\s\S]*<a href="terms-and-conditions\.html" id="terms-link">Terms and Conditions<\/a>/.test(html),'Settings links to Privacy Policy and Terms and Conditions');
 for(const page of ['privacy-policy.html','terms-and-conditions.html']){const legal=await readFile(new URL(`../${page}`,import.meta.url),'utf8');assert(legal.includes('<html lang="en">')&&legal.includes('<main id="main"')&&(legal.match(/<h1>/g)||[]).length===1&&legal.includes('href="./"')&&legal.includes('Content-Security-Policy'),`${page} is a complete, accessible page`);assert(!/supabase\.co|sb_publishable|bq_[a-z]|service_role/i.test(legal),`${page} exposes no internal identifiers`)}
-assert(backend.includes('sessionStorage')&&!backend.includes('localStorage'),'session token is kept in sessionStorage only');
-assert(backend.includes('Date.parse(parsed.expiresAt) <= Date.now()')&&backend.includes('Date.parse(memorySession.expiresAt) <= Date.now()'),'expired stored and in-memory sessions are discarded');
+assert(backend.includes('sessionStorage')&&backend.includes('localStorage')&&backend.includes("PERSISTENT_SESSION_KEY = 'blindquiz.persisted-session.v1'")&&backend.includes('remember === true'),'persistent sign-in is explicit opt-in; ordinary sessions stay tab-scoped');
+assert(backend.includes('Number.isFinite(expiresAt)')&&backend.includes('expiresAt <= Date.now()')&&backend.includes('usableSession(memorySession)'),'expired or malformed stored and in-memory sessions are discarded');
 assert(backend.includes('REQUEST_TIMEOUT_MS')&&backend.includes('controller.abort()'),'API requests time out instead of hanging indefinitely');
 assert(backend.includes('memorySession')&&backend.includes('sessionStorage'),'session storage failures have an in-memory fallback');
 assert(backend.includes('JSON.stringify({ ...payload, action })'),'callers cannot override the API action');
@@ -426,7 +440,7 @@ console.log(`PASS: ${QUESTION_BANK.length} structured questions, ${CATEGORY_LIST
   assert(/category-icon\\?" aria-hidden=\\?"true/.test(main2)&&main2.includes("CATEGORY_ICON={"),'category icons are aria-hidden');
   assert(/function updateHud\(\)/.test(main2)&&/state\.timeLeft--;updateHud\(\)/.test(main2),'timer is shown visually every second');
   assert(/dataset\.order/.test(lui)&&/prefers-reduced-motion:reduce/.test(css)&&/\.reduce-motion \*/.test(css),'pick order shown on tiles; animations honour reduced motion');
-  assert(html2.includes('<b id="total-categories">30</b> categories'),'home shows the current category count');
+  assert(html2.includes('<b id="total-categories">30</b> <span id="category-count-label">categories</span>'),'home shows the localized current category count');
 }
 console.log('PASS: Task 15 sighted-player visuals are decorative and motion-safe.');
 

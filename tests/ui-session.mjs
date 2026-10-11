@@ -85,18 +85,28 @@ t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelabl
 const err=t.d.querySelector('#login-error');assert.equal(err.hidden,false);assert(!/service_error|500|supabase/i.test(err.textContent),err.textContent);
 assert.equal(t.w.localStorage.getItem('blindquiz.remembered.v1'),null,'nothing remembered on failure');
 console.log('ok 6 failed login shows friendly error only:',JSON.stringify(err.textContent));
-// 7. Successful login stores token only in sessionStorage, never the answer
+// 7. Successful login stores a token in tab storage by default, never the answer
 t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:future,profile}):json(200,{ok:true,question:'Q?'})}});
 t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
 t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCDEFGH';t.d.querySelector('#login-answer').value='mysecret';
 t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,150));
 const all=JSON.stringify({...t.w.localStorage})+JSON.stringify({...t.w.sessionStorage});
 assert(!all.includes('mysecret'));assert(!JSON.stringify({...t.w.localStorage}).includes('tttt'),'token not in localStorage');assert.equal(t.d.querySelector('#login-answer').value,'');
-console.log('ok 7 login: token only in sessionStorage, secret answer never stored');
-// 8. Logout clears
-t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,100));
-assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
-console.log('ok 8 logout clears session');
+console.log('ok 7 login: tab-scoped token by default; secret answer never stored');
+// 7b. Explicitly opting in persists the session across app/browser restarts and server validation still runs.
+t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'p'.repeat(43),expiresAt:future,profile}):json(200,{ok:true,profile})}});
+t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
+t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCDEFGH';t.d.querySelector('#login-answer').value='mysecret';t.d.querySelector('#remember-session').checked=true;
+t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,150));
+assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert(JSON.parse(t.w.localStorage.getItem('blindquiz.persisted-session.v1')).token==='p'.repeat(43));assert(!JSON.stringify({...t.w.localStorage}).includes('mysecret'));
+const rememberedSession=JSON.parse(t.w.localStorage.getItem('blindquiz.persisted-session.v1'));
+const restored=await boot({local:{'blindquiz.persisted-session.v1':rememberedSession},fetchImpl:()=>json(200,{ok:true,profile})});
+await new Promise(r=>setTimeout(r,80));assert.equal(restored.d.querySelector('#top-meta').textContent,'Signed in as Asha');
+console.log('ok 7b opt-in session survives reload and is revalidated');
+// 8. Logout clears either kind of session
+t=restored;t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,100));
+assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.w.localStorage.getItem('blindquiz.persisted-session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
+console.log('ok 8 logout clears persisted session');
 // 9. Back button returns from a sub-view to Home (Android WebView back / browser back)
 t=await boot({fetchImpl:()=>{throw new Error('none')}});
 const L0=t.w.history.length;
@@ -150,6 +160,30 @@ console.log('ok 9 back navigation returns to Home');
   dm.querySelector('.next-question').click();await wait2(10);assert.equal(dm.querySelector('#result-score').textContent,'0 correct out of 1');assert.match(dm.querySelector('#result-message').textContent,/Survival run ended on a miss/);
   globalThis.setTimeout=fast;
   console.log(`ok 10 all ${cats.length} categories and 11 quiz modes play to results; leaving mid-countdown/mid-timer never blocks the next game`);
+}
+// 10a. Telugu starter UI, localized voice instructions and a selectable stage use the translated quiz bank.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  t=await boot({local:{'bq.settings':{language:'te',quizDifficulty:'easy',quizRoundLength:5,quizStage:1}},fetchImpl:()=>{throw new Error('offline')}});
+  const d=t.d;assert.equal(d.documentElement.lang,'te-IN');assert.equal(d.querySelectorAll('#category-list [data-category]').length,12);
+  assert.equal(d.querySelector('#language-choice').value,'te');assert.equal(d.querySelector('#quiz-stage').value,'1');assert.equal(d.querySelector('#quiz-difficulty').value,'easy');assert.equal(d.querySelector('#quiz-round-length').value,'5');
+  assert(d.querySelector('#mode-list [data-mode="vocabulary"]').disabled,'unsupported Telugu modes are not presented as playable');
+  let spoken=null;t.w.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};t.w.speechSynthesis={cancel(){},getVoices:()=>[{lang:'te-IN'}],speak(u){spoken=u}};
+  d.querySelector('#voice-instructions').click();assert.equal(spoken.lang,'te-IN');assert.match(spoken.text,/బ్లైండ్ క్విజ్/);
+  d.querySelector('#play-featured').click();assert.match(d.querySelector('#round-label').textContent,/దశ 1/);assert.equal(d.querySelector('#round-progress').textContent,'5 ప్రశ్నలు');
+  d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await new Promise(r=>fast(r,5));
+  const {QUESTION_BANK}=await import(ROOT+'src/content.js'),{localizedBank}=await import(ROOT+'src/language.js'),bank=localizedBank(QUESTION_BANK,'te');
+  for(let n=0;n<5;n++){
+    const title=d.querySelector('#game-title').textContent,question=bank.find(q=>title.endsWith(q.question));assert(question,'the displayed question is a translated starter question');
+    if(n===0)assert(title.match(/\p{Script=Telugu}/u));
+    const right=[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===question.correctAnswer);right.click();
+    for(let i=0;i<100&&!d.querySelector('.next-question');i++)await new Promise(r=>fast(r,5));
+    assert.match(d.querySelector('#answer-feedback').textContent,/సరైన సమాధానం/);
+    d.querySelector('.next-question').click();if(n<4)for(let i=0;i<100&&!d.querySelector('.answer-button:not([aria-disabled])');i++)await new Promise(r=>fast(r,5));
+  }
+  assert.equal(d.querySelector('#view-results').hidden,false);assert.equal(t.w.localStorage.getItem('bq.quizProgress.v1.guest'),'2','a cleared stage unlocks the next numbered stage');assert.equal(d.querySelector('#quiz-stage option[value="2"]').disabled,false);
+  globalThis.setTimeout=fast;
+  console.log('ok 10a Telugu starter UI, voice instructions, stage difficulty/length and translated answer feedback');
 }
 // 11. Signed-in players see their profile, not a sign-in prompt.
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}},fetchImpl:()=>json(200,{ok:true,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}})});
