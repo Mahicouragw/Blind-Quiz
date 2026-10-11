@@ -9,8 +9,8 @@ const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const html=readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'');
 let n=0;
 const WINDOWS=[]; // src/audio.js is loaded once, so its cached audio elements may belong to an earlier window
-async function boot({session,fetchImpl,local,nativeBridge}){
-  const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
+async function boot({session,fetchImpl,local,nativeBridge,url='https://mahicouragw.github.io/Blind-Quiz/'}){
+  const dom=new JSDOM(html,{url,pretendToBeVisual:true});
   const w=dom.window;WINDOWS.push(w);
   for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement','Event'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
@@ -25,6 +25,11 @@ async function boot({session,fetchImpl,local,nativeBridge}){
   // Presence heartbeats (Task 19 'touch') are recorded separately so older tests keep checking their own calls.
   const calls=[],beats=[];globalThis.fetch=async(url,init)=>{if(init?.body){const a=JSON.parse(init.body).action;(a==='touch'?beats:calls).push(a)}return fetchImpl(url,init)};
   await import(ROOT+'src/main.js?'+(++n));
+  const gate=w.document.querySelector('#audio-gate');
+  assert(gate?.getAttribute('aria-modal')==='true'&&w.document.querySelector('#main').hasAttribute('inert'),'the mandatory audio gate blocks the app shell on load');
+  w.document.querySelector('#audio-gate-start').click();
+  assert.equal(gate.hidden,true,'the explicit user gesture dismisses the audio gate');
+  assert.equal(w.document.querySelector('#main').inert,false,'the app becomes interactive only after audio start');
   await new Promise(r=>setTimeout(r,200));
   return {w,d:w.document,calls,beats};
 }
@@ -507,6 +512,61 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(!/profile XP|profile level/i.test(d.querySelector('#sm-finish-text').textContent));
   assert.equal(sess.profile.xp,105);assert.equal(profs.at(-1).level,2);assert(sfx.includes('coin'));
   console.log('ok 19 Sound Match: numbers 1-10 on Easy (16 Medium, 20 Hard), press plays its sound, match/miss spoken, found sounds named, stars and best score; signed-in players earn server-checked XP and coins');
+}
+// Count Match: tap-to-start gate, fruit/count listening, wrong/correct feedback, scorecard and challenge sharing.
+{
+  const { d, w } = await boot({ fetchImpl: () => { throw new Error('no network expected'); } });
+  const { COUNT_MATCH_ITEMS } = await import(ROOT + 'src/count-match.js');
+  d.querySelector('#cm-open').click();
+  assert.equal(d.querySelector('#view-countmatch').hidden, false, 'Count Match opens from Home');
+  d.querySelector('#cm-round-count').value = '10';
+  d.querySelector('#cm-start').click();
+  assert.equal(d.querySelector('#cm-game').hidden, false, 'Start Game begins the selected round length');
+  const clueTarget = () => {
+    const clue = d.querySelector('#cm-text-clue').textContent.toLowerCase();
+    return COUNT_MATCH_ITEMS.find(item => clue.includes(item.spoken));
+  };
+  const firstTarget = clueTarget();
+  assert(firstTarget, 'unsupported speech synthesis shows a spoken-clue text fallback');
+  const wrong = [...d.querySelectorAll('.cm-option')].find(button => button.dataset.itemId !== firstTarget.id);
+  wrong.click();
+  assert(wrong.classList.contains('cm-wrong'), 'incorrect choice gets distinct visual feedback');
+  assert(d.querySelector(`[data-item-id="${firstTarget.id}"]`).classList.contains('cm-correct'), 'the correct fruit/count pair is revealed');
+  assert.match(d.querySelector('#cm-status').textContent, /Not quite/);
+  for (let round = 1; round < 10; round++) {
+    d.querySelector('#cm-next').click();
+    const target = clueTarget();
+    d.querySelector(`[data-item-id="${target.id}"]`).click();
+    assert(d.querySelector(`[data-item-id="${target.id}"]`).classList.contains('cm-correct'), 'correct choice is identified');
+  }
+  d.querySelector('#cm-next').click();
+  assert.equal(d.querySelector('#cm-scorecard').hidden, false, 'the final answer opens the scorecard');
+  assert.equal(d.querySelector('#cm-final-score').textContent, '1,550');
+  assert.equal(d.querySelector('#cm-final-correct').textContent, '9 of 10');
+  assert.equal(d.querySelector('#cm-final-accuracy').textContent, '90%');
+  assert.match(d.querySelector('#cm-final-time').textContent, /^\d+:\d{2}$/);
+  const opened = [], shared = [];
+  w.open = url => { opened.push(url); return {}; };
+  Object.defineProperty(w.navigator, 'share', { configurable: true, value: async payload => { shared.push(payload); } });
+  Object.defineProperty(w.navigator, 'clipboard', { configurable: true, value: { writeText: async text => shared.push(text) } });
+  d.querySelector('#cm-share-whatsapp').click();
+  d.querySelector('#cm-share-facebook').click();
+  d.querySelector('#cm-share-x').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert(opened.some(url => url.startsWith('https://wa.me/')) && opened.some(url => url.includes('facebook.com/sharer')) && opened.some(url => url.includes('twitter.com/intent/tweet')), 'WhatsApp, Facebook and X launch score-share links');
+  d.querySelector('#cm-share-instagram').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert(shared.some(item => typeof item === 'object' && item.url.includes('game=count-match')), 'Instagram uses the native share sheet with a direct game link');
+  d.querySelector('#cm-share-copy').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert(shared.some(item => typeof item === 'string' && item.includes('game=count-match')), 'Copy Link includes the direct challenge URL');
+  assert.match(d.querySelector('#cm-share-status').textContent, /copied/);
+  d.querySelector('#cm-new-settings').click();
+  d.querySelector('#cm-sound-open').click();
+  assert.equal(d.querySelector('#view-soundmatch').hidden, false, 'Count Match setup links to identical-clip Sound Match');
+  const direct=await boot({url:'https://mahicouragw.github.io/Blind-Quiz/?game=count-match',fetchImpl:()=>{throw new Error('no network expected')}});
+  assert.equal(direct.d.querySelector('#view-countmatch').hidden,false,'a shared game=count-match URL opens the Count Match setup after the audio gate');
+  console.log('ok Count Match UI: fruit/count clue fallback, distinct answer states, 10-round scorecard, five share paths, identical-clip entry, and direct links');
 }
 // 20. Task 19: notifications bell, friend request Accept, Multiplayer online list, player card privacy and the friendship rule.
 {

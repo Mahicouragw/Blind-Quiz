@@ -135,7 +135,7 @@ export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,ma
     else if(game.config.mode==='quickdecision'&&d.state?.questionStartedAt){const left=Math.max(0,5-Math.floor((Date.now()-Date.parse(d.state.questionStartedAt))/1000));$('#room-play-status').textContent=`Quick Decision: ${left} second${left===1?'':'s'} left. First correct answer earns the bonus.`;}
     else $('#room-play-status').textContent='Both players see the same question. The first correct answer earns the fastest-answer bonus.';
   }
-  async function answerQuiz(index,answer,selected){if(questionLock||!game)return;questionLock=true;$('#room-play-options').querySelectorAll('button').forEach(b=>b.disabled=true);playSfx('click');
+  async function answerQuiz(index,answer,selected){if(questionLock||!game)return;questionLock=true;$('#room-play-options').querySelectorAll('button').forEach(b=>b.disabled=true);
     try{const d=await callApi('game-answer',{gameId:game.id,questionIndex:index,answer});const correct=!!d.correct;const points=Number(d.points)||0;const text=correct?`Correct! ${points?`You earned ${points} point${points===1?'':'s'}.`:''}`:'Not quite. The other player can still answer.';$('#room-play-answer-status').textContent=text;playSfx(correct?'correct':'wrong');if(d.finished)say('The quiz is complete.');}
     catch(err){questionLock=false;$('#room-play-options').querySelectorAll('button').forEach(b=>b.disabled=false);say(errorText(err.message),true);if(err.message==='stale_question')poll();}
     void selected;
@@ -191,10 +191,10 @@ export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,ma
     }catch(err){say(err.message==='sounds_unavailable'?'The recorded sounds could not be loaded. Please check your internet connection and try again.':errorText(err.message),true);}
     finally{btn.disabled=false;}
   }
-  async function toggleReady(){if(!game||!joined)return;const me=(scoreCache||[]).find(p=>Number(p.seat)===mySeat);try{await callApi('game-ready',{gameId:game.id,ready:!me?.ready});playSfx('click');poll();}catch(err){say(errorText(err.message),true);}}
+  async function toggleReady(){if(!game||!joined)return;const me=(scoreCache||[]).find(p=>Number(p.seat)===mySeat);try{await callApi('game-ready',{gameId:game.id,ready:!me?.ready});poll();}catch(err){say(errorText(err.message),true);}}
   async function invite(e){e.preventDefault();const name=$('#room-play-invite-name').value.trim();if(name.length<2)return say('Type your friend’s name first.',true);try{await callApi('game-invite',{gameId:game.id,name});$('#room-play-invite-name').value='';say(`${name} received a request to join the game.`);playSfx('notify');}catch(err){say(errorText(err.message),true);}}
   async function assignPlayer(e){e.preventDefault();const name=$('#room-play-assign-name').value,seat=Number($('#room-play-assign-seat').value);if(!name||!seat)return;try{await callApi('game-assign',{gameId:game.id,name,seat});say(`${name} assigned to Player ${seat}.`);poll();}catch(err){say(errorText(err.message),true);}}
-  async function saveColor(){if(!game||!joined||!mySeat)return;const color=$('#room-play-color').value;if(!color)return say('Choose a color first.',true);try{await callApi('game-join',{gameId:game.id,seat:mySeat,color});say(`Player ${mySeat} chose ${color}.`);playSfx('click');poll();}catch(err){say(errorText(err.message),true);if(err.message==='color_taken')poll();}}
+  async function saveColor(){if(!game||!joined||!mySeat)return;const color=$('#room-play-color').value;if(!color)return say('Choose a color first.',true);try{await callApi('game-join',{gameId:game.id,seat:mySeat,color});say(`Player ${mySeat} chose ${color}.`);poll();}catch(err){say(errorText(err.message),true);if(err.message==='color_taken')poll();}}
   async function setCommentsEnabled(){const checkbox=$('#room-play-comments-toggle'),next=checkbox.checked;checkbox.disabled=true;try{await callApi('game-comments',{gameId:game.id,enabled:next});commentsEnabled=next;game.commentsEnabled=next;$('#room-play-comment-form').hidden=!next;say(next?'Game comments are on.':'Game comments are off.');}catch(err){checkbox.checked=commentsEnabled;say(errorText(err.message),true);}finally{checkbox.disabled=false;}}
   async function sendComment(e){e.preventDefault();const text=$('#room-play-comment-text').value.trim();if(!text||!game)return;if(!commentsEnabled)return say(errorText('comments_disabled'),true);try{await callApi('game-comment',{roomId:game.roomId,gameId:game.id,text,replyTo});$('#room-play-comment-text').value='';replyTo=null;$('#room-play-replying').textContent='';$('#room-play-reply-cancel').hidden=true;poll();}catch(err){say(errorText(err.message),true);}}
   function cancelReply(){replyTo=null;$('#room-play-comment-text').value='';$('#room-play-replying').textContent='';$('#room-play-reply-cancel').hidden=true;}
@@ -202,7 +202,7 @@ export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,ma
     if(!game?.state||!mySeat||boardPending)return;boardPending=true;
     try{
       const result=await callApi('game-action',{gameId:game.id,move:action});
-      for(const sound of result.sounds||[result.sfx||'click'])playSfx(sound);if(result.finished)playSfx('cheer');poll();
+      for(const sound of result.sounds||[result.sfx].filter(Boolean))if(sound!=='click')playSfx(sound);if(result.finished)playSfx('cheer');poll();
     }catch(err){say(errorText(err.message),true);if(['not_your_turn','illegal_chess_move','illegal_token_move','choose_token_first','stale_action'].includes(err.message))poll();}
     finally{boardPending=false;}
   }

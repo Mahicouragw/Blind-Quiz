@@ -151,7 +151,7 @@ export function createChat({ $, announce, callApi, getSession, go, playSfx = () 
     if (!canSend) { say(`You and ${friend} are no longer friends, so you cannot send new messages.`, true); return false; }
     const btn = $('#chat-send'); btn.disabled = true;
     try {
-      if (await send(content)) { playSfx('click'); await poll(); say(successText); return true; }
+      if (await send(content)) { await poll(); say(successText); return true; }
       return false;
     } catch (err) {
       say(err.message === 'not_friends' ? `You and ${friend} are no longer friends.`

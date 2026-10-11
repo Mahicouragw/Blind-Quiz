@@ -23,7 +23,55 @@ const GAME_TRACK = {
 const prefs = { sfx: true, music: true, sfxVolume: 0.8, musicVolume: 0.25 };
 let available = null; // Set of slots that exist in assets/audio/manifest.json
 const cache = new Map();
+let audioContext = null;
+let unlockPrimer = null;
+let unlockPrimerStarted = false;
+const mediaNodes = new WeakMap();
 let music = null, musicSlot = null, fadeTimer = null, unlocked = false, wantedSlot = null;
+
+function audioContextConstructor() {
+  return globalThis.AudioContext || globalThis.webkitAudioContext || globalThis.window?.AudioContext || globalThis.window?.webkitAudioContext || null;
+}
+
+function silentUnlockWav() {
+  const sampleRate = 8000, samples = 160, bytes = new ArrayBuffer(44 + samples * 2), view = new DataView(bytes);
+  const text = (offset, value) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)); };
+  text(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true); text(8, 'WAVE'); text(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data');
+  view.setUint32(40, samples * 2, true);
+  return new Blob([bytes], { type: 'audio/wav' });
+}
+
+function primeMediaPlayback() {
+  if (!unlockPrimer) {
+    const AudioCtor = globalThis.Audio || globalThis.window?.Audio;
+    const URLApi = globalThis.URL || globalThis.window?.URL;
+    if (!AudioCtor || !URLApi?.createObjectURL || typeof Blob !== 'function') return;
+    try {
+      unlockPrimer = new AudioCtor(URLApi.createObjectURL(silentUnlockWav()));
+      unlockPrimer.muted = true;
+      unlockPrimer.volume = 0;
+      unlockPrimer.playsInline = true;
+      unlockPrimer.preload = 'auto';
+    } catch { unlockPrimer = null; }
+  }
+  if (!unlockPrimer || unlockPrimerStarted) return;
+  try {
+    const attempt = unlockPrimer.play();
+    Promise.resolve(attempt).then(() => { unlockPrimerStarted = true; }).catch(() => {});
+  } catch { /* Web Audio resume remains available as the primary unlock path. */ }
+}
+
+function connectMediaElement(audio) {
+  if (!audioContext || audioContext.state !== 'running' || mediaNodes.has(audio)) return;
+  try {
+    const source = audioContext.createMediaElementSource(audio);
+    source.connect(audioContext.destination);
+    mediaNodes.set(audio, source);
+  } catch { /* Older WebViews can keep using ordinary HTML audio playback. */ }
+}
 
 let pending = null;
 let matchInfo = [];
@@ -73,6 +121,7 @@ export async function playSfx(slot) {
   if (!have.has(slot)) return null;
   try {
     const a = element(slot).cloneNode();
+    connectMediaElement(a);
     a.volume = prefs.sfxVolume;
     playing.add(a);
     a.addEventListener('ended', () => playing.delete(a), { once: true });
@@ -118,7 +167,7 @@ function fadeTo(target, ms, done) {
 }
 
 export function musicFor(view, category, mode) {
-  if (view === 'soundmatch') return null; // Sound Match is played by ear: no background music over the clues
+  if (view === 'soundmatch' || view === 'countmatch') return null; // Keep recorded clips and spoken memory clues clear
   if (view === 'game') return GAME_TRACK[mode] && mode !== 'classic' ? GAME_TRACK[mode] : (GAME_TRACK[category] || 'music_game1');
   if (view === 'letters') return 'music_game2';
   if (view === 'results') return 'music_results';
@@ -147,6 +196,7 @@ function startTrack(group, list, index) {
   const startNext = () => {
     if (music) { music.pause(); music.onended = null; }
     music = element(track);
+    connectMediaElement(music);
     musicSlot = track;
     musicGroup = group;
     music.loop = list.length === 1;
@@ -166,11 +216,20 @@ export function stopMusic() {
   musicGroup = null;
 }
 
-/** Browsers only allow sound after a user gesture; call this from the first tap or key press. */
+/** Call directly from a user gesture. Resume Web Audio and prime HTML media for iOS/WebViews. */
 export function unlockAudio() {
-  if (unlocked) return;
   unlocked = true;
+  let resume = Promise.resolve(false);
+  const Context = audioContextConstructor();
+  if (Context) {
+    try {
+      if (!audioContext) audioContext = new Context();
+      resume = audioContext.state === 'running' ? Promise.resolve(true) : Promise.resolve(audioContext.resume()).then(() => audioContext.state === 'running').catch(() => false);
+    } catch { audioContext = null; }
+  }
+  primeMediaPlayback();
   if (wantedSlot) playMusic(wantedSlot);
+  return resume;
 }
 
 if (typeof document !== 'undefined') {
@@ -194,6 +253,7 @@ export async function playMatchSound(slot) {
   if (matchPlaying) { try { matchPlaying.pause(); } catch { /* already stopped */ } }
   try {
     const a = element(slot);
+    connectMediaElement(a);
     a.volume = Math.max(prefs.sfxVolume, 0.6);
     a.currentTime = 0;
     matchPlaying = a;

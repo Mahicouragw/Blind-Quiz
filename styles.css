@@ -360,3 +360,55 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 @media(max-width:850px){.monitor-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:560px){.monitor-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .high-contrast .monitor-stats>div,.high-contrast .monitor-player,.high-contrast .monitor-empty{background:#000;border-color:#fff}
+
+/* First-gesture audio gate: kept outside the app so it can unlock mobile playback. */
+.audio-gate{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;overflow:auto;padding:clamp(18px,5vw,42px);background:radial-gradient(ellipse at 50% 5%,#5b2a8a 0,transparent 55%),#120a28f7}
+.audio-gate-card{width:min(100%,620px);padding:clamp(26px,6vw,54px);border:4px solid var(--key-edge);border-radius:30px;background:var(--panel);box-shadow:0 12px 0 var(--key-edge);text-align:center}
+.audio-gate-card h1{margin:0 0 16px;font-family:var(--display);font-size:clamp(2.3rem,8vw,4.2rem);line-height:1.08;color:var(--acid)}
+.audio-gate-card p:not(.eyebrow){max-width:470px;margin:0 auto 22px;color:var(--muted)}
+.audio-gate-start{min-height:64px;padding:16px 24px;font-size:1.08rem}
+.audio-gate-card #audio-gate-note{min-height:1.5em;margin:20px auto 0;font-size:.9rem}
+/* Count Match / fruit-memory challenge */
+.cm-callout .cm-glyph{font-size:2.7rem}
+.cm-panel{max-width:920px}
+.cm-setup{max-width:600px;margin:26px auto 0;padding:clamp(18px,4vw,30px);border:3px solid var(--key-edge);border-radius:22px;background:var(--panel2);box-shadow:0 5px 0 var(--key-edge)}
+.cm-setup h2{margin:0 0 12px;font-size:1.45rem}
+.cm-setup label{display:block;margin:12px 0 6px;font-weight:800}
+.cm-setup .button{margin-top:12px}
+.cm-game-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:16px 0 8px}
+.cm-game-head .eyebrow{margin:0}
+.cm-score{margin:0;color:var(--acid);font-weight:850;text-align:right}
+.cm-prompt{margin:20px 0 8px;font-size:clamp(1.2rem,3vw,1.55rem);font-weight:800}
+.cm-listen-row,.cm-score-actions{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.cm-text-clue{padding:12px 15px;border:2px dashed var(--blue);border-radius:14px;font-weight:800;color:var(--blue)}
+.cm-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}
+.cm-option{min-width:0;min-height:142px;padding:14px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:3px solid var(--key-edge);border-radius:19px;background:linear-gradient(155deg,#3b2a72,#241846);color:var(--ink);box-shadow:0 6px 0 var(--key-edge);transition:transform .12s,background .15s}
+.cm-option:not(:disabled):hover{transform:translateY(-3px);background:#44327b}
+.cm-option:active{transform:translateY(3px);box-shadow:0 2px 0 var(--key-edge)}
+.cm-fruit{max-width:100%;font-size:clamp(1.6rem,4.4vw,2.65rem);line-height:1.25;letter-spacing:.04em;overflow-wrap:anywhere}
+.cm-option-label{font-size:1.12rem;text-align:center}
+.cm-option.cm-correct{border-color:var(--blue);background:#1d5d4c;color:#fff;box-shadow:0 6px 0 var(--key-edge),0 0 0 3px var(--blue)}
+.cm-option.cm-wrong{border-color:var(--danger);background:#662b40;color:#fff;box-shadow:0 6px 0 var(--key-edge),0 0 0 3px var(--danger)}
+.cm-option:disabled{cursor:default;opacity:1}
+.cm-status{min-height:3em;margin:14px 0;font-weight:800}
+.cm-scorecard{margin-top:22px;padding:clamp(18px,4vw,30px);border:3px solid var(--key-edge);border-radius:23px;background:linear-gradient(145deg,#33205f,#1e3c48);box-shadow:0 7px 0 var(--key-edge)}
+.cm-scorecard h2{margin:0 0 10px;font-size:clamp(1.5rem,4vw,2.2rem)}
+.cm-scorecard h3{margin:24px 0 4px}
+.cm-final-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:20px 0;padding:0}
+.cm-final-stats>div{min-width:0;padding:13px;border:2px solid var(--line);border-radius:16px;background:#ffffff0b}
+.cm-final-stats dt{font-size:.82rem;line-height:1.35;color:var(--muted)}
+.cm-final-stats dd{margin:8px 0 0;color:var(--acid);font-size:clamp(1.2rem,3vw,1.8rem);font-weight:900;overflow-wrap:anywhere}
+.cm-share-buttons{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.cm-share-buttons .button{flex:1 1 135px}
+.cm-share-status{min-height:2em;color:var(--blue);font-weight:750}
+.cm-score-actions{margin-top:18px}
+.high-contrast .audio-gate{background:#000}
+.high-contrast .audio-gate-card,.high-contrast .cm-setup,.high-contrast .cm-scorecard,.high-contrast .cm-option{background:#000;border-color:#fff;color:#fff}
+.high-contrast .cm-option.cm-correct{background:#063;color:#fff;outline:3px solid #0ff}
+.high-contrast .cm-option.cm-wrong{background:#600;color:#fff;outline:3px solid #ff0}
+@media(max-width:850px){.cm-final-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:560px){.cm-game-head{align-items:flex-start;flex-direction:column}.cm-score{text-align:left}.cm-options{gap:10px}.cm-option{min-height:122px;padding:10px 6px}.cm-option-label{font-size:1rem}.cm-final-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.audio-gate-card{border-radius:24px}}
+@media(prefers-reduced-motion:reduce){.cm-option{transition:none}}
+.reduce-motion .cm-option{transition:none}
+.cm-other-mode{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.cm-other-mode p{margin:0 0 8px;color:var(--muted)}

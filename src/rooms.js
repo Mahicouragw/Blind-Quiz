@@ -368,7 +368,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
       }
       status.textContent = 'Sending voice message…';
       await callApi('room-voice-send', { roomId, audio, durationMs: pending.durationMs });
-      clearRoomVoiceReview(false); say(status, 'Voice message sent to the room.'); playSfx('click'); pollRoom(false);
+      clearRoomVoiceReview(false); say(status, 'Voice message sent to the room.'); pollRoom(false);
     } catch (err) {
       send.disabled = false; cancel.disabled = false; $('#room-voice-record').disabled = true;
       say(status, errorText(err.message), true);
