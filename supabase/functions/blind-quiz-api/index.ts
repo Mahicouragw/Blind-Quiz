@@ -39,6 +39,32 @@ async function session(req:Request){const token=(req.headers.get('authorization'
 function publicProfile(p:any){const changes=p.name_change_count??0;return {name:p.display_name,loginId:p.login_id,secretQuestion:p.secret_question,nameChangeCount:changes,nextNameChangeAt:p.name_changed_at?new Date(Date.parse(p.name_changed_at)+cooldownDays(changes)*86400000).toISOString():null,xp:p.xp,coins:p.coins,level:p.level,currentStreak:p.current_streak,bestStreak:p.best_streak,questionsAnswered:p.questions_answered,questionsCorrect:p.questions_correct,quizzesCompleted:p.quizzes_completed}}
 // Admin = a row in bq_admins (Migration 017: the owner's Goldfish account). Missing table or row means not an admin.
 async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
+const MONITOR_GAME_LABELS:Record<string,string>={quiz:'Quiz',letters:'Letters to Words',soundmatch:'Sound Match',snakes:'Snakes and Ladders',ludo:'Ludo',carrom:'Carrom',blackjack:'Blackjack',chess:'Chess'};
+async function adminMonitorSnapshot(){
+ const now=Date.now(),onlineSince=new Date(now-2*60*1000).toISOString(),daySince=new Date(now-24*60*60*1000).toISOString(),weekSince=new Date(now-7*24*60*60*1000).toISOString();
+ const [registered,online,recent,created]=await Promise.all([
+  admin.from('bq_profiles').select('id',{count:'exact',head:true}),
+  admin.from('bq_profiles').select('id,display_name,last_seen_at',{count:'exact'}).gt('last_seen_at',onlineSince).order('last_seen_at',{ascending:false}).limit(50),
+  admin.from('bq_profiles').select('id',{count:'exact',head:true}).gt('last_seen_at',daySince),
+  admin.from('bq_profiles').select('id',{count:'exact',head:true}).gte('created_at',weekSince),
+ ]);
+ if(registered.error||online.error||recent.error||created.error){console.error('Admin monitor profile query failed',registered.error?.code||online.error?.code||recent.error?.code||created.error?.code);return null}
+ const profiles=online.data??[],profileIds=profiles.map((p:any)=>p.id);let members:any[]=[],gamePlayers:any[]=[],games:any[]=[];
+ if(profileIds.length){
+  const [roomResult,playerResult]=await Promise.all([
+   admin.from('bq_room_members').select('profile_id,last_seen_at').in('profile_id',profileIds).gt('last_seen_at',onlineSince).order('last_seen_at',{ascending:false}),
+   admin.from('bq_room_game_players').select('profile_id,game_id,last_seen_at').in('profile_id',profileIds).gt('last_seen_at',onlineSince).order('last_seen_at',{ascending:false}),
+  ]);
+  if(!roomResult.error)members=roomResult.data??[];
+  if(!playerResult.error)gamePlayers=playerResult.data??[];
+  const gameIds=[...new Set(gamePlayers.map((p:any)=>p.game_id).filter(Boolean))];
+  if(gameIds.length){const result=await admin.from('bq_room_games').select('id,kind,status,phase').in('id',gameIds).eq('status','playing');if(!result.error)games=result.data??[]}
+ }
+ const memberByProfile=new Set(members.map((m:any)=>m.profile_id));const activeGames=new Map<string,string>();const gameById=new Map(games.map((g:any)=>[g.id,g]));
+ for(const player of gamePlayers){const game=gameById.get(player.game_id);if(game&&!activeGames.has(player.profile_id)){const label=MONITOR_GAME_LABELS[game.kind]??'multiplayer game';activeGames.set(player.profile_id,game.phase==='playing'?`Playing ${label}`:game.phase==='lobby'?`In ${label} match lobby`:`In ${label} match`)}}
+ const onlinePlayers=profiles.map((p:any)=>({name:p.display_name,lastSeenAt:p.last_seen_at,activity:activeGames.get(p.id)??(memberByProfile.has(p.id)?'In a multiplayer room':'Online in Blind Quiz (screen not tracked)')}));
+ return {ok:true,generatedAt:new Date(now).toISOString(),registeredAccounts:registered.count??0,onlineNow:online.count??profiles.length,seenLast24Hours:recent.count??0,createdLast7Days:created.count??0,onlinePlayers};
+}
 const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{p_name_normalized:n}:null};
 const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
 const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline','seat_taken','game_started','players_not_ready','waiting_for_players','stale_question','stale_action','comment_unavailable','comments_disabled','not_your_turn','not_room_member','already_joined','color_taken','choose_color','invalid_word','illegal_chess_move','illegal_token_move','choose_token_first','invalid_action','invalid_move'];
@@ -148,6 +174,11 @@ async function handler(req:Request){
   // Android app background check (Migration 024): a per-phone key that can only read the player's own new notifications.
   if(body.action==='notify-check'){const t=clean(body.token,64),a=Number(body.afterId??0);if(t.length<35||!Number.isSafeInteger(a)||a<0)return json({ok:false,code:'invalid_request'},400,origin);const h=await digest(t);if(!await permitAccount('notify-check',h,30,3600))return json({ok:false,code:'rate_limited'},429,origin);const {data,error}=await admin.rpc('bq_notify_check',{p_token_hash:h,p_after:a,p_stop:body.stop===true});if(error)return json({ok:false,code:'service_error'},503,origin);return data?.ok===false?json({ok:false,code:'session_expired'},401,origin):json({...data,ok:true},200,origin)}
   const auth=await session(req);if(!auth)return json({ok:false,code:'session_expired'},401,origin);const profileId=auth.profile.id;
+  if(body.action==='admin-monitor'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount('admin-monitor',profileId,180,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const snapshot=await adminMonitorSnapshot();return snapshot?json(snapshot,200,origin):json({ok:false,code:'service_error'},503,origin);
+  }
   if(body.action==='notify-register'){const t=tokenText(randomBytes(32));const {data,error}=await admin.rpc('bq_notify_register',{p_profile_id:profileId,p_token_hash:await digest(t)});return error||data?.ok===false?json({ok:false,code:'service_error'},503,origin):json({ok:true,token:t},200,origin)}
   if(body.action==='logout'){await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('id',auth.row.id);return json({ok:true},200,origin)}
   if(body.action==='profile')return json({ok:true,profile:{...publicProfile(auth.profile),isAdmin:await isAdmin(profileId)}},200,origin);

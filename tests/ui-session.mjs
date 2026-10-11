@@ -416,13 +416,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 { // 18. Settings > Send feedback: name check, problem screenshot prompt, send; admin inbox for Goldfish only.
   const sent=[];const shot='data:image/jpeg;base64,/9j/AAAA';
   const items=[{id:7,name:'Asha',kind:'problem',message:'The timer froze.\nOn question 3.',hasScreenshot:true,createdAt:'2026-10-06T10:00:00Z',read:false},{id:6,name:'Ravi',kind:'idea',message:'More music please',hasScreenshot:false,createdAt:'2026-10-05T10:00:00Z',read:true}];
-  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});if(b.action==='admin-feedback-reply')return json(200,{ok:true});if(b.action==='admin-announce')return json(200,{ok:true,sent:364});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});return json(400,{ok:false,code:'invalid_request'})};
+  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});if(b.action==='admin-feedback-reply')return json(200,{ok:true});if(b.action==='admin-monitor')return json(200,{ok:true,generatedAt:new Date().toISOString(),registeredAccounts:680,onlineNow:2,seenLast24Hours:14,createdLast7Days:3,onlinePlayers:[{name:'Asha',activity:'Playing Quiz',lastSeenAt:new Date().toISOString()},{name:'Ravi',activity:'Online in Blind Quiz (screen not tracked)',lastSeenAt:new Date().toISOString()}]});if(b.action==='admin-announce')return json(200,{ok:true,sent:364});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});return json(400,{ok:false,code:'invalid_request'})};
   let s=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,80));
   assert.equal(s.d.querySelector('#feedback-signin').hidden,false);assert.equal(s.d.querySelector('#feedback-name-form').hidden,true);assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true);
   s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,loginId:'ABCDEFGH'}},fetchImpl:api(false)});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,120));
-  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true,'players never see the inbox');
+  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true,'players never see admin tools');assert.equal(s.d.querySelector('#open-player-monitor').closest('#admin-inbox-box').hidden,true,'non-admins cannot open the player monitor');
   const nf=s.d.querySelector('#feedback-name-form'),ff=s.d.querySelector('#feedback-form'),st=s.d.querySelector('#feedback-status');
   assert.equal(nf.hidden,false);assert.equal(ff.hidden,true);
   s.d.querySelector('#feedback-name').value='Someone Else';nf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));
@@ -438,7 +438,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Admin (Goldfish) sees the inbox, opens it, and views a screenshot.
   sent.length=0;s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:api(true)});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,120));
-  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,false,'the admin sees the inbox entry');
+  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,false,'the admin sees admin tools');
+  s.d.querySelector('#open-player-monitor').click();await new Promise(r=>setTimeout(r,120));
+  assert.equal(s.d.querySelector('#view-admin-monitor').hidden,false,'admin can open the read-only player monitor');
+  assert.equal(s.d.querySelector('#monitor-registered').textContent,'680');assert.equal(s.d.querySelector('#monitor-online').textContent,'2');assert.equal(s.d.querySelector('#monitor-active-day').textContent,'14');assert.equal(s.d.querySelector('#monitor-new-week').textContent,'3');
+  assert.match(s.d.querySelector('#admin-active-list').textContent,/Asha.*Playing Quiz.*Ravi.*Online in Blind Quiz/s);assert.equal(sent.filter(b=>b.action==='admin-monitor').length,1);
+  s.d.querySelector('#admin-monitor-refresh').click();await new Promise(r=>setTimeout(r,80));assert.equal(sent.filter(b=>b.action==='admin-monitor').length,2,'admin can manually refresh the read-only snapshot');
+  s.d.querySelector('#view-admin-monitor [data-go="settings"]').click();await new Promise(r=>setTimeout(r,80));
   s.d.querySelector('#open-inbox').click();await new Promise(r=>setTimeout(r,120));
   assert.equal(s.d.querySelector('#view-inbox').hidden,false);const lis=s.d.querySelectorAll('#inbox-list li');assert.equal(lis.length,2);
   assert.equal(lis[0].querySelector('h2').textContent,'Problem report from Asha');assert.match(lis[0].querySelector('.inbox-meta').textContent,/New · Screenshot attached/);assert.equal(lis[0].querySelector('.inbox-message').textContent,'The timer froze.\nOn question 3.');
