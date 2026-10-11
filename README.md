@@ -23,7 +23,7 @@ Node.js 22.13 or newer is recommended; the Edge Function integrity guard uses No
 npm test                 # content, accessibility, schema, and Edge Function source guards
 npm run test:a11y        # content and accessibility checks only
 npm run test:function    # Edge Function source integrity only
-npm run test:live        # verify the DEPLOYED function end to end (needs network)
+npm run test:live        # staging-only end-to-end checks (creates synthetic test profiles)
 npm run validate:content
 npm run build
 python3 -m http.server 4173
@@ -31,7 +31,7 @@ python3 -m http.server 4173
 
 `npm run validate:content` validates the combined bank, regenerates `supabase/seed.sql`, and prepares additive Migrations 025 and 028 without changing the already-applied PR #5 migrations or migrations 026–027. Neither prepared question migration is applied by this command. `npm run build` creates the static production output in the ignored `dist/` directory.
 
-`npm run test:live` exercises the deployed Edge Function with the public publishable key only. It creates a throwaway verification identity per run, and never prints secret answers, session tokens, apikeys, or Authorization headers — only HTTP status codes and non-sensitive response codes.
+`npm run test:live` exercises an explicitly configured non-production Edge Function with the public publishable key only. The suite creates synthetic profile records and does not delete them, so it requires `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `BQ_ALLOW_TEST_ACCOUNT_CREATION=true` for a dedicated test project. A built-in guard refuses the production Blind Quiz project before making any request. The suite never prints secret answers, session tokens, apikeys, or Authorization headers.
 
 Automated accessibility checks are source-level checks, not a substitute for manual TalkBack, VoiceOver, keyboard, zoom, and contrast testing on target devices.
 
@@ -79,7 +79,7 @@ Migrations 001–009 are already applied remotely. Neither deployment path runs 
 
 Editing the function in the Supabase dashboard code editor is impractical with a screen reader, and appending to it is what caused the `BOOT_ERROR` incident in the first place. Two routes avoid the editor entirely or avoid deleting anything:
 
-**Preferred — no editor at all.** Store a Supabase personal access token as the `SUPABASE_ACCESS_TOKEN` repository secret (GitHub → Settings → Secrets and variables → Actions). It is two ordinary text fields. Any push to `supabase/functions/**`, or a re-run of the workflow, then deploys from the repository source and runs the live verification automatically. The token stays inside GitHub and is never printed.
+**Preferred — no editor at all.** Store a Supabase personal access token as the `SUPABASE_ACCESS_TOKEN` repository secret (GitHub → Settings → Secrets and variables → Actions). Any push to `supabase/functions/**`, or a re-run of the workflow, then deploys from the repository source. The workflow runs offline verification only; it does not create synthetic profiles in production. The token stays inside GitHub and is never printed.
 
 **Dashboard — paste over, never delete.** Copy the file with the *Copy raw file* button on its GitHub file page, then in the dashboard editor focus the code, choose **Select all** from the long-press (or TalkBack local) menu, and **Paste** without moving focus. Pasting onto a selection replaces it, so the old content is discarded in one action. Verify with Chrome's *Find in page*: `import { createClient }` must report **1 of 1**. If it reports 1 of 2, the module is still duplicated.
 
@@ -88,7 +88,7 @@ If the editor does not expose its full text to a screen reader, delete the funct
 ## Known limits
 
 - Achievements, combo rewards, and daily question selection are not implemented as playable features. The app does include a player profile, account changes, Letters to Words, Sound Match, and multiplayer rooms.
-- Existing schema tracks XP, coins, level, answer streak, and answer counts. `npm run test:live` exercises the deployed function directly; it requires outbound network access to the project and cannot run in a sandbox that blocks `*.supabase.co`.
+- Existing schema tracks XP, coins, level, answer streak, and answer counts. Live API verification is staging-only because it creates synthetic profiles; it cannot be used as evidence of real player activity.
 - The question bank passed structural and duplicate checks and includes category-level source notes; this is not an independent expert review of every item. Changeable facts and specialized claims should be rechecked.
 - Recorded audio and music are bundled under the licenses documented in `AUDIO_LICENSES.md`; no synthetic Web Audio effects are used.
 
@@ -96,6 +96,6 @@ If the editor does not expose its full text to a screen reader, delete the funct
 
 GitHub Pages is deployed by `.github/workflows/deploy-pages.yml` from `main`; the workflow runs `npm test`, builds `dist/`, and deploys it to Pages. It also supports manual dispatch.
 
-Supabase Edge Function deployment is handled separately by `.github/workflows/deploy-function.yml`, which runs the source integrity guard, deploys `blind-quiz-api` as one complete replacement, and then runs `tests/live-api.mjs` against the live function. It triggers on changes to `supabase/functions/**`, the deploy tooling, or the workflow itself, and supports manual dispatch. It requires the `SUPABASE_ACCESS_TOKEN` repository secret; the verification job needs no secret because it uses only the public publishable key.
+Supabase Edge Function deployment is handled separately by `.github/workflows/deploy-function.yml`, which runs the source integrity guard, deploys `blind-quiz-api` as one complete replacement, and runs offline tests. It triggers on changes to `supabase/functions/**`, the deploy tooling, or the workflow itself, and supports manual dispatch. It requires the `SUPABASE_ACCESS_TOKEN` repository secret. `.github/workflows/live-checks.yml` is manual-only and uses explicit `BQ_TEST_SUPABASE_URL` / `BQ_TEST_SUPABASE_PUBLISHABLE_KEY` repository variables for an isolated non-production project; its scripts refuse the production project.
 
-`tests/live-api.mjs` verifies, against the deployed function: boot without `BOOT_ERROR`; that Gemini suggestions return a validated nickname or fail closed when unavailable/rate-limited; signup with Name + Secret Question + Secret Answer; that an eight-character Login ID from the unambiguous server alphabet is returned; login with Name + Login ID + Secret Answer; Login ID recovery; logout and session revocation; server-validated answer rewards including rejection of a client-chosen wrong answer and of reward replay; generic client errors that do not distinguish an unknown name from a wrong answer; and rate limiting.
+`tests/live-api.mjs` verifies a dedicated staging function: boot without `BOOT_ERROR`; Gemini name suggestions; account creation and Login ID shape; login/recovery/logout; answer rewards and replay rejection; generic client errors; and rate limiting. It creates two synthetic profiles per successful run and is blocked from production.

@@ -3,15 +3,22 @@
 Permanent record of the October 2026 work session (branch `arena/01a10a16-blind-quiz`,
 one pull request). Future sessions should read this file instead of the original prompt.
 
+## Current operational overrides (2026-10-11)
+
+- The historical live API scripts create synthetic `BQ Verify` / `BQ Other` profiles and do not delete them. Earlier workflows ran those scripts against production; this may have inflated profile-row counts, but the number attributable to tests is unknown. Automated production live tests are disabled. Manual live checks require a dedicated non-production project and are blocked from the production host.
+- Admin announcement counts represent inbox rows, not active players or confirmed phone delivery. The UI now confirms the all-profile audience and describes the result as queued inbox items.
+- App sessions have no fixed seven-day expiry; explicit sign-out revokes the token. Device persistence remains opt-in; the default remains tab/app-session storage.
+- Android phone alerts are polled by WorkManager about every 15 minutes; Android battery and network conditions can delay background checks. The notification shade path already exists; no native-wrapper changes are required for ordinary website/backend updates.
+
 Ground rules that still apply:
 
-- `blind-quiz-api` is fixed and deployed (`npm run test:live` passes against production). Do not edit or redeploy it as part of content work.
+- Production `blind-quiz-api` changes must be intentional. Do not redeploy it as part of content work.
 - Migrations 001-009 are applied remotely and must never be recreated, rerun, or pushed. `supabase db push` must not be used (remote migration history does not match the repo).
 - Migration 010 is additive only and is applied by its own guarded workflow.
 
 ## Extra workflow added
 
-- `.github/workflows/live-checks.yml` - read-only: runs `npm run test:live` and `scripts/check-migration-010-live.mjs` (3 Migration 010 questions award XP/coins) on every push. Never deploys the function or touches migrations.
+- `.github/workflows/live-checks.yml` - manual-only and staging-only: creates synthetic profiles in the explicitly configured test project, runs `npm run test:live` and migration reward checks, never deploys the function or touches migrations. The scripts refuse production.
 
 ## Tasks
 
@@ -41,7 +48,7 @@ Ground rules that still apply:
 - [x] **Final** - Both workflows green on the pull request, live site confirmed updated, `npm run test:live` results reported, this file updated. Then wait for the owner to say "merge".
   - Pages: run 37267427010 green (build + deploy). Live checks: run 37267426982 green - `npm run test:live` **34/34 PASS**; Migration 010 rewards 3/3 PASS (bq-en-0667, 0766, 0866 each award 10 XP and 2 coins).
   - Apply Migration 010: run 37260209884 green (already applied, verified 566 total / 200 rows). Build Android APK: run 37261072243 green, release `android-v1.0.4`.
-  - `npm run test:live` cannot run from the sandbox (supabase.co connections are reset), so it runs in the read-only Live checks workflow.
+  - Historical note: `npm run test:live` could not run from the sandbox (supabase.co connections were reset), so earlier runs used GitHub-hosted runners. Current live checks are manual, staging-only, and guarded against the production project.
   - **Status: waiting for the owner to say "merge" on PR #5. Do not merge without that instruction.**
 
 ## Follow-up request (same session, same PR #5)

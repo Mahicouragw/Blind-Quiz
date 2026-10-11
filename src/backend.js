@@ -9,11 +9,9 @@ let persistentSession = false;
 
 function usableSession(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  if (value.expiresAt) {
-    const expiresAt = Date.parse(value.expiresAt);
-    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
-  }
-  return true;
+  // A valid session has no fixed expiry. The server revokes it when the player signs out
+  // or when account credentials change; the client-side storage choice is still opt-in.
+  return typeof value.token === 'string' && value.token.length >= 35 && value.token.length <= 64;
 }
 
 function getStorage(name) {
@@ -38,8 +36,8 @@ function readStoredSession(storage, key, persistent) {
   }
 }
 
-// By default, sessions last for this tab/app session. A player can explicitly opt in to
-// this device's local storage; the server still enforces the same seven-day expiry.
+// By default, the token stays in this tab/app session. A player can explicitly opt in
+// to local storage on this device so the server session can be restored after reopening.
 export function getSession() {
   const tabSession = readStoredSession(getStorage('sessionStorage'), SESSION_KEY, false);
   if (tabSession) return tabSession;

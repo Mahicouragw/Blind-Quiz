@@ -76,8 +76,8 @@ if (token) {
   else info('Default privileges', 'no default grants to anon/authenticated in public');
 
   const counts = await sql(`select (select count(*) from public.bq_profiles)::int as profiles,
-      (select count(*) from public.bq_sessions where revoked_at is null and expires_at > now())::int as live_sessions,
-      (select count(*) from public.bq_sessions where expires_at <= now() or revoked_at is not null)::int as dead_sessions,
+      (select count(*) from public.bq_sessions where revoked_at is null)::int as live_sessions,
+      (select count(*) from public.bq_sessions where revoked_at is not null)::int as revoked_sessions,
       (select count(*) from public.bq_rate_limits)::int as rate_buckets,
       (select count(*) from public.bq_question_reports)::int as reports`);
   info('Row counts', JSON.stringify(counts[0]));

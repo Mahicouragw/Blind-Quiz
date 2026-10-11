@@ -1,4 +1,4 @@
-// Behavioural UI test (jsdom): session restore after reload, expiry, offline, friendly errors, storage hygiene,
+// Behavioural UI test (jsdom): session restore after reload, revoke handling, offline, friendly errors, storage hygiene,
 // legal links. Run: npm i --no-save jsdom@24 && node tests/ui-session.mjs
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
@@ -14,6 +14,7 @@ async function boot({session,fetchImpl,local,nativeBridge}){
   const w=dom.window;WINDOWS.push(w);
   for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement','Event'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
+  w.confirm=()=>true;Object.defineProperty(globalThis,'confirm',{value:w.confirm.bind(w),configurable:true,writable:true});
   Object.defineProperty(globalThis,'BQNotify',{value:nativeBridge,configurable:true,writable:true});
   const backend=await import(ROOT+'src/backend.js');backend.setSession(null);
   // jsdom does not implement media playback; native controls are represented by HTMLAudioElements in tests.
@@ -28,7 +29,7 @@ async function boot({session,fetchImpl,local,nativeBridge}){
   return {w,d:w.document,calls,beats};
 }
 const json=(status,body)=>({ok:status<300,status,json:async()=>body});
-const future=new Date(Date.now()+86400000).toISOString(), past=new Date(Date.now()-1000).toISOString();
+const future=new Date(Date.now()+86400000).toISOString(), past=new Date(Date.now()-8*86400000).toISOString();
 const profile={name:'Asha',xp:10,coins:2,level:1};
 // 1. No session
 let t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
@@ -64,15 +65,15 @@ t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:
 assert.deepEqual(t.calls,['profile']);assert.match(t.d.querySelector('#top-meta').textContent,/Asha/);assert.equal(t.d.querySelector('#logout-button').hidden,false);
 assert.equal(JSON.parse(t.w.sessionStorage.getItem('blindquiz.session.v1')).profile.xp,20);
 console.log('ok 2 valid session restored after reload and re-validated by server');
-// 3. Revoked/expired on server
+// 3. Revoked on server
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(401,{ok:false,code:'session_expired'})});
 assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#top-meta').textContent,'');assert.equal(t.d.querySelector('#logout-button').hidden,true);
 await new Promise(r=>setTimeout(r,100));assert.match(t.d.querySelector('#announcer').textContent,/session has ended/i);
 console.log('ok 3 server-rejected session cleared; signed-out state with announcement');
-// 4. Locally expired
-t=await boot({session:{token:'x'.repeat(43),expiresAt:past,profile},fetchImpl:()=>{throw new Error('no call')}});
-assert.equal(t.calls.length,0);assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
-console.log('ok 4 locally expired session discarded without network');
+// 4. A legacy seven-day timestamp does not expire a session; the server decides whether it was revoked.
+t=await boot({session:{token:'x'.repeat(43),expiresAt:past,profile},fetchImpl:()=>json(200,{ok:true,profile})});
+assert.deepEqual(t.calls,['profile']);assert(t.w.sessionStorage.getItem('blindquiz.session.v1'));assert.equal(t.d.querySelector('#logout-button').hidden,false);
+console.log('ok 4 legacy seven-day expiry is ignored and the existing token is revalidated by the server');
 // 5. Offline: keep session
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>{throw new TypeError('Failed to fetch')}});
 assert(t.w.sessionStorage.getItem('blindquiz.session.v1'));assert.equal(t.d.querySelector('#logout-button').hidden,false);
@@ -86,7 +87,7 @@ const err=t.d.querySelector('#login-error');assert.equal(err.hidden,false);asser
 assert.equal(t.w.localStorage.getItem('blindquiz.remembered.v1'),null,'nothing remembered on failure');
 console.log('ok 6 failed login shows friendly error only:',JSON.stringify(err.textContent));
 // 7. Successful login stores a token in tab storage by default, never the answer
-t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:future,profile}):json(200,{ok:true,question:'Q?'})}});
+t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:null,profile}):json(200,{ok:true,question:'Q?'})}});
 t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
 t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCDEFGH';t.d.querySelector('#login-answer').value='mysecret';
 t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,150));
@@ -94,7 +95,7 @@ const all=JSON.stringify({...t.w.localStorage})+JSON.stringify({...t.w.sessionSt
 assert(!all.includes('mysecret'));assert(!JSON.stringify({...t.w.localStorage}).includes('tttt'),'token not in localStorage');assert.equal(t.d.querySelector('#login-answer').value,'');
 console.log('ok 7 login: tab-scoped token by default; secret answer never stored');
 // 7b. Explicitly opting in persists the session across app/browser restarts and server validation still runs.
-t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'p'.repeat(43),expiresAt:future,profile}):json(200,{ok:true,profile})}});
+t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'p'.repeat(43),expiresAt:null,profile}):json(200,{ok:true,profile})}});
 t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
 t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCDEFGH';t.d.querySelector('#login-answer').value='mysecret';t.d.querySelector('#remember-session').checked=true;
 t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,150));
@@ -448,8 +449,15 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Task 19: the admin replies (the player is notified) and sends an announcement.
   {const rf=lis[1].querySelector('.inbox-reply form');rf.querySelector('textarea').value='Thanks, fixed now.';rf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
    const rep=sent.find(b=>b.action==='admin-feedback-reply');assert.equal(rep.reply,'Thanks, fixed now.');assert.match(lis[1].querySelector('.feedback-reply').textContent,/Your reply: Thanks, fixed now\./);
-   const af=s.d.querySelector('#announce-form');s.d.querySelector('#announce-text').value='A new game was added: Sound Match';af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
-   assert.deepEqual(sent.find(b=>b.action==='admin-announce'),{action:'admin-announce',text:'A new game was added: Sound Match'});}
+   const af=s.d.querySelector('#announce-form');let confirmation='';globalThis.confirm=message=>{confirmation=message;return false};
+   s.d.querySelector('#announce-text').value='A new game was added: Sound Match';af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
+   assert.match(confirmation,/every player profile/);assert.match(confirmation,/inactive accounts/);assert.match(confirmation,/does not confirm phone-notification delivery/);
+   assert.equal(sent.some(b=>b.action==='admin-announce'),false,'cancelled broadcast is not sent');assert.equal(s.d.querySelector('#announce-status').textContent,'Announcement cancelled.');
+   globalThis.confirm=()=>true;af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+   assert.deepEqual(sent.find(b=>b.action==='admin-announce'),{action:'admin-announce',text:'A new game was added: Sound Match'});
+   assert.equal(s.d.querySelector('#announce-status').textContent,'Announcement queued in player inboxes. Phone-notification delivery is not confirmed.');
+   assert.doesNotMatch(s.d.querySelector('#announce-status').textContent,/364|players/,'row count is not presented as an active-player or delivery count');
+   assert.match(s.d.querySelector('#announce-audience-note').textContent,/does not measure active players/);}
   console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
 }
 { // 19. Sound Match screen (Easy): numbers 1-10, press plays a sound, match/miss feedback, finish with stars and best score.
@@ -936,7 +944,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 
   t=await boot({fetchImpl:(u,init)=>{
     const action=JSON.parse(init.body).action;
-    if(action==='login')return json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:future,profile});
+    if(action==='login')return json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:null,profile});
     if(action==='notifications')return json(200,{ok:true,items:[item]});
     return json(200,{ok:true,unread:0,profile});
   }});

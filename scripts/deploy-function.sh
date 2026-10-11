@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy the blind-quiz-api Edge Function as ONE complete replacement.
 #
-#   bash scripts/deploy-function.sh            # deploy, then verify live
+#   bash scripts/deploy-function.sh            # deploy, then verify only if a dedicated staging project is explicitly configured
 #   bash scripts/deploy-function.sh --no-verify # deploy only
 #
 # Requirements:
@@ -66,6 +66,11 @@ echo "== Deployed. $FUNCTION_NAME now serves exactly the $LINES-line repository 
 
 if [ "$RUN_VERIFY" -eq 1 ]; then
   echo
-  echo "== Live verification =="
-  node --no-warnings tests/live-api.mjs
+  if [ "${BQ_ALLOW_TEST_ACCOUNT_CREATION:-}" = "true" ] && [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_PUBLISHABLE_KEY:-}" ]; then
+    echo "== Staging live verification (synthetic profiles are created only in the dedicated test project) =="
+    node --no-warnings tests/live-api.mjs
+  else
+    echo "== Live verification skipped =="
+    echo "Configure SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and BQ_ALLOW_TEST_ACCOUNT_CREATION=true for a dedicated non-production project."
+  fi
 fi

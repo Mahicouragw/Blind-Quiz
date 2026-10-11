@@ -12,17 +12,18 @@
 //     in-memory and are never written to stdout, stderr, or the exit message.
 //   * Only HTTP status codes and non-sensitive response codes are reported.
 //
-// Run: node tests/live-api.mjs
-// Optional overrides (never required): SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
-// BQ_VERIFY_ORIGIN, BQ_VERIFY_NAME, BQ_VERIFY_QUESTION, BQ_VERIFY_ANSWER.
+// Run only against a dedicated non-production project with explicit opt-in:
+// SUPABASE_URL=... SUPABASE_PUBLISHABLE_KEY=... BQ_ALLOW_TEST_ACCOUNT_CREATION=true node tests/live-api.mjs
+// Never point this script at the production player database.
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '../src/config.js';
 import { QUESTION_BANK } from '../src/content.js';
+import { requireDedicatedTestProject } from '../scripts/lib/live-test-guard.mjs';
 
-const API = `${(process.env.SUPABASE_URL || SUPABASE_URL).replace(/\/$/, '')}/functions/v1/blind-quiz-api`;
-const APIKEY = process.env.SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
+const TEST_PROJECT_URL = requireDedicatedTestProject();
+const API = `${TEST_PROJECT_URL}/functions/v1/blind-quiz-api`;
+const APIKEY = process.env.SUPABASE_PUBLISHABLE_KEY;
 const ORIGIN = process.env.BQ_VERIFY_ORIGIN || 'https://mahicouragw.github.io';
 const LOGIN_ID_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/; // 8 chars from the server alphabet (no I, O, 0, 1)
 const AI_NAME_PATTERN = /^\p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \d{2}$/u;
@@ -49,8 +50,8 @@ function fail(label, detail) {
 const hex = n => randomBytes(n).toString('hex');
 const tokenish = () => `bq${hex(6)}`;
 
-// Test identity. Unique per run by default so no production row is reused or
-// overwritten; overridable for a stable dedicated verification account.
+// Synthetic identity. This script is hard-blocked from production and must use
+// a dedicated non-production project; the generated account is not deleted.
 const NAME = process.env.BQ_VERIFY_NAME || `BQ Verify ${tokenish()}`;
 const QUESTION = process.env.BQ_VERIFY_QUESTION || 'What was the name of your first school?';
 const ANSWER = guard(process.env.BQ_VERIFY_ANSWER || `verify-${hex(12)}`);
@@ -145,8 +146,7 @@ const aiSuggestionValid = aiSuggestion.status === 200 && aiSuggestion.body?.ok =
   && typeof aiSuggestion.body.name === 'string' && AI_NAME_PATTERN.test(aiSuggestion.body.name);
 const aiSuggestionFallback = aiSuggestion.status === 503 && aiSuggestion.body?.code === 'ai_unavailable';
 const aiSuggestionLimited = aiSuggestion.status === 429 && aiSuggestion.body?.code === 'rate_limited';
-// The read-only push workflow can race the separate Edge Function deploy. Only that workflow
-// may accept an old function that has not received this action yet; post-deploy verification is strict.
+// A separately configured staging project may briefly receive an older function during deployment.
 const aiSuggestionRequired = process.env.BQ_EXPECT_AI_NAME === 'true';
 const aiSuggestionAwaitingDeploy = !aiSuggestionRequired
   && aiSuggestion.status === 400 && aiSuggestion.body?.code === 'unknown_action';
