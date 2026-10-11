@@ -10,7 +10,11 @@ const ROOM_POLL_MS = 3000, WATCH_POLL_MS = 1500, HIDDEN_POLL_MS = 15000;
 export const GAME_KINDS = { quiz: 'Quiz', letters: 'Letters to Words', soundmatch: 'Sound Match', ...BOARD_GAME_LABELS };
 export const QUIZ_MODES = GAME_MODES.map(([id,name])=>[id,name]);
 const SYNC_KINDS = new Set(['quiz','letters','soundmatch','snakes','ludo','carrom','blackjack','chess']);
-const isSynchronized = g => SYNC_KINDS.has(g?.kind) && (!['letters','soundmatch'].includes(g.kind) || g.config?.roomSync === true);
+// The server's explicit flag is authoritative. Older room records may omit it, so retain the
+// config-based fallback for those rows while avoiding a legacy-mode launch for new matches.
+const isSynchronized = g => typeof g?.synchronized === 'boolean'
+  ? g.synchronized
+  : SYNC_KINDS.has(g?.kind) && (!['letters','soundmatch'].includes(g.kind) || g.config?.roomSync === true);
 export const SM_LEVELS = [['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard']];
 
 /** Title for a room game from its settings, e.g. "Quiz: History, Rapid Fire". */
@@ -41,7 +45,9 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   let rec = null, recChunks = [], recStart = 0, recStoppedAt = 0, recTimer = null, recTicker = null, recStream = null, recPipeline = null, recStarting = false, recAttempt = 0, recCancelled = false, recAutoStopped = false;
   let pendingRoomVoice = null, roomVoicePreviewUrl = '', activeRoomAudio = null;
   const seenVoices = new Set(), voiceCache = new Map();
-  let roomId = null, room = null, roomPeople = [], chatAfter = null, roomTimer = null, watchId = null, watchGame = null, watchAfter = null, watchTimer = null, watchFirst = true, lastPeople = '', pendingGameId = null, watchReplyTo = null;
+  let roomId = null, room = null, roomPeople = [], chatAfter = null, roomTimer = null, roomPollGeneration = 0,
+    watchId = null, watchGame = null, watchAfter = null, watchTimer = null, watchPollGeneration = 0, watchFirst = true,
+    lastPeople = '', pendingGameId = null, watchReplyTo = null;
   const signedIn = () => !!getSession()?.profile;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (text, onClick, cls = 'button button-quiet') => { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
@@ -104,7 +110,7 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   function openRoom(id, gameId = null) {
     if (!signedIn()) { openSignIn(); return; }
     pendingGameId = gameId || null;
-    if (roomId !== id) { cancelRecording(); if (activeRoomAudio) { try { activeRoomAudio.pause(); } catch { /* ignore */ } activeRoomAudio = null; } roomId = id; room = null; roomPeople = []; chatAfter = null; lastPeople = ''; $('#room-chat').replaceChildren(); seenVoices.clear(); voiceCache.clear(); $('#room-games').replaceChildren(); $('#room-people').replaceChildren(); $('#room-title').textContent = 'Room'; }
+    if (roomId !== id) { roomPollGeneration++; cancelRecording(); if (activeRoomAudio) { try { activeRoomAudio.pause(); } catch { /* ignore */ } activeRoomAudio = null; } roomId = id; room = null; roomPeople = []; chatAfter = null; lastPeople = ''; $('#room-chat').replaceChildren(); seenVoices.clear(); voiceCache.clear(); $('#room-games').replaceChildren(); $('#room-people').replaceChildren(); $('#room-title').textContent = 'Room'; }
     if (roomVoiceStyleControl && !recStarting && !rec && !pendingRoomVoice) roomVoiceStyleControl.refresh();
     if (roomVoiceStyleControl) roomVoiceStyleControl.disabled = !roomId || recStarting || !!rec || !!pendingRoomVoice;
     if (currentView() !== 'room') go('room', { focus: '#room-title' });
@@ -115,9 +121,10 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   async function pollRoom(first) {
     clearTimeout(roomTimer);
     if (!roomId || currentView() !== 'room') return;
+    const generation = ++roomPollGeneration, requestedRoom = roomId;
     try {
-      const d = await callApi('room-state', { roomId, afterId: chatAfter });
-      if (currentView() !== 'room' || d.room?.id !== roomId) return;
+      const d = await callApi('room-state', { roomId: requestedRoom, afterId: chatAfter });
+      if (generation !== roomPollGeneration || currentView() !== 'room' || roomId !== requestedRoom || d.room?.id !== requestedRoom) return;
       renderRoom(d, first);
       if (pendingGameId) {
         const target = (d.games || []).find(item => item.id === pendingGameId);
@@ -125,15 +132,16 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
           pendingGameId = null;
           const me = getSession()?.profile?.name;
           const player = (target.players || []).find(p => p.name === me);
-          startLive({ gameId: target.id, roomId, kind: target.kind, config: target.config || {}, title: target.title, synchronized: isSynchronized(target), phase: target.phase,
+          startLive({ gameId: target.id, roomId: requestedRoom, kind: target.kind, config: target.config || {}, title: target.title, synchronized: isSynchronized(target), phase: target.phase,
             joined: !!player, seat: player?.seat || 0, host: !!target.hostMe, creatorMe:!!target.creatorMe, players: target.players || [], roomMembers: roomPeople, maxPlayers: target.maxPlayers || target.config?.players || 2 });
         } else { pendingGameId = null; say($('#room-status'), 'That game invitation is no longer available.', true); }
       }
     } catch (err) {
+      if (generation !== roomPollGeneration) return;
       if (err.message === 'room_unavailable') { say($('#room-status'), errorText(err.message), true); roomId = null; return; }
       if (first) say($('#room-status'), errorText(err.message), true);
     }
-    scheduleRoom();
+    if (generation === roomPollGeneration && roomId === requestedRoom && currentView() === 'room') scheduleRoom();
   }
   function renderRoom(d, first) {
     room = d.room;
@@ -394,7 +402,11 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
       li.append(el('strong', '', g.title), el('small', '', `${phase}. Host ${g.host}. ${players || 'No players yet.'}${comments}`));
       const row = el('div', 'room-game-actions');
       const me = getSession()?.profile?.name, mine = (g.players || []).some(p => p.name === me);
-      if (g.status === 'playing' && (g.phase === 'lobby' || mine || !isSynchronized(g))) row.append(button(`${mine && g.phase === 'playing' ? 'Return to' : 'Join'} ${g.title}`, () => joinGame(g), 'button button-hot'));
+      if (g.status === 'playing' && (g.phase === 'lobby' || mine || !isSynchronized(g))) {
+        const action = button(`${mine ? 'Return to' : 'Join'} ${g.title}`, () => joinGame(g), 'button button-hot');
+        action.setAttribute('aria-label', `${mine ? 'Return to' : 'Join'} ${g.title}${g.phase === 'lobby' ? ' waiting room' : ' match'}`);
+        row.append(action);
+      }
       row.append(button(`Watch ${g.title}`, () => openWatch(g.id), 'button button-outline'));
       li.append(row);
       const recent = g.recentComments || [];
@@ -459,12 +471,17 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
     catch (err) { say($('#room-status'), errorText(err.message), true); }
   }
   /** Called when the player leaves the room screen for good (not to watch or play in it). */
-  function leaveRoom() { cancelRecording(); clearTimeout(roomTimer); if (roomId) callApi('room-leave', { roomId }).catch(() => {}); }
+  function leaveRoom() {
+    roomPollGeneration++; watchPollGeneration++; pendingGameId = null;
+    cancelRecording(); clearTimeout(roomTimer); clearTimeout(watchTimer);
+    if (roomId) callApi('room-leave', { roomId }).catch(() => {});
+  }
 
   // ---- Watching a game live ------------------------------------------------------------------
   function openWatch(gameId) {
     watchId = gameId; watchGame = null; watchAfter = null; watchFirst = true; watchReplyTo = null;
     $('#watch-log').replaceChildren(); $('#watch-scores').replaceChildren(); $('#watch-title').textContent = 'Watching'; $('#watch-join-form').hidden=true;
+    $('#watch-comment-text').value = ''; $('#watch-replying').textContent = ''; $('#watch-reply-cancel').hidden = true;
     go('watch', { focus: '#watch-title' });
     $('#watch-status').textContent = 'Connecting to the game…';
     pollWatch();
@@ -472,13 +489,19 @@ export function createRooms({ $, announce, callApi, getSession, go, playSfx = ()
   async function pollWatch() {
     clearTimeout(watchTimer);
     if (!watchId || currentView() !== 'watch') return;
+    const generation = ++watchPollGeneration, requestedGame = watchId;
     try {
-      const d = await callApi('game-watch', { gameId: watchId, afterId: watchAfter });
-      if (currentView() !== 'watch') return;
+      const d = await callApi('game-watch', { gameId: requestedGame, afterId: watchAfter });
+      if (generation !== watchPollGeneration || currentView() !== 'watch' || watchId !== requestedGame) return;
       renderWatch(d);
       if (d.status === 'finished' && !(d.events || []).length) { $('#watch-status').textContent = 'This game has finished.'; return; }
-    } catch (err) { if (watchFirst) { say($('#watch-status'), errorText(err.message), true); return; } }
-    watchTimer = setTimeout(pollWatch, pollDelay(WATCH_POLL_MS));
+    } catch (err) {
+      if (generation !== watchPollGeneration || currentView() !== 'watch') return;
+      if (watchFirst) { say($('#watch-status'), errorText(err.message), true); return; }
+    }
+    if (generation === watchPollGeneration && watchId === requestedGame && currentView() === 'watch') {
+      watchTimer = setTimeout(pollWatch, pollDelay(WATCH_POLL_MS));
+    }
   }
   function renderWatchControls(d) {
     const players=d.players||[],me=getSession()?.profile?.name,already=players.some(p=>p.name===me),form=$('#watch-join-form');

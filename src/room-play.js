@@ -10,13 +10,13 @@ const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.classNa
 const pieceWhite=p=>p&&p===p.toUpperCase();
 
 export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,matchSounds=async()=>[],playMatchSound=()=>{},playSfx=()=>{},onBroadcast=()=>{},currentView=()=>'',refreshRoom=()=>{}}){
-  let game=null,timer=null,afterId=null,firstPoll=true,joined=false,mySeat=0,host=false,canModerateComments=false,commentsAfter=0,replyTo=null,boardSelected=null,localQuestion=-1,questionLock=false,boardPending=false,wordPending=false,soundPending=false,scoreCache=[],roomMembers=[],commentsEnabled=true;
+  let game=null,timer=null,pollGeneration=0,afterId=null,firstPoll=true,joined=false,mySeat=0,host=false,canModerateComments=false,commentsAfter=0,replyTo=null,boardSelected=null,localQuestion=-1,questionLock=false,boardPending=false,wordPending=false,soundPending=false,scoreCache=[],roomMembers=[],commentsEnabled=true;
   const active=()=>!!game&&currentView()==='room-game';
   const pollDelay=()=>document.hidden?HIDDEN_MS:POLL_MS;
   const say=(text,urgent=false)=>{const el=$('#room-play-status');if(el)el.textContent=text;if(text)announce(text,urgent);};
   const errorText=code=>({not_your_turn:'It is another player’s turn.',illegal_chess_move:'That is not a legal chess move.',illegal_token_move:'That token cannot move with this roll.',choose_token_first:'Choose a token after rolling.',stale_action:'The board changed. Refreshing the match.',game_full:'There are no open player slots.',seat_taken:'That player slot is already taken.',players_not_ready:'Wait for every player to select Ready.',waiting_for_players:'Waiting for the other player to join.',match_unavailable:'This older game cannot be started here. Create a new room game.',game_finished:'This game has finished.',game_unavailable:'This game is no longer available.',not_friends:'You can invite friends to play. Send a friend request first.',player_unavailable:'No player with that name was found.',not_room_member:'That player is not currently in this room.',color_taken:'That color is already chosen by another player.',choose_color:'Every player must choose a unique game color first.',invalid_word:'That is not a word you can make from these letters.',comments_disabled:'Comments are turned off for this match.'}[code]||'Could not update this room game. Please try again.');
 
-  function reset(){clearTimeout(timer);timer=null;game=null;joined=false;mySeat=0;host=false;canModerateComments=false;afterId=null;firstPoll=true;commentsAfter=0;replyTo=null;boardSelected=null;localQuestion=-1;questionLock=false;boardPending=false;wordPending=false;soundPending=false;scoreCache=[];roomMembers=[];commentsEnabled=true;$('#room-play-comments')?.replaceChildren();$('#room-play-board')?.replaceChildren();$('#room-play-controls')?.replaceChildren();$('#room-play-question')?.replaceChildren();$('#room-play-word-list')?.replaceChildren();$('#room-play-sound-grid')?.replaceChildren();$('#room-play-quiz').hidden=true;$('#room-play-letters').hidden=true;$('#room-play-sound').hidden=true;$('#room-play-board-wrap').hidden=true;$('#room-play-lobby').hidden=true;$('#room-play-join-form').hidden=true;$('#room-play-comment-form').hidden=false;$('#room-play-comments-toggle-wrap').hidden=true;}
+  function reset(){pollGeneration++;clearTimeout(timer);timer=null;game=null;joined=false;mySeat=0;host=false;canModerateComments=false;afterId=null;firstPoll=true;commentsAfter=0;replyTo=null;boardSelected=null;localQuestion=-1;questionLock=false;boardPending=false;wordPending=false;soundPending=false;scoreCache=[];roomMembers=[];commentsEnabled=true;$('#room-play-comments')?.replaceChildren();$('#room-play-board')?.replaceChildren();$('#room-play-controls')?.replaceChildren();$('#room-play-question')?.replaceChildren();$('#room-play-word-list')?.replaceChildren();$('#room-play-sound-grid')?.replaceChildren();$('#room-play-quiz').hidden=true;$('#room-play-letters').hidden=true;$('#room-play-sound').hidden=true;$('#room-play-board-wrap').hidden=true;$('#room-play-lobby').hidden=true;$('#room-play-join-form').hidden=true;$('#room-play-comment-form').hidden=false;$('#room-play-comments-toggle-wrap').hidden=true;}
   function open(options={}){
     reset();game={...options,id:options.id||options.gameId,kind:options.kind||'quiz',config:options.config||{},title:options.title||'Room game'};
     joined=!!options.joined;mySeat=Number(options.seat)||0;host=!!options.host;canModerateComments=host||!!options.creatorMe;game.creatorMe=!!options.creatorMe;roomMembers=options.roomMembers||[];game.phase=options.phase||'lobby';game.maxPlayers=Number(options.maxPlayers)||Number(options.config?.players)||2;$('#room-play-title').textContent=game.title;$('#room-play-comments').replaceChildren();$('#room-play-status').textContent='Connecting to the match…';
@@ -114,9 +114,10 @@ export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,ma
     if(firstPoll){firstPoll=false;if(d.phase==='playing')say(`${game.title} has started. Good luck!`);}
   }
   async function poll(){clearTimeout(timer);if(!active()||!joined)return;
-    try{const d=await callApi('game-watch',{gameId:game.id,afterId});if(!active())return;render(d);}
-    catch(err){if(err.message==='game_unavailable'){say(errorText(err.message),true);return;}if(firstPoll)say(errorText(err.message),true);}
-    if(active()&&joined)timer=setTimeout(poll,pollDelay());
+    const generation=++pollGeneration,requestedGame=game.id;
+    try{const d=await callApi('game-watch',{gameId:requestedGame,afterId});if(!active()||generation!==pollGeneration||game?.id!==requestedGame)return;render(d);}
+    catch(err){if(!active()||generation!==pollGeneration)return;if(err.message==='game_unavailable'){say(errorText(err.message),true);return;}if(firstPoll)say(errorText(err.message),true);}
+    if(active()&&joined&&generation===pollGeneration&&game?.id===requestedGame)timer=setTimeout(poll,pollDelay());
   }
   function shuffleFor(index){return deterministicShuffle;}
   function sharedQuestion(q,index,state){const random=rngFor(`${game.id}:${index}:${game.config.mode||'classic'}`);return presentQuestion(q,game.config.mode||'classic',items=>deterministicShuffle(items,random),state?.yesNoCandidates?.[index]??null);}
@@ -293,5 +294,5 @@ export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,ma
   $('#room-play-reply-cancel')?.addEventListener('click',cancelReply);
   $('#room-play-back')?.addEventListener('click',()=>go('room',{after:refreshRoom}));
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&active())poll();});
-  return {open,close(){clearTimeout(timer);timer=null;},get score(){return scoreCache.find(p=>Number(p.seat)===mySeat)?.score||0;}};
+  return {open,close(){pollGeneration++;clearTimeout(timer);timer=null;},get score(){return scoreCache.find(p=>Number(p.seat)===mySeat)?.score||0;}};
 }

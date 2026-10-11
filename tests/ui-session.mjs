@@ -539,26 +539,28 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 // 22. Migration 026: game slots, invite/readiness flow, synchronized quick quiz, comments/replies and a playable board.
 {
   const tick=(ms=60)=>new Promise(r=>setTimeout(r,ms)),sent=[];
-  const ROOM='b1a1d000-0000-4000-8000-000000000001',QUIZ='c0ffee00-0000-4000-8000-000000000001',BOARD='c0ffee00-0000-4000-8000-000000000002';
-  let gameId=null,gameKind='quiz',gameTitle='Quiz: History, Quick Decision',gameConfig={category:'history',mode:'quickdecision',players:2},gamePhase='lobby',gameMax=2,gamePlayers=[],gameState={},gameEvents=[],eventId=100,gameCount=0,watchAsCreator=false;
+  const ROOM='b1a1d000-0000-4000-8000-000000000001',QUIZ='c0ffee00-0000-4000-8000-000000000001',BOARD='c0ffee00-0000-4000-8000-000000000002',LETTERS='c0ffee00-0000-4000-8000-000000000003';
+  let gameId=null,gameKind='quiz',gameTitle='Quiz: History, Quick Decision',gameConfig={category:'history',mode:'quickdecision',players:2},gameSynchronized=true,gamePhase='lobby',gameMax=2,gamePlayers=[],gameState={},gameEvents=[],eventId=100,gameCount=0,watchAsCreator=false;
   const makePlayers=ready=>Array.from({length:gameMax},(_,i)=>({seat:i+1,name:i===0?'Asha':`Google${i>1?` ${i+1}`:''}`,ready:i===0?ready:ready,score:0,finished:false}));
   const addComment=(name,body,replyTo)=>{const parent=gameEvents.find(e=>e.id===replyTo);gameEvents.push({id:++eventId,name,kind:'comment',body,replyTo,replyName:parent?.name||null});};
   const roomState=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Google',level:2}],
-    games:gameId?[{id:gameId,kind:gameKind,title:gameTitle,config:gameConfig,status:gamePhase==='finished'?'finished':'playing',phase:gamePhase,maxPlayers:gameMax,host:'Asha',hostMe:true,commentCount:gameEvents.filter(e=>e.kind==='comment').length,recentComments:gameEvents.filter(e=>e.kind==='comment').slice(-3),players:gamePlayers}]:[],
+    games:gameId?[{id:gameId,kind:gameKind,title:gameTitle,config:gameConfig,synchronized:gameSynchronized,status:gamePhase==='finished'?'finished':'playing',phase:gamePhase,maxPlayers:gameMax,host:'Asha',hostMe:true,creatorMe:true,commentCount:gameEvents.filter(e=>e.kind==='comment').length,recentComments:gameEvents.filter(e=>e.kind==='comment').slice(-3),players:gamePlayers}]:[],
     chat:[{id:4,name:'BQ Renamed bqabcdef012345',body:'Live room hello bqff61103a9107',createdAt:future},{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[{id:77,name:'Google',durationMs:2400}]});
-  const stateFor=body=>({ok:true,phase:gamePhase,status:gamePhase==='finished'?'finished':'playing',kind:gameKind,title:gameTitle,roomId:ROOM,maxPlayers:gameMax,host:'Asha',hostMe:true,seat:gamePlayers.find(p=>p.name==='Asha')?.seat||1,players:gamePlayers,state:gameState,
+  const stateFor=body=>({ok:true,phase:gamePhase,status:gamePhase==='finished'?'finished':'playing',kind:gameKind,title:gameTitle,roomId:ROOM,maxPlayers:gameMax,synchronized:gameSynchronized,host:'Asha',hostMe:true,creatorMe:true,seat:gamePlayers.find(p=>p.name==='Asha')?.seat||1,players:gamePlayers,state:gameState,
     events:gameEvents.filter(e=>Number(e.id)>Number(body.afterId||0))});
-  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);let r;
+  let holdNextGameWatch=false,signalHeldWatch=null,releaseHeldWatch=null;
+  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:async(url,init)=>{const b=JSON.parse(init.body);sent.push(b);let r;
     if(b.action==='room-state')r=roomState();
     else if(b.action==='room-voice')r={ok:true,audio:'data:audio/webm;base64,QUFB'};
     else if(b.action==='room-voice-send')r={ok:true,id:77};
     else if(b.action==='game-state')r=stateFor(b);
-    else if(b.action==='game-watch')r={...stateFor(b),status:gamePhase==='finished'?'finished':'playing',hostMe:!watchAsCreator,creatorMe:watchAsCreator,commentsEnabled:true};
-    else if(b.action==='game-create'){gameCount++;gameId=gameCount===1?QUIZ:BOARD;gameKind=b.kind;gameConfig=b.config;gameTitle=b.title;gameMax=Number(b.config.players)||2;gamePhase='lobby';gameState={};gameEvents=[];gamePlayers=[{seat:1,name:'Asha',ready:false,score:0,finished:false}];r={ok:true,id:gameId,maxPlayers:gameMax,phase:'lobby'};}
-    else if(b.action==='game-ready'){gamePlayers=makePlayers(!!b.ready);r={ok:true,ready:b.ready};}
-    else if(b.action==='game-start'){gamePhase='playing';gameState=b.initialState.questionIds?{questionIds:b.initialState.questionIds,currentIndex:0,questionStartedAt:new Date().toISOString()}:createBoardState(gameKind,gameMax,()=>.5);if(gameKind==='snakes'){gameState.players[0].position=96;gameState.players[0].score=96;}r={ok:true,phase:'playing'};}
+    else if(b.action==='game-watch'){r=structuredClone({...stateFor(b),status:gamePhase==='finished'?'finished':'playing',hostMe:!watchAsCreator,creatorMe:watchAsCreator,commentsEnabled:true});if(holdNextGameWatch){holdNextGameWatch=false;signalHeldWatch?.();await new Promise(resolve=>{releaseHeldWatch=resolve;});}}
+    else if(b.action==='game-create'){gameCount++;gameId=b.kind==='quiz'?QUIZ:b.kind==='letters'?LETTERS:BOARD;gameKind=b.kind;gameConfig=b.config;gameSynchronized=true;gameTitle=b.title;gameMax=Number(b.config.players)||2;gamePhase='lobby';gameState={};gameEvents=[];gamePlayers=[{seat:1,name:'Asha',ready:false,score:0,finished:false}];r={ok:true,id:gameId,maxPlayers:gameMax,phase:'lobby',synchronized:true};}
+    else if(b.action==='game-ready'){if(gameKind==='letters')gamePlayers=gamePlayers.map(p=>p.name==='Asha'?{...p,ready:!!b.ready}:p);else gamePlayers=makePlayers(!!b.ready);r={ok:true,ready:b.ready};}
+    else if(b.action==='game-start'){gamePhase='playing';gameState=b.initialState.questionIds?{questionIds:b.initialState.questionIds,currentIndex:0,questionStartedAt:new Date().toISOString()}:gameKind==='letters'?{kind:'letters',letters:'STARE',foundWords:[],endsAt:new Date(Date.now()+90000).toISOString(),winner:null,finished:false}:createBoardState(gameKind,gameMax,()=>.5);if(gameKind==='snakes'){gameState.players[0].position=96;gameState.players[0].score=96;}r={ok:true,phase:'playing'};}
     else if(b.action==='game-answer')r={ok:true,correct:true,points:2,currentIndex:b.questionIndex};
     else if(b.action==='game-comment'){addComment('Asha',b.text,b.replyTo??null);r={ok:true};}
+    else if(b.action==='game-invite'){if(gameKind==='letters'&&!gamePlayers.some(p=>p.name==='Google'))gamePlayers.push({seat:2,name:'Google',ready:false,score:0,finished:false});r={ok:true};}
     else if(b.action==='game-action'){const result=reduceBoardGame(gameKind,gameState,1,b.move,()=>.5);gameState=result.state;if(result.finished)gamePhase='finished';for(const s of result.sounds||[result.sfx||'click'])gameEvents.push({id:++eventId,name:'Asha',kind:'sfx',body:s});gameEvents.push({id:++eventId,name:'Asha',kind:'say',body:result.announcement});r={ok:true,finished:result.finished,sfx:result.sfx,sounds:result.sounds||[result.sfx||'click']};}
     else {r={profile:{ok:true,profile},touch:{ok:true,unread:0,notificationsEnabled:true},'online-players':{ok:true,items:[]},
       rooms:{ok:true,items:[{id:ROOM,name:'Blind Quiz',isPublic:true,isDefault:true,mine:false,games:0,users:2}]},
@@ -635,6 +637,46 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal(sent.filter(b=>b.action==='game-comment').at(-1).replyTo,Number(gameEvents.find(e=>e.kind==='comment')?.id));
   d.querySelector('#watch-back').click();await tick();await tick();watchAsCreator=false;
 
+  // Letters to Words uses the server's synchronized flag (even when older config data omits roomSync),
+  // stays in its waiting room until the host explicitly starts, and retains comments on re-entry.
+  d.querySelector('#room-game-kind').value='letters';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));d.querySelector('#room-game-player-count').value='2';
+  const startsBeforeLetters=sent.filter(b=>b.action==='game-start').length;
+  d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-create').at(-1).config,{players:2,hostName:'Asha'});
+  assert.equal(gameSynchronized,true);assert.equal(gameConfig.roomSync,undefined,'server synchronization is not inferred from a client config flag');
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert.equal(d.querySelector('#room-play-lobby').hidden,false);
+  assert.equal(d.querySelector('#room-play-letters').hidden,true);assert.equal(d.querySelector('#room-play-start').disabled,true);
+  assert.equal(sent.filter(b=>b.action==='game-start').length,startsBeforeLetters,'creating a Letters match never starts it automatically');
+  d.querySelector('#room-play-invite-name').value='Google';d.querySelector('#room-play-invite-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  d.querySelector('#room-play-ready').click();await tick();await tick();
+  assert.equal(d.querySelector('#room-play-start').disabled,true,'the host cannot start while the invited player is not ready');
+  assert.equal(sent.filter(b=>b.action==='game-start').length,startsBeforeLetters,'readiness alone does not start a Letters match');
+  Object.defineProperty(d,'hidden',{value:false,configurable:true});
+  gamePlayers=gamePlayers.map(p=>p.name==='Google'?{...p,ready:true}:p);d.dispatchEvent(new w.Event('visibilitychange'));await tick();await tick();
+  assert.equal(d.querySelector('#room-play-start').disabled,false,'the host becomes able to start only after every player is ready');
+  assert.equal(sent.filter(b=>b.action==='game-start').length,startsBeforeLetters,'ready players still wait for the host to press Start match');
+  d.querySelector('#room-play-start').click();await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-start').at(-1).initialState,{kind:'letters'});
+  assert.equal(d.querySelector('#room-play-letters').hidden,false);assert.match(d.querySelector('#room-play-letters-tiles').textContent,/S.*T.*A.*R.*E/);
+  d.querySelector('#room-play-comment-text').value='Letters comment';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  let lettersComment=d.querySelector('#room-play-comments li');assert.match(lettersComment.textContent,/Asha: Letters comment/);
+  lettersComment.querySelector('button').click();d.querySelector('#room-play-comment-text').value='Letters reply';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.match(d.querySelector('#room-play-comments').textContent,/Asha replied to Asha: Letters reply/,'Letters match replies render in the live thread');
+  d.querySelector('#room-play-back').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false);
+  assert.match(d.querySelector('#room-play-back').textContent,/Leave match and return to room/i,'the control clearly says it leaves only this match view');
+  d.querySelector('#exit-leave').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.match(d.querySelector('#room-games').textContent,/Letters comment/);
+  const returnLetters=[...d.querySelectorAll('#room-games button')].find(b=>b.textContent==='Return to Letters to Words');assert(returnLetters,'a player who leaves the view gets an explicit return control');
+  returnLetters.click();await tick();await tick();assert.equal(d.querySelector('#view-room-game').hidden,false);assert.equal(d.querySelector('#room-play-letters').hidden,false);
+  assert.match(d.querySelector('#room-play-comments').textContent,/Letters comment/);assert.match(d.querySelector('#room-play-comments').textContent,/Letters reply/,'comments and replies persist after leaving and re-entering');
+  // A slow pre-refresh lobby response must not overwrite a newer playing snapshot or hide its controls.
+  const staleWatchStarted=new Promise(resolve=>{signalHeldWatch=resolve});holdNextGameWatch=true;gamePhase='lobby';
+  d.dispatchEvent(new w.Event('visibilitychange'));await staleWatchStarted;
+  gamePhase='playing';d.dispatchEvent(new w.Event('visibilitychange'));await tick();await tick();assert.equal(d.querySelector('#room-play-letters').hidden,false);
+  releaseHeldWatch?.();releaseHeldWatch=null;signalHeldWatch=null;await tick();await tick();
+  assert.equal(d.querySelector('#room-play-letters').hidden,false,'an out-of-order lobby poll cannot overwrite the current Letters match');
+  d.querySelector('#room-play-back').click();await tick();d.querySelector('#exit-leave').click();await tick();await tick();
+
   // Snakes and Ladders is a real roll-and-move board with separate, action-timed dice/token sounds.
   d.querySelector('#room-game-kind').value='snakes';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));d.querySelector('#room-game-player-count').value='1';
   d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
@@ -655,7 +697,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   accept.click();await tick();await tick();await tick();
   assert(sent.some(b=>b.action==='game-invite-respond'&&b.gameId===BOARD&&b.accept===true),'accepting a notification responds to that exact match invitation');
   assert.equal(d.querySelector('#view-room-game').hidden,false);assert(sent.some(b=>b.action==='game-watch'&&b.gameId===BOARD),'accepted invite opens the shared game in its room');
-  console.log('ok 22 synchronized room quiz: numbered slots, invite/accept, ready gate, same quick-decision round, shared comments/replies, playable snakes and action-timed dice/token cues');
+  console.log('ok 22 room matches: invite/readiness gates, explicit quiz and Letters starts, synchronized Letters comments/replies and re-entry, spectator watch, playable Snakes and Ladders and action-timed cues');
 }
 // 23. Direct file transfer and calls between two friends: real WebCrypto sealing through a relay that sees only boxes,
 //     an in-memory WebRTC stand-in, ring -> accept -> offer -> answer, chunked file with confirmation, call and hang up.
