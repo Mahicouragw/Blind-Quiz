@@ -357,6 +357,109 @@ if (await j(`select to_regprocedure('public.bq_delete_account(uuid)') is not nul
   await q(`insert into public.bq_admins(profile_id) values ($1)`, [anotherAdmin]);
   ok((await j(`select bq_delete_account($1)`, [g])).ok === true, 'an admin can be deleted while another admin remains');
   ok((await j(`select bq_delete_account($1)`, [anotherAdmin])).code === 'last_admin', 'the database protects the last admin account');
+
+  // Migration 030: mute is one-way and scoped to the muting player; block removes friendship and blocks direct contact both ways.
+  const safetyRoom = (await j(`select bq_rooms_list($1)`, [a]))[0].id;
+  const devices = await q(`select profile_id,device_id from public.bq_devices where profile_id in ($1,$2) and revoked_at is null`, [a,b]);
+  const deviceA = devices.find(row => row.profile_id === a)?.device_id;
+  const deviceB = devices.find(row => row.profile_id === b)?.device_id;
+  const safeBox = { s:'c2FsdA==', iv:'aXZpdml2aXZpdml2', ct:'c2FmZS1ib3g=' };
+  const signalSession = '55555555-5555-4555-8555-555555555555';
+  await q(`update public.bq_profiles set last_seen_at=now() where id=$1`, [b]);
+  const muted = await j(`select bq_player_mute($1,'alice',true)`, [b]);
+  ok(muted.ok && muted.muted && (await j(`select bq_relation($1,$2)`, [a,b])) === 'friends'
+    && (await j(`select bq_friends($1)`, [a])).friends.some(player => player.name === 'Bob'), 'mute hides one player without changing the friendship');
+  const sentWhileMuted = await j(`select bq_send_message($1,'bob',$2,$3)`, [a,deviceA,{[deviceA]:safeBox,[deviceB]:safeBox}]);
+  const hiddenPrivate = await j(`select bq_messages_with($1,'alice',$2,null)`, [b,deviceB]);
+  const visiblePrivateToSender = await j(`select bq_messages_with($1,'bob',$2,null)`, [a,deviceA]);
+  ok(sentWhileMuted.ok && hiddenPrivate.ok && hiddenPrivate.messages.length===0 && visiblePrivateToSender.messages.some(message=>message.box?.ct==='c2FmZS1ib3g='), 'muted private messages are hidden only from the muting player');
+  ok(!(await j(`select bq_conversations($1)`, [b])).some(conversation=>conversation.name==='Alice')
+    && !(await j(`select bq_notifications_list($1)`, [b])).some(notification=>notification.kind==='message'&&notification.actor==='Alice'), 'muted message conversations and unread message notifications are hidden');
+  const mutedRoomMessage = await j(`select bq_room_say($1,$2,null,'Muted room message')`, [a,safetyRoom]);
+  const bRoomMuted = await j(`select bq_room_state($1,$2,null)`, [b,safetyRoom]);
+  const cId = (await q(`select id from public.bq_profiles where name_normalized='carol'`))[0].id;
+  const cRoomMuted = await j(`select bq_room_state($1,$2,null)`, [cId,safetyRoom]);
+  ok(mutedRoomMessage.ok && !bRoomMuted.chat.some(message=>message.body==='Muted room message')
+    && cRoomMuted.chat.some(message=>message.body==='Muted room message'), 'muted room chat is filtered only for the muting player');
+  const voiceData='data:audio/webm;codecs=opus;base64,'+'QUFB'.repeat(50);
+  const mutedVoice=await j(`select bq_room_voice_send($1,$2,$3,2100)`,[a,safetyRoom,voiceData]);
+  const bRoomVoiceMuted=await j(`select bq_room_state($1,$2,null)`,[b,safetyRoom]);
+  ok(mutedVoice.ok&&!bRoomVoiceMuted.voices.some(item=>item.id===mutedVoice.id)
+    && (await j(`select bq_room_voice_get($1,$2)`,[b,mutedVoice.id])).code==='room_unavailable', 'mute hides room voice messages and prevents loading their audio');
+  const suppressedRing=await j(`select bq_signal_send($1,'bob',$2,$3,'ring',$4)`,[a,deviceA,signalSession,{[deviceB]:safeBox}]);
+  ok(suppressedRing.ok&&(await j(`select bq_signals_poll($1,$2,null)`,[b,deviceB])).signals.length===0
+    && (await j(`select bq_touch($1)`,[b])).ring===0, 'mute suppresses incoming calls without creating a ringing signal');
+  ok((await j(`select bq_player_mute($1,'alice',false)`,[b])).ok
+    && (await j(`select bq_messages_with($1,'alice',$2,null)`,[b,deviceB])).messages.length>=1
+    && (await j(`select bq_room_state($1,$2,null)`,[b,safetyRoom])).chat.some(message=>message.body==='Muted room message'), 'unmuting restores visibility without changing friendship');
+
+  const blocked=await j(`select bq_player_block($1,'bob',true)`,[a]);
+  const blockedCard=await j(`select bq_player_card($1,'bob')`,[a]);
+  const blockMessage=await j(`select bq_message_keys($1,'bob')`,[a]);
+  const reverseMessage=await j(`select bq_send_message($1,'alice',$2,$3)`,[b,deviceB,{[deviceA]:safeBox,[deviceB]:safeBox}]);
+  ok(blocked.ok&&blocked.blocked&&blockedCard.player.blocked&&blockedCard.player.blockedByMe&&blockedCard.player.relation==='none'
+    && (await j(`select bq_relation($1,$2)`,[a,b]))==='none','block removes the friendship and updates the player card');
+  ok(blockMessage.code==='player_blocked'&&reverseMessage.code==='player_blocked'
+    && (await j(`select bq_friend_request($1,'alice')`,[b])).code==='player_blocked'
+    && (await j(`select bq_room_invite($1,$2,'bob')`,[a,safetyRoom])).code==='player_blocked'
+    && (await j(`select bq_match_invite($1,'bob')`,[a])).code==='player_blocked','block prevents direct messages, friend requests, room invites, and match invites both ways');
+  const blockedGame=await j(`select bq_game_create($1,$2,'quiz','Blocked invite test',$3)`,[a,safetyRoom,{players:2,mode:'classic'}]);
+  ok(blockedGame.ok&&(await j(`select bq_game_invite($1,$2,'bob')`,[a,blockedGame.id])).code==='player_blocked','block also prevents room-game invitations');
+  ok((await j(`select bq_player_block($1,'bob',false)`,[a])).ok&&(await j(`select bq_relation($1,$2)`,[a,b]))==='none', 'unblocking does not silently restore the removed friendship');
+
+  // Reports enter a private admin-only queue. Review itself has no account action; a separate explicit decision can restrict or restore.
+  const report=await j(`select bq_player_report($1,'bob','harassment','Repeated unwanted messages in a room.')`,[a]);
+  const adminId=(await q(`select profile_id from public.bq_admins limit 1`))[0].profile_id;
+  ok(report.ok&&(await j(`select bq_admin_player_reports($1,'open')`,[a])).code==='forbidden'
+    && (await j(`select bq_admin_player_report_action($1,$2,'restrict','')`,[a,report.id])).code==='forbidden','player reports and review actions are admin-only');
+  const inbox=await j(`select bq_admin_player_reports($1,'open')`,[adminId]);
+  ok(inbox.ok&&inbox.items.some(item=>item.id===report.id&&item.reporter==='Alice'&&item.target==='Bob'&&item.reason==='harassment'),'admin inbox contains the submitted report and reason');
+  const reviewed=await j(`select bq_admin_player_report_action($1,$2,'review','Reviewed; no automatic restriction.')`,[adminId,report.id]);
+  ok(reviewed.ok&&!reviewed.restricted&&Number((await q(`select count(*) n from public.bq_account_restrictions where profile_id=$1`,[b]))[0].n)===0,'marking a report reviewed does not automatically restrict an account');
+  await q(`insert into public.bq_sessions(profile_id,token_hash,expires_at) values($1,$2,'infinity')`,[b,'f'.repeat(64)]);
+  const restricted=await j(`select bq_admin_player_report_action($1,$2,'restrict','Admin reviewed report.')`,[adminId,report.id]);
+  ok(restricted.ok&&restricted.restricted&&(await j(`select bq_player_is_hidden($1,$2)`,[a,b]))===true
+    && !(await j(`select bq_online_players($1)`,[a])).some(player=>player.name==='Bob')
+    &&Number((await q(`select count(*) n from public.bq_sessions where profile_id=$1 and revoked_at is not null`,[b]))[0].n)===1,'an explicit admin decision restricts the account, hides it, and revokes active sessions');
+  await q(`insert into public.bq_friendships(requester_id,addressee_id,status) values($1,$2,'pending')`,[b,a]);
+  ok((await j(`select bq_friend_respond($1,'bob',true)`,[a])).code==='player_unavailable','an unrestricted player cannot accept a pending friend request from a restricted account');
+  await q(`delete from public.bq_friendships where requester_id=$1 and addressee_id=$2`,[b,a]);
+  ok((await j(`select bq_admin_player_reports($1,'all')`,[adminId])).items.some(item=>item.id===report.id&&item.restricted)
+    && (await j(`select bq_signal_send($1,'bob',$2,$3,'ring',$4)`,[a,'11111111-1111-4111-8111-111111111111',signalSession,{[deviceB]:safeBox}])).code==='player_unavailable','restricted accounts are excluded from new contact and marked in the admin inbox');
+  const restored=await j(`select bq_admin_player_report_action($1,$2,'restore','Access restored after review.')`,[adminId,report.id]);
+  ok(restored.ok&&!restored.restricted&&(await j(`select bq_player_is_hidden($1,$2)`,[a,b]))===false
+    &&Number((await q(`select count(*) n from public.bq_sessions where profile_id=$1 and revoked_at is not null`,[b]))[0].n)===1,'an admin can restore access, while revoked sessions still require a fresh sign-in');
+
+  // Replay snapshots are captured for future synchronized games and public output is sanitized by seat.
+  const question=(await q(`select id,correct_answer from public.bq_questions where active order by id limit 1`))[0];
+  const replayGame=await j(`select bq_game_create($1,$2,'quiz','Replay privacy test',$3)`,[a,safetyRoom,{players:1,mode:'classic',category:'general'}]);
+  await j(`select bq_game_ready($1,$2,true)`,[a,replayGame.id]);
+  const startedReplay=await j(`select bq_game_start($1,$2,$3)`,[a,replayGame.id,{questionIds:[question.id],answerKeys:[question.correct_answer]}]);
+  await q(`update public.bq_room_games set state=jsonb_set(state,array['attempts','0'],jsonb_build_object($1::text,true),true) where id=$2`,[a,replayGame.id]);
+  await q(`update public.bq_room_games set phase='finished',status='finished',finished_at=now() where id=$1`,[replayGame.id]);
+  const share=await j(`select bq_room_game_replay_create($1,$2)`,[a,replayGame.id]);
+  const replayData=await j(`select bq_room_game_replay_read($1)`,[share.shareId]);
+  const replayJson=JSON.stringify(replayData);
+  ok(startedReplay.ok&&share.ok&&replayData.ok&&replayData.game.title==='Replay privacy test'
+    && replayData.steps.length>=2&&replayData.steps.some(step=>step.attemptsByQuestion.some(item=>item.responses['1']===true)),'finished participant can create and read an interactive replay with seat-keyed correctness');
+  ok(!replayJson.includes('answerKeys')&&!replayJson.includes('correct_answer')&&!replayJson.includes(a)&&!replayJson.includes(question.correct_answer)
+    && replayData.steps.every(step=>!('attempts' in step.state)&&!('deck' in step.state)&&!('cards' in step.state)),'public replay omits answer keys, answer text, profile UUIDs, private attempts, decks, and hidden card layouts');
+  ok((await j(`select bq_room_game_replay_create($1,$2)`,[b,replayGame.id])).code==='replay_unavailable'
+    && !(await q(`select has_function_privilege('anon','public.bq_room_game_replay_read(uuid)','execute')`))[0].has_function_privilege,'replay sharing requires a participant; public RPC access stays disabled');
+  await q(`update public.bq_room_game_replay_shares set expires_at=now()-interval '1 day' where share_id=$1`,[share.shareId]);
+  await q(`update public.bq_room_game_replay_steps set created_at=now()-interval '91 days' where game_id=$1`,[replayGame.id]);
+  const expiredRead=await j(`select bq_room_game_replay_read($1)`,[share.shareId]);
+  ok(expiredRead.code==='replay_unavailable'&&Number((await q(`select count(*) n from public.bq_room_game_replay_shares where share_id=$1`,[share.shareId]))[0].n)===0
+    &&Number((await q(`select count(*) n from public.bq_room_game_replay_steps where game_id=$1`,[replayGame.id]))[0].n)===0,'expired replay links stop resolving and stale share records/snapshots are pruned');
+  const privateBlackjack={kind:'blackjack',players:[{seat:1,hand:['A♠']}],dealer:['10♦','A♣'],deck:['PRIVATE-DECK-CARD'],drawAt:3,token:'private-token'};
+  const hiddenBlackjack=await j(`select bq_replay_public_state('blackjack',$1,'playing')`,[privateBlackjack]);
+  const finishedBlackjack=await j(`select bq_replay_public_state('blackjack',$1,'finished')`,[privateBlackjack]);
+  ok(hiddenBlackjack.dealer[0]==='10♦'&&hiddenBlackjack.dealer[1]==='hidden'&&!('deck'in hiddenBlackjack)&&!JSON.stringify(hiddenBlackjack).includes('PRIVATE-DECK-CARD')
+    &&finishedBlackjack.dealer[1]==='A♣','Blackjack replay masks the dealer hole card until the finished snapshot and never shares the shuffled deck');
+  const privateSoundmatch={kind:'soundmatch',cards:[{number:1,name:'Bell'},{number:2,name:'Drum'},{number:3,name:'SecretChord'},{number:4,name:'SecretFlute'}],matched:[1,2],visiblePair:[3,4],soundSlots:[{slot:'bell',name:'Bell'},{slot:'drum',name:'Drum'},{slot:'chord',name:'SecretChord'}],cardCount:4};
+  const publicSoundmatch=await j(`select bq_replay_public_state('soundmatch',$1,'playing')`,[privateSoundmatch]);
+  ok(!('cards'in publicSoundmatch)&&!('soundSlots'in publicSoundmatch)&&publicSoundmatch.revealedNames['1']==='Bell'&&publicSoundmatch.revealedNames['2']==='Drum'
+    &&!JSON.stringify(publicSoundmatch).includes('SecretChord')&&!JSON.stringify(publicSoundmatch).includes('SecretFlute'),'Sound Match replay reveals matched names only, not hidden pair names or the shuffled mapping');
 }
 if (failed) process.exit(1);
 console.log('PASS database dry run');

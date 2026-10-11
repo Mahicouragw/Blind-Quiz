@@ -75,6 +75,10 @@ t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:
 assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#top-meta').textContent,'');assert.equal(t.d.querySelector('#logout-button').hidden,true);
 await new Promise(r=>setTimeout(r,100));assert.match(t.d.querySelector('#announcer').textContent,/session has ended/i);
 console.log('ok 3 server-rejected session cleared; signed-out state with announcement');
+// A newly restricted account is signed out locally and shown the admin-review explanation after reload.
+t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(403,{ok:false,code:'account_restricted'})});
+assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#top-meta').textContent,'');assert.equal(t.d.querySelector('#view-auth').hidden,false);assert.match(t.d.querySelector('#login-error').textContent,/restricted after admin review/);
+console.log('ok 3a active restrictions clear the local session and explain the admin-reviewed access restriction');
 // 4. A legacy seven-day timestamp does not expire a session; the server decides whether it was revoked.
 t=await boot({session:{token:'x'.repeat(43),expiresAt:past,profile},fetchImpl:()=>json(200,{ok:true,profile})});
 assert.deepEqual(t.calls,['profile']);assert(t.w.sessionStorage.getItem('blindquiz.session.v1'));assert.equal(t.d.querySelector('#logout-button').hidden,false);
@@ -172,7 +176,9 @@ console.log('ok 9 back navigation returns to Home');
   const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   t=await boot({local:{'bq.settings':{language:'te',quizDifficulty:'easy',quizRoundLength:5,quizStage:1}},fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d;assert.equal(d.documentElement.lang,'te-IN');assert.equal(d.querySelectorAll('#category-list [data-category]').length,12);
-  assert.equal(d.querySelector('#language-choice').value,'te');assert.equal(d.querySelector('#quiz-stage').value,'1');assert.equal(d.querySelector('#quiz-difficulty').value,'easy');assert.equal(d.querySelector('#quiz-round-length').value,'5');
+  const languageChoice=d.querySelector('#language-choice');assert(languageChoice.closest('#view-settings'),'language selection is kept in Settings');assert.equal(d.querySelector('#view-home #language-choice'),null,'language selection is removed from quiz setup');
+  assert.equal(languageChoice.value,'te');assert.equal(d.querySelector('#quiz-stage').value,'1');assert.equal(d.querySelector('#quiz-difficulty').value,'easy');assert.equal(d.querySelector('#quiz-round-length').value,'5');
+  d.querySelector('#settings-open').click();await new Promise(r=>fast(r,5));languageChoice.value='en';languageChoice.dispatchEvent(new t.w.Event('change',{bubbles:true}));assert.equal(d.documentElement.lang,'en');assert.equal(JSON.parse(t.w.localStorage.getItem('bq.settings')).language,'en','language changes are persisted from Settings');languageChoice.value='te';languageChoice.dispatchEvent(new t.w.Event('change',{bubbles:true}));assert.equal(d.documentElement.lang,'te-IN');d.querySelector('#view-settings [data-go="home"]').click();await new Promise(r=>fast(r,5));
   assert(d.querySelector('#mode-list [data-mode="vocabulary"]').disabled,'unsupported Telugu modes are not presented as playable');
   let spoken=null;t.w.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};t.w.speechSynthesis={cancel(){},getVoices:()=>[{lang:'te-IN'}],speak(u){spoken=u}};
   d.querySelector('#voice-instructions').click();assert.equal(spoken.lang,'te-IN');assert.match(spoken.text,/బ్లైండ్ క్విజ్/);
@@ -665,13 +671,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 }
 // 20. Task 19: notifications bell, friend request Accept, Multiplayer online list, player card privacy and the friendship rule.
 {
-  const tick=()=>new Promise(r=>setTimeout(r,60));const sent=[];let rel='none';
-  const card=()=>({ok:true,player:{name:'Bob',level:3,xp:240,coins:12,questionsAnswered:120,questionsCorrect:90,quizzesCompleted:11,bestStreak:4,wordsFound:3,soundMatchGames:0,memberSince:'2026-10',online:true,self:false,relation:rel}});
+  const tick=()=>new Promise(r=>setTimeout(r,60));const sent=[];let rel='none',muted=false,blocked=false,blockedByMe=false;
+  const card=()=>({ok:true,player:{name:'Bob',level:3,xp:240,coins:12,questionsAnswered:120,questionsCorrect:90,quizzesCompleted:11,bestStreak:4,wordsFound:3,soundMatchGames:0,memberSince:'2026-10',online:true,self:false,relation:rel,isMuted:muted,blocked,blockedByMe}});
   const t20=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);
     const r={profile:{ok:true,profile},touch:{ok:true,unread:2,notificationsEnabled:true},
       notifications:{ok:true,items:[{id:7,kind:'friend_request',actor:'Bob',createdAt:future,read:false,relation:'incoming'},{id:6,kind:'feedback_reply',actor:'Goldfish',body:'Fixed, thanks!',createdAt:future,read:false}]},
       'notifications-read':{ok:true,unread:0},'friend-respond':{ok:true,relation:'friends'},'online-players':{ok:true,items:[{name:'Bob',level:3,relation:'none'}]},
-      'player-card':()=>card(),'friend-request':()=>(rel='outgoing',{ok:true,relation:'outgoing'}),'my-feedback':{ok:true,items:[{id:1,message:'It breaks',createdAt:future,status:'replied',reply:'Fixed, thanks!'}]}}[b.action];
+      'player-card':()=>card(),'friend-request':()=>(rel='outgoing',{ok:true,relation:'outgoing'}),'player-mute':()=>{muted=b.muted;return {ok:true,muted}},'player-block':()=>{blocked=b.blocked;blockedByMe=b.blocked;rel='none';return {ok:true,blocked,relation:'none'}},'player-report':()=>({ok:true,id:1}),'my-feedback':{ok:true,items:[{id:1,message:'It breaks',createdAt:future,status:'replied',reply:'Fixed, thanks!'}]}}[b.action];
     return json(200,(typeof r==='function'?r():r)||{ok:true});}});
   const {d}=t20;await tick();
   const bell=d.querySelector('#notif-open');assert.equal(bell.hidden,false);assert.equal(bell.getAttribute('aria-label'),'Notifications, 2 new');
@@ -692,12 +698,59 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(pv,/To send Bob a match, you need to be friends first\./);
   [...d.querySelectorAll('#player-actions button')].find(b=>/Add friend/.test(b.textContent)).click();await tick();await tick();
   assert.deepEqual(sent.find(b=>b.action==='friend-request'),{action:'friend-request',name:'Bob'});assert.match(d.querySelector('#player-actions').textContent,/Friend request sent/);
+  // Player-card Mute preserves the friendship; Report sends a reason for review without an automatic restriction; Block removes the friendship.
+  rel='friends';[...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Mute Bob').click();await tick();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='player-mute'),{action:'player-mute',name:'Bob',muted:true});assert(d.querySelector('#player-actions').textContent.includes('Unmute Bob'));assert.match(d.querySelector('#player-actions').textContent,/You and Bob are friends/);
+  const reportToggle=[...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Report Bob');reportToggle.click();
+  const reportForm=d.querySelector('.player-report-form');assert(reportForm&&reportToggle.getAttribute('aria-expanded')==='true');reportForm.querySelector('select').value='cheating';reportForm.querySelector('textarea').value='Suspected score manipulation in our room match.';reportForm.dispatchEvent(new t20.w.Event('submit',{cancelable:true}));await tick();
+  assert.deepEqual(sent.find(b=>b.action==='player-report'),{action:'player-report',name:'Bob',reason:'cheating',details:'Suspected score manipulation in our room match.'});assert.match(reportForm.textContent,/sent to the admin review inbox.*do not automatically restrict/s);
+  [...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Block Bob').click();await tick();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='player-block'),{action:'player-block',name:'Bob',blocked:true});assert.equal(rel,'none');assert.match(d.querySelector('#player-actions').textContent,/You blocked Bob/);assert(!d.querySelector('#player-actions').textContent.includes('Send Bob a private message'));
+  [...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Unmute Bob').click();await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='player-mute').at(-1),{action:'player-mute',name:'Bob',muted:false});assert.equal(rel,'none','unmuting never creates a friendship');
+  [...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Unblock Bob').click();await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='player-block').at(-1),{action:'player-block',name:'Bob',blocked:false});assert.equal(rel,'none','unblocking does not restore friendship');assert([...d.querySelectorAll('#player-actions button')].some(b=>b.textContent==='Add friend: send a friend request'));
   // Settings: notifications switch and My feedback with the developer's reply.
   d.querySelector('#settings-open').click();await tick();await tick();
   assert.equal(d.querySelector('#notif-settings').hidden,false);assert.match(d.querySelector('#my-feedback-list').textContent,/Replied.*It breaks.*Reply from the developer: Fixed, thanks!/s);
   const sw=d.querySelector('#notif-on');sw.checked=false;sw.dispatchEvent(new t20.w.Event('change'));await tick();
   assert.deepEqual(sent.find(b=>b.action==='set-notifications'),{action:'set-notifications',enabled:false});
   console.log('ok 20 notifications bell, Accept/Reject friend requests, feedback replies, online players, private player card with achievements, friends-first matches, notification switch');
+}
+// Player-card safety actions and the admin-only report inbox require an explicit human restriction decision.
+{
+  const tick=()=>new Promise(r=>setTimeout(r,70));let reportStatus='open',restricted=false;const sent=[];
+  const report=()=>({id:91,reporter:'Asha',target:'Bob',reason:'harassment',details:'Repeated unwanted room messages. <img src=x onerror=alert(1)>',status:reportStatus,createdAt:future,reviewedAt:reportStatus==='open'?null:future,reviewNote:'Admin note',restricted});
+  const t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:(url,init)=>{
+    const b=JSON.parse(init.body);sent.push(b);
+    if(b.action==='profile')return json(200,{ok:true,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH',isAdmin:true}});
+    if(b.action==='admin-player-reports'){const items=reportStatus===b.status||b.status==='all'? [report()]:[];return json(200,{ok:true,items})}
+    if(b.action==='admin-player-report-action'){
+      if(b.decision==='review')reportStatus='reviewed';
+      if(b.decision==='dismiss')reportStatus='dismissed';
+      if(b.decision==='restrict'){reportStatus='restricted';restricted=true;}
+      if(b.decision==='restore'){reportStatus='reviewed';restricted=false;}
+      return json(200,{ok:true,status:reportStatus,restricted});
+    }
+    if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});
+    return json(200,{ok:true,items:[]});
+  }});
+  const {d}=t;d.querySelector('#settings-open').click();await tick();await tick();
+  assert.equal(d.querySelector('#admin-inbox-box').hidden,false);d.querySelector('#open-player-reports').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-admin-reports').hidden,false);assert.match(d.querySelector('#admin-report-list').textContent,/Reported by Asha.*Repeated unwanted room messages/s);
+  assert.equal(d.querySelectorAll('#admin-report-list img').length,0,'report details are inserted as text, not HTML');
+  d.querySelector('#admin-report-list button').click();await tick();await tick();
+  assert.match(d.querySelector('#announcer').textContent,/marked as reviewed.*No account restriction/);assert.equal(restricted,false,'reviewing alone never restricts an account');
+  assert(sent.some(call=>call.action==='admin-player-report-action'&&call.decision==='review'));
+  d.querySelector('#admin-report-filter').value='all';d.querySelector('#admin-report-filter').dispatchEvent(new t.w.Event('change'));await tick();await tick();
+  let item=d.querySelector('#admin-report-list li.admin-report-item');assert(item);item.querySelector('.admin-report-note').value='Reviewed the evidence.';
+  [...item.querySelectorAll('button')].find(button=>button.textContent==='Restrict account').click();await tick();await tick();
+  assert.match(d.querySelector('#announcer').textContent,/Account restricted after your review.*No automatic action was taken/);assert.equal(restricted,true,'restriction follows a separate, explicit admin decision');
+  assert(sent.some(call=>call.action==='admin-player-report-action'&&call.decision==='restrict'&&call.note==='Reviewed the evidence.'));
+  item=d.querySelector('#admin-report-list li.admin-report-item');assert(item);[...item.querySelectorAll('button')].find(button=>button.textContent==='Restore account access').click();await tick();await tick();
+  assert.match(d.querySelector('#announcer').textContent,/Account access restored after your review/);assert.equal(restricted,false,'admin can explicitly restore the account');
+  assert(sent.some(call=>call.action==='admin-player-report-action'&&call.decision==='restore'));
+  console.log('ok player-card safety actions and admin-only report inbox: safe text rendering, review without automatic restriction, explicit restrict and restore');
 }
 // 21. Task 19 stage C: encrypted chat UI with real WebCrypto against a relay that only stores sealed boxes.
 {
@@ -1116,6 +1169,57 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   let afterLogin;
   await waitFor(()=>{afterLogin=t.d.querySelector('#notif-list [data-notification-id="42"]');return !!afterLogin&&!t.d.querySelector('#view-notifications').hidden&&t.d.activeElement===afterLogin},'the queued notification opens and receives focus after sign-in');
   console.log('ok Android notification lifecycle preserves registration while signed out, unregisters only on explicit logout, and routes/focuses a tapped inbox item before or after sign-in');
+}
+// Finished multiplayer matches create copy/share links, downloadable sanitized JSON, and no replay controls for spectators.
+{
+  const t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(200,{ok:true,profile})});
+  const {createRoomPlay}=await import(ROOT+'src/room-play.js');let view='home',viewerSeat=1,copied='',downloaded=null;const calls=[];
+  const shareId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',gameId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const sample={ok:true,game:{kind:'quiz',title:'Friendly room match'},steps:[{step:1,phase:'finished',createdAt:future,state:{questionIds:['bq-en-0415'],currentIndex:1},attemptsByQuestion:[]}]};
+  const roomPlay=createRoomPlay({$:selector=>t.d.querySelector(selector),announce:()=>{},getSession:()=>({profile}),go:next=>{view=next},currentView:()=>view,questionBank:[],callApi:async(action,payload)=>{
+    calls.push({action,...payload});if(action==='game-watch')return {ok:true,phase:'finished',kind:'quiz',title:'Friendly room match',roomId:gameId,maxPlayers:1,config:{mode:'classic'},state:{questionIds:['bq-en-0415'],currentIndex:1},seat:viewerSeat,hostMe:viewerSeat===1,players:[{name:'Asha',seat:1,score:8,ready:true,finished:true}],events:[]};
+    if(action==='replay-create')return {ok:true,shareId,expiresAt:new Date(Date.now()+86400000).toISOString()};
+    if(action==='replay-read')return sample;throw new Error('unexpected action '+action);
+  }});
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,50));
+  roomPlay.open({id:gameId,kind:'quiz',title:'Friendly room match',joined:true,seat:1,host:false,phase:'finished',maxPlayers:1});await tick();
+  assert.equal(t.d.querySelector('#room-play-replay').hidden,false,'a finished player sees the replay share section');
+  t.w.navigator.clipboard={writeText:async value=>{copied=value}};
+  t.d.querySelector('#room-play-replay-create').click();await tick();await tick();
+  const link=t.d.querySelector('#room-play-replay-link').value;assert(link.endsWith(`/replay.html?id=${shareId}`));assert(calls.some(call=>call.action==='replay-create'&&call.gameId===gameId));
+  t.d.querySelector('#room-play-replay-copy').click();await tick();assert.equal(copied,link);
+  t.d.querySelector('#room-play-replay-share').click();await tick();assert.equal(copied,link,'unsupported native share falls back to copying the replay link');
+  const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL,oldClick=t.w.HTMLAnchorElement.prototype.click;
+  URL.createObjectURL=()=> 'blob:replay-test';URL.revokeObjectURL=()=>{};t.w.HTMLAnchorElement.prototype.click=function(){downloaded={href:this.href,name:this.download}};
+  t.d.querySelector('#room-play-replay-download').click();await tick();await tick();
+  assert(calls.some(call=>call.action==='replay-read'&&call.shareId===shareId));assert.equal(downloaded.name,'Friendly-room-match-replay.json');assert.match(t.d.querySelector('#room-play-replay-status').textContent,/downloaded as JSON/);
+  URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;t.w.HTMLAnchorElement.prototype.click=oldClick;
+  viewerSeat=0;roomPlay.open({id:gameId,kind:'quiz',title:'Friendly room match',joined:true,seat:0,phase:'finished',maxPlayers:1});await tick();
+  assert.equal(t.d.querySelector('#room-play-replay').hidden,true,'spectators cannot create participant-only replay links');roomPlay.close();
+  console.log('ok finished room match: participant can create, copy/share and download replay JSON; spectators do not see share controls');
+}
+// The public replay page loads without a player session, provides a stepper and autoplay, and exports its sanitized data.
+{
+  const {setSession}=await import(ROOT+'src/backend.js');setSession(null);
+  const replayId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',steps=[
+    {step:1,phase:'playing',createdAt:future,state:{questionIds:['bq-en-0415'],currentIndex:0},attemptsByQuestion:[{questionIndex:0,responses:{'1':true,'2':false}}]},
+    {step:2,phase:'finished',createdAt:future,state:{questionIds:['bq-en-0415'],currentIndex:1},attemptsByQuestion:[{questionIndex:0,responses:{'1':true,'2':false}}]},
+  ];
+  const replayData={ok:true,shareId:replayId,expiresAt:future,game:{kind:'quiz',title:'Friendly room match',finishedAt:future,players:[{name:'Asha',seat:1,score:8},{name:'Bob',seat:2,score:2}]},steps};
+  const dom=new JSDOM(readFileSync(ROOT+'replay.html','utf8'),{url:`https://mahicouragw.github.io/Blind-Quiz/replay.html?id=${replayId}`,pretendToBeVisual:true});const w=dom.window;
+  for(const key of ['window','document','localStorage','sessionStorage','navigator','HTMLElement','Node','history','location','Event'])Object.defineProperty(globalThis,key,{value:w[key],configurable:true,writable:true});
+  const replayCalls=[];globalThis.fetch=async(url,init)=>{const body=JSON.parse(init.body);replayCalls.push(body);return body.action==='replay-read'?json(200,replayData):json(400,{ok:false,code:'invalid_request'})};
+  await import(ROOT+'src/replay.js?viewer='+Date.now());await new Promise(resolve=>setTimeout(resolve,80));
+  assert.equal(w.document.querySelector('#replay-game-title').textContent,'Friendly room match');assert.match(w.document.querySelector('#replay-step-view').textContent,/Question 1 of 1.*Asha.*1 correct, 0 incorrect.*Bob.*0 correct, 1 incorrect/s);
+  assert.equal(w.document.querySelector('#replay-range').max,'1');w.document.querySelector('#replay-next').click();assert.match(w.document.querySelector('#replay-step-status').textContent,/Step 2 of 2/);assert.match(w.document.querySelector('#replay-step-view').textContent,/Quiz complete/);
+  w.document.querySelector('#replay-previous').click();assert.match(w.document.querySelector('#replay-step-status').textContent,/Step 1 of 2/);
+  w.document.querySelector('#replay-play').click();assert.equal(w.document.querySelector('#replay-play').textContent,'Pause replay');w.document.querySelector('#replay-play').click();assert.equal(w.document.querySelector('#replay-play').textContent,'Play replay');
+  const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL,oldClick=w.HTMLAnchorElement.prototype.click;let downloaded=null;
+  URL.createObjectURL=()=> 'blob:public-replay-test';URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){downloaded={href:this.href,name:this.download}};
+  w.document.querySelector('#replay-download').click();await new Promise(resolve=>setTimeout(resolve,40));
+  assert(replayCalls.some(body=>body.action==='replay-read'&&body.shareId===replayId));assert.equal(downloaded.name,'Friendly-room-match-replay.json');assert.match(w.document.querySelector('#replay-download-status').textContent,/downloaded/);
+  URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;w.HTMLAnchorElement.prototype.click=oldClick;
+  console.log('ok interactive public replay: session-free load, seat-based quiz results, step navigation, autoplay and JSON download');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

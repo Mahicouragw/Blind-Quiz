@@ -49,6 +49,11 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   const errorText = code => code === 'rate_limited' ? 'Too many requests. Please wait a little and try again.'
     : code === 'network' ? 'No internet connection. Please check it and try again.'
     : code === 'player_unavailable' ? 'No player with that name was found.'
+    : code === 'player_blocked' ? 'Direct contact is blocked between these players.'
+    : code === 'account_restricted' ? 'This account is restricted after admin review. Contact the game administrator if you think this is a mistake.'
+    : code === 'duplicate_report' ? 'You already have an open report about this player.'
+    : code === 'report_unavailable' ? 'That report is no longer available. Refresh the inbox.'
+    : code === 'replay_unavailable' ? 'This match has no saved replay history, or its replay link has expired.'
     : code === 'too_many_requests' ? 'You have many friend requests waiting for an answer. Please wait until some are answered.'
     : code === 'request_unavailable' ? 'That invitation is no longer waiting.'
     : code === 'game_full' ? 'There is no player slot left in that match.'
@@ -269,6 +274,66 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       try { const d = await callApi(action, { name: p.name }); announce(okText(d.relation)); await openCard(p.name, { keepFocus: true }); setTimeout(() => actions.querySelector('button')?.focus(), 80); }
       catch (err) { actions.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
     };
+    const refreshAfter = async (buttonEl, action, payload, success) => {
+      buttonEl.disabled = true;
+      try { await callApi(action, { name: p.name, ...payload }); announce(success); await openCard(p.name, { keepFocus: true }); setTimeout(() => actions.querySelector('button')?.focus(), 80); }
+      catch (err) { buttonEl.disabled = false; announce(errorText(err.message), true); }
+    };
+    const moderation = el('section', 'player-moderation-actions');
+    moderation.append(el('p', 'muted', 'Mute hides this player’s private and room messages and silences their incoming calls on your device. Your friendship stays intact.'));
+    const muteButton = button(p.isMuted ? `Unmute ${p.name}` : `Mute ${p.name}`,
+      e => refreshAfter(e.currentTarget, 'player-mute', { muted: !p.isMuted }, p.isMuted ? `${p.name} is unmuted.` : `${p.name} is muted for you.`), 'button button-quiet');
+    moderation.append(muteButton);
+    if (p.blockedByMe) {
+      moderation.append(el('p', 'muted', `You blocked ${p.name}. Direct messages, calls, friend requests and match invites are unavailable both ways. Unblocking will not restore the friendship.`));
+      moderation.append(button(`Unblock ${p.name}`, e => refreshAfter(e.currentTarget, 'player-block', { blocked: false }, `${p.name} is unblocked. You are not automatically friends again.`), 'button button-outline'));
+    } else if (p.blocked) {
+      moderation.append(el('p', 'muted', 'A block is active between these players. Direct contact is unavailable.'));
+    } else {
+      moderation.append(el('p', 'muted', 'Block removes the friendship and stops direct messages, calls, friend requests and match invites both ways.'));
+      moderation.append(button(`Block ${p.name}`, e => {
+        if (!globalThis.confirm?.(`Block ${p.name}? This removes the friendship and prevents direct contact both ways. You can unblock later, but the friendship will not return automatically.`)) return;
+        refreshAfter(e.currentTarget, 'player-block', { blocked: true }, `${p.name} is blocked and removed from your friends.`);
+      }, 'button button-outline'));
+    }
+    const reportToggle = button(`Report ${p.name}`, () => {
+      const prior = moderation.querySelector('.player-report-form');
+      if (prior) { prior.remove(); reportToggle.setAttribute('aria-expanded', 'false'); return; }
+      const form = el('form', 'player-report-form'); form.noValidate = true;
+      const reasonLabel = el('label', '', 'Why are you reporting this player?');
+      const reason = document.createElement('select'); reason.name = 'reason'; reason.required = true;
+      for (const [value, label] of [['harassment','Harassment or bullying'],['spam','Spam or unwanted promotion'],['inappropriate','Inappropriate behavior or content'],['cheating','Cheating or match manipulation'],['other','Other concern']]) {
+        const option = el('option', '', label); option.value = value; reason.append(option);
+      }
+      reasonLabel.append(reason);
+      const detailLabel = el('label', '', 'What happened? (optional)');
+      const detail = document.createElement('textarea'); detail.name = 'details'; detail.rows = 3; detail.maxLength = 1000; detail.autocomplete = 'off';
+      detailLabel.append(detail);
+      const status = el('p', 'muted'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+      const submit = button('Send report', null, 'button button-hot'); submit.type = 'submit';
+      const cancel = button('Cancel report', () => { form.remove(); reportToggle.setAttribute('aria-expanded', 'false'); reportToggle.focus(); });
+      form.append(reasonLabel, detailLabel, submit, cancel, status);
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const details = detail.value.normalize('NFKC').trim().slice(0, 1000);
+        submit.disabled = true; cancel.disabled = true; status.textContent = 'Sending your report for admin review…';
+        try {
+          await callApi('player-report', { name: p.name, reason: reason.value, details });
+          status.textContent = 'Your report was sent to the admin review inbox. Reports do not automatically restrict an account.';
+          announce(`Your report about ${p.name} was sent for admin review.`);
+          reason.disabled = true; detail.disabled = true; submit.hidden = true; cancel.textContent = 'Close'; cancel.disabled = false;
+        } catch (err) {
+          status.textContent = errorText(err.message); submit.disabled = false; cancel.disabled = false;
+          announce(status.textContent, true);
+        }
+      });
+      moderation.append(form); reportToggle.setAttribute('aria-expanded', 'true'); reason.focus();
+    }, 'button button-quiet');
+    reportToggle.setAttribute('aria-expanded', 'false');
+    moderation.append(reportToggle);
+    actions.append(moderation);
+
+    if (p.blocked) return;
     if (p.relation === 'friends') {
       actions.append(el('p', 'muted', `You and ${p.name} are friends.`));
       actions.append(button(`Send ${p.name} a match`, async e => {
