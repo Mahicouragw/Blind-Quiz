@@ -7,6 +7,16 @@ name: Live checks (read-only)
 on:
   push:
     branches: [main, 'arena/**']
+    # These checks contact the production API. Run them only for backend/migration or test changes,
+    # not for a frontend-only Pages deployment.
+    paths:
+      - 'supabase/functions/blind-quiz-api/**'
+      - 'supabase/migrations/**'
+      - 'tests/live-api.mjs'
+      - 'scripts/check-migration-010-live.mjs'
+      - 'scripts/check-migration-011-live.mjs'
+      - 'scripts/check-migration-015-live.mjs'
+      - '.github/workflows/live-checks.yml'
   workflow_dispatch:
 
 permissions:
