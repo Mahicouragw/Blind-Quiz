@@ -126,7 +126,7 @@ assert.equal(t.d.querySelector('#view-home').hidden,false);assert.equal(t.w.hist
 console.log('ok 9 back navigation returns to Home');
 // 10. Every category and every mode starts, plays to the results screen, and Play again works.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   t=await boot({fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms));
   const play=async()=>{d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);assert(d.querySelector('.answer-button'),'question appears after the countdown');
@@ -169,7 +169,7 @@ console.log('ok 9 back navigation returns to Home');
 }
 // 10a. Telugu starter UI, localized voice instructions and a selectable stage use the translated quiz bank.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   t=await boot({local:{'bq.settings':{language:'te',quizDifficulty:'easy',quizRoundLength:5,quizStage:1}},fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d;assert.equal(d.documentElement.lang,'te-IN');assert.equal(d.querySelectorAll('#category-list [data-category]').length,12);
   assert.equal(d.querySelector('#language-choice').value,'te');assert.equal(d.querySelector('#quiz-stage').value,'1');assert.equal(d.querySelector('#quiz-difficulty').value,'easy');assert.equal(d.querySelector('#quiz-round-length').value,'5');
@@ -201,7 +201,7 @@ assert.match(t.d.querySelector('#profile-stats').textContent,/Player, goldfish.*
 console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile with stats');
 // 12. Recorded sounds: correct/wrong answers, countdown, GO, results, and music per screen.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   const manifestBody=JSON.parse(readFileSync(ROOT+'assets/audio/manifest.json','utf8'));
   t=await boot({fetchImpl:(u)=>String(u).includes('manifest.json')?json(200,manifestBody):(()=>{throw new Error('offline')})()});
   const played=[];t.w.HTMLMediaElement.prototype.play=function(){played.push(this.src.split('/').pop().split('?')[0]);return Promise.resolve()};t.w.HTMLMediaElement.prototype.pause=function(){};
@@ -232,7 +232,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 }
 // 13. TalkBack: after answering, focus lands on the result (verdict, correct answer, XP, coins, streak), never on sign-in UI.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   const { QUESTION_BANK }=await import(ROOT+'src/content.js');
   const p0={...profile,name:'goldfish',currentStreak:4,bestStreak:4,questionsAnswered:4,questionsCorrect:4};
   t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:p0,loginId:'ABCD2345'},fetchImpl:(u,init)=>{const b=init?.body?JSON.parse(init.body):{};
@@ -244,12 +244,15 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   for(const v of d.querySelectorAll('.view'))if(v.id!=='view-game')assert(v.hidden&&v.inert&&v.getAttribute('aria-hidden')==='true',`${v.id} hidden from the accessibility tree`);
   assert(d.querySelector('#view-auth').inert,'sign-in view is inert during a game');
   d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  for(let i=0;i<20&&!/Answer choices:/.test(d.querySelector('#announcer').textContent);i++)await wait(5);
+  assert.match(d.querySelector('#announcer').textContent,/Answer choices: A, .+\. B, .+\. C, .+\. D, .+/,'TalkBack receives the answer choices when a question starts');
   const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
   const right=[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===q.correctAnswer);right.focus();right.click();
   for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
   const fb=d.querySelector('#answer-feedback');
   assert.equal(d.activeElement,fb,'focus moves to the result, got '+(d.activeElement?.id||d.activeElement?.tagName));
   assert.match(fb.textContent,/^Correct! The answer is .+ You earned 10 XP and 2 coins\. Streak: 5 in a row\./);
+  assert.match(fb.textContent,/Next question starts in 6 seconds\. Choose Next question to continue now\./,'result explains the six-second auto-advance and manual control');
   assert(fb.compareDocumentPosition(d.querySelector('.next-question'))&4,'Next question follows the result');
   assert(!d.activeElement.closest('#view-auth, form, input'),'focus is not on sign-in UI');
   assert(!d.querySelectorAll('.answer-button[disabled]').length,'answer buttons stay focusable (aria-disabled)');
@@ -264,6 +267,37 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(d.activeElement.textContent,new RegExp(`^Incorrect\\. You chose [A-D]: .+ The correct answer is [A-D]: ${q2.correctAnswer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\..*Streak reset\\.`));
   globalThis.setTimeout=fast;
   console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
+}
+// Quiz feedback advances after six seconds, while manual advance cancels its pending timer.
+{
+  const nativeSet=globalThis.setTimeout,nativeClear=globalThis.clearTimeout,pending=new Map();let id=100000;
+  globalThis.setTimeout=(fn,ms,...args)=>{if(ms===6000){const key=++id;pending.set(key,()=>fn(...args));return key}return nativeSet(fn,Math.min(ms||0,2),...args)};
+  globalThis.clearTimeout=key=>{if(pending.delete(key))return;nativeClear(key)};
+  try{
+    const {QUESTION_BANK}=await import(ROOT+'src/content.js');
+    t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});const d=t.d,wait=ms=>new Promise(r=>nativeSet(r,ms));
+    d.querySelector('#category-list [data-category="business"]').click();await wait(10);d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+    const answerRight=()=>{const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===q.correctAnswer).click()};
+    answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);
+    const firstTimer=[...pending.keys()].at(-1);assert(firstTimer,'answer feedback schedules a six-second timer');
+    const firstAuto=pending.get(firstTimer);pending.delete(firstTimer);firstAuto();
+    assert.match(d.querySelector('#round-progress').textContent,/Question 2 of/,'the timer advances to the next quiz question');
+    answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);
+    const secondTimer=[...pending.keys()].at(-1);assert(secondTimer,'each answered question gets a fresh timer');
+    d.querySelector('.next-question').click();
+    assert(!pending.has(secondTimer),'manual advance cancels the scheduled auto-advance');
+    assert.match(d.querySelector('#round-progress').textContent,/Question 3 of/,'manual advance remains available');
+    for(let question=3;question<=10;question++){
+      answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);
+      const timer=[...pending.keys()].at(-1);assert(timer,`question ${question} has its own auto-advance`);
+      if(question===10)assert.match(d.querySelector('#answer-feedback').textContent,/Results appear in 6 seconds\. Choose View results to view them now\./);
+      const auto=pending.get(timer);pending.delete(timer);auto();
+      if(question<10)assert.match(d.querySelector('#round-progress').textContent,new RegExp(`Question ${question+1} of`));
+    }
+    assert.equal(d.querySelector('#view-results').hidden,false,'the final six-second advance opens results');
+  }finally{globalThis.setTimeout=nativeSet;globalThis.clearTimeout=nativeClear;pending.clear()}
+  console.log('ok 13a quiz auto-advance: six-second timer advances once; manual Next cancels it');
 }
 // 14. Profile Change: read-only User ID, username cooldown message, uniqueness error, current answer required, instant refresh.
 {
@@ -399,7 +433,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 }
 // 16. Options are A, B, C, D; "Question 1 of 10" is spoken once (title only), never repeated on every option.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   t=await boot({fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
   $('#category-list [data-category="history"]').click();await wait(10);$('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
@@ -471,6 +505,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
    assert.match(s.d.querySelector('#announce-audience-note').textContent,/does not measure active players/);}
   console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
 }
+{ // Sound Match entry opens the setup, never an unrequested board.
+  const s=await boot({fetchImpl:()=>{throw new Error('no network expected')}}),d=s.d;
+  d.querySelector('#sm-open').click();assert.equal(d.querySelector('#view-soundmatch').hidden,false);
+  assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('#sm-start').hidden,false);
+  d.querySelector('[data-sm-level="hard"]').click();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
+  console.log('ok 18a Sound Match navigation opens difficulty setup and waits for Start Game');
+}
 { // 19. Sound Match screen (Easy): numbers 1-10, press plays a sound, match/miss feedback, finish with stars and best score.
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});const w=dom.window,d=w.document;
   for(const k of ['window','document','localStorage'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
@@ -479,12 +520,14 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const played=[],sfx=[],said=[];let seed=11;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
   const fakeAudio={addEventListener:(ev,fn)=>{if(ev==='ended')setTimeout(fn,1)}};
   const sm=createSoundMatch({$:(s)=>d.querySelector(s),announce:t=>said.push(t),matchSounds:async()=>pool,playMatchSound:async s=>{played.push(s);return fakeAudio},stopMatchSound:()=>{},playSfx:s=>sfx.push(s),rnd,wait:async()=>{}});
-  sm.wire();await sm.start('easy');
+  sm.wire();const tick=()=>new Promise(r=>setTimeout(r,20));
+  assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0,'the board does not start when Sound Match opens');assert.equal(d.querySelector('#sm-start').hidden,false,'Start Game is available before the board');
+  d.querySelector('[data-sm-level="easy"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0,'choosing a difficulty does not start the board');
+  d.querySelector('#sm-start').click();await tick();
   const cards=[...d.querySelectorAll('#sm-grid .sm-card')];assert.equal(cards.length,10);assert.deepEqual(cards.map(c=>c.textContent.trim()),['1','2','3','4','5','6','7','8','9','10']);
   assert.equal(cards[0].getAttribute('aria-label'),'Number 1');assert.match(d.querySelector('#sm-stats').textContent,/Pairs found: 0 of 5 · Tries: 0/);
   assert.match(d.querySelector('#sm-status').textContent,/Easy: Numbers 1 to 10, 5 pairs of sounds\. Press a number/);
   const board=sm.state.board,pairOf=n=>board.find(c=>c.number!==n&&c.sound.slot===board[n-1].sound.slot).number,other=n=>board.find(c=>c.sound.slot!==board[n-1].sound.slot).number;
-  const tick=()=>new Promise(r=>setTimeout(r,20));
   cards[0].click();await tick();assert.equal(played.at(-1),board[0].sound.slot,'pressing 1 plays its sound');assert(cards[0].classList.contains('open'));assert.equal(cards[0].getAttribute('aria-label'),'Number 1, playing');
   const o=other(1);cards[o-1].click();await tick();await tick();
   assert.equal(played.at(-1),board[o-1].sound.slot);assert.match(d.querySelector('#sm-status').textContent,new RegExp(`Not a match\\. 1 and ${o} play different sounds\\.`));assert.equal(sfx.at(-1),'wrong');
@@ -496,8 +539,10 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   for(const c of board){if(sm.state.matched.has(c.number))continue;cards[c.number-1].click();await tick();cards[pairOf(c.number)-1].click();await tick();await tick()}
   assert.equal(d.querySelector('#sm-finish').hidden,false);assert.match(d.querySelector('#sm-finish-text').textContent,/You found all 5 pairs in 6 tries! 3 stars\. New best score!/);
   assert.equal(JSON.parse(w.localStorage.getItem('blindquiz.soundmatch.best.v1')).easy,6);assert(['cheer','applause'].includes(sfx.at(-1)));
-  d.querySelector('[data-sm-level="hard"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,20);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
-  d.querySelector('[data-sm-level="medium"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,16);assert.equal(d.querySelector('#sm-finish').hidden,true);
+  d.querySelector('[data-sm-level="hard"]').click();await tick();assert.equal(d.querySelector('#sm-grid').hidden,true);assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('#sm-start').hidden,false);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
+  d.querySelector('#sm-start').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,20,'Start Game begins the selected Hard board');
+  d.querySelector('#sm-new').click();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('#sm-start').hidden,false);
+  d.querySelector('[data-sm-level="medium"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);d.querySelector('#sm-start').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,16,'Start Game begins the selected Medium board');assert.equal(d.querySelector('#sm-finish').hidden,true);
   // Signed in: the board registers a game, and finishing it pays the server-checked reward.
   const api=[];let sess={token:'t',profile:{name:'Asha',level:1,xp:95,coins:3}};const profs=[];
   const sm2=createSoundMatch({$:(s)=>d.querySelector(s),announce:()=>{},matchSounds:async()=>pool,playMatchSound:async()=>fakeAudio,stopMatchSound:()=>{},playSfx:s=>sfx.push(s),rnd,wait:async()=>{},

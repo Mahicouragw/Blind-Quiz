@@ -266,7 +266,7 @@ assert(sw.includes("const CACHE='blind-quiz-shell-v32'")&&sw.includes("'./src/la
   assert(mm.every(x=>Number.isInteger(x.mixkitId)&&x.name&&x.max<=3),'Mixkit ids, names, short clips');
   const au=readFileSync(new URL('../src/audio.js',import.meta.url),'utf8');assert(/view === 'soundmatch' \|\| view === 'countmatch'\) return null/.test(au)&&/if \(slot == null\) \{ wantedSlot = null; stopMusic\(\); return; \}/.test(au),'no background music over Sound Match or Count Match clues');
   assert(au.includes('resume()')&&au.includes('createMediaElementSource')&&!/createOscillator|speechSynthesis/.test(au+readFileSync(new URL('../src/sound-match-ui.js',import.meta.url),'utf8')),'Sound Match plays recorded audio and shares the explicit gesture-unlocked media path without synthesizing sounds');
-  assert(html.includes('id="sm-open"')&&html.includes('id="view-soundmatch"')&&html.includes('data-sm-level="easy"'),'Sound Match entry and screen');
+  assert(html.includes('id="sm-open"')&&html.includes('id="view-soundmatch"')&&html.includes('data-sm-level="easy"')&&html.includes('id="sm-start"')&&html.includes('Start Game'),'Sound Match entry, difficulty setup and explicit Start Game control');
   const m18=readFileSync(new URL('../supabase/migrations/202610060018_sound_match_rewards.sql',import.meta.url),'utf8');
   assert(/when 'easy' then 5 when 'medium' then 10 else 15 end \* case when g_stars = 3 then 2 else 1 end/.test(m18)&&/when 'easy' then 1 when 'medium' then 2 else 3 end/.test(m18),'Sound Match rewards: 5/10/15 XP (doubled for 3 stars) and 1/2/3 coins');
   assert(/p_tries <= ceil\(g\.pairs \* 1\.6\) then 3 when p_tries <= g\.pairs \* 2\.5 then 2/.test(m18),'server stars match the client stars');
