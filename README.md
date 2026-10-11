@@ -80,7 +80,7 @@ Migrations 001–009 are already applied remotely. Neither deployment path runs 
 
 Players can delete only their own account in Settings after re-entering the exact display name and current secret answer. The separate admin-only account directory searches and paginates all account records; an admin must reauthenticate and type the selected account's exact display name before deletion. The player monitor remains read-only. Migration 029's database function is transactional, service_role-only, and prevents removing the last admin.
 
-The account-deletion migration is deliberately isolated: `.github/workflows/apply-migration-029.yml` is manual-only and applies only `202610110029_account_deletion.sql` through the guarded Supabase Management API helper. It does not use Supabase CLI migration commands or apply/replay Migrations 025–028. The website/Edge Function deploy workflows never apply database migrations. See the Privacy Policy for device, backup, and copied-data limits.
+The account-deletion migration is deliberately isolated: `.github/workflows/apply-migration-029.yml` applies only `202610110029_account_deletion.sql` through the guarded Supabase Management API helper. It never runs on ordinary pushes or PR synchronization; until the workflow is on the default branch, an explicit `apply-migration-029` PR label is the manual approval gate. It does not use Supabase CLI migration commands or apply/replay Migrations 025–028. The website/Edge Function deploy workflows never apply database migrations. See the Privacy Policy for device, backup, and copied-data limits.
 
 ### Deploying without a code editor (screen-reader friendly)
 

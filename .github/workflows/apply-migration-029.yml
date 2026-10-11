@@ -7,10 +7,19 @@ name: Apply Migration 029 (guarded)
 # this workflow never applies or changes Migrations 025–028, including the prepared 025 and the
 # protected 026/027. It does not use the Supabase CLI migration commands or direct Postgres clients.
 #
-# Run manually only after reviewing the guarded static check and in-memory migration dry run.
+# Manual-only database change. workflow_dispatch is available after this workflow reaches the default branch;
+# while it exists only in an open PR, the same reviewed operation can be explicitly requested by adding
+# the `apply-migration-029` label. Ordinary pushes and PR synchronization never apply it automatically.
 # Secret: SUPABASE_ACCESS_TOKEN (passed only as an environment variable, never printed).
 on:
   workflow_dispatch:
+  pull_request:
+    types: [labeled]
+    paths:
+      - '.github/workflows/apply-migration-029.yml'
+      - 'scripts/apply-migration-029.mjs'
+      - 'supabase/migrations/202610110029_account_deletion.sql'
+      - 'tests/db-migrations.mjs'
 
 permissions:
   contents: read
@@ -26,6 +35,7 @@ env:
 jobs:
   apply:
     name: Apply Migration 029 only
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'apply-migration-029') }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
