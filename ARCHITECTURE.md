@@ -10,7 +10,7 @@ This repository contains a static progressive web app, its local question pack, 
 - Hash-independent in-page views preserve a logical heading/focus target on navigation.
 - Native buttons provide answer semantics and accessible names equal to the answer text.
 - Polite and assertive live regions announce relevant state changes; visual feedback also uses text, not color alone.
-- Large text, high contrast, reduced motion, configurable timer, keyboard focus styles, and screen-reader-announcement controls are persisted locally.
+- Large text, high contrast, reduced motion, an optional question timer (off/15/30/45/60 seconds), manual or configurable answer auto-advance (off/6/10/15 seconds), keyboard focus styles, and app-speech/screen-reader controls are persisted locally.
 - A service worker caches the static shell and all question modules for offline rounds.
 - Fisher–Yates shuffling independently randomizes question selection and each four-choice answer list. Classic mixed rounds deliberately balance categories; Random Mix samples the full bank. Rapid Fire (8 questions, 15 seconds), Time Attack (10 questions, 10 seconds), and Survival (up to 20 questions, ends on a miss) have distinct selection/scoring behavior.
 - Leaving a round cancels its countdown and timer; round tokens prevent stale asynchronous callbacks from changing a later screen. Timed API calls also have a bounded timeout.

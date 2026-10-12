@@ -379,6 +379,37 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   }finally{globalThis.setTimeout=nativeSet;globalThis.clearTimeout=nativeClear;pending.clear()}
   console.log('ok 13a quiz auto-advance: six-second timer advances once; manual Next cancels it');
 }
+// Auto-advance and question timer choices persist, including manual-only mode and longer 45/60-second clocks.
+{
+  const nativeSet=globalThis.setTimeout,nativeClear=globalThis.clearTimeout,pending=new Map();let id=200000;
+  globalThis.setTimeout=(fn,ms,...args)=>{if(ms===10000||ms===15000){const key=++id;pending.set(key,{ms,run:()=>fn(...args)});return key}return nativeSet(fn,Math.min(ms||0,2),...args)};
+  globalThis.clearTimeout=key=>{pending.delete(key);nativeClear(key)};
+  try{
+    const {QUESTION_BANK}=await import(ROOT+'src/content.js');
+    t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});const d=t.d,w=t.w,wait=ms=>new Promise(r=>nativeSet(r,ms));
+    assert.equal(d.querySelector('#auto-advance-choice').value,'6','the existing six-second behavior remains the default');
+    assert.deepEqual([...d.querySelector('#timer-choice').options].map(option=>option.value),['0','15','30','45','60'],'timer settings offer up to a 60-second question');
+    async function setPreferences(auto,timer){
+      if(d.querySelector('#view-settings').hidden){d.querySelector('#settings-open').click();await wait(5);if(!d.querySelector('#exit-confirm').hidden)d.querySelector('#exit-leave').click();await wait(10)}
+      assert.equal(d.querySelector('#view-settings').hidden,false,'settings opens from the current view');
+      d.querySelector('#auto-advance-choice').value=String(auto);d.querySelector('#timer-choice').value=String(timer);d.querySelector('#save-settings').click();await wait(10);
+      const saved=JSON.parse(w.localStorage.getItem('bq.settings'));assert.equal(saved.autoAdvanceSeconds,auto);assert.equal(saved.timer,timer);
+    }
+    async function startQuiz(){
+      d.querySelector('#category-list [data-category="business"]').click();await wait(5);d.querySelector('#game-start').click();
+      for(let i=0;i<100&&!/^Question 1 of 10/.test(d.querySelector('#game-title').textContent);i++)await wait(5);
+      assert.match(d.querySelector('#game-title').textContent,/^Question 1 of 10\./,'a fresh round reaches question one');
+    }
+    function answerRight(){const q=QUESTION_BANK.find(question=>d.querySelector('#game-title').textContent.endsWith(question.question));assert(q,'current quiz question is in the bank');d.querySelectorAll('.answer-button').forEach(button=>{if(button.dataset.answer===q.correctAnswer)button.click()})}
+    async function finishAnswer(){answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);assert(d.querySelector('.next-question'),'answer feedback offers a manual Next button')}
+    async function expectDelay(seconds){const match=[...pending].find(([,item])=>item.ms===seconds*1000);assert(match,`${seconds}-second auto-advance is scheduled`);assert.match(d.querySelector('#answer-feedback').textContent,new RegExp(`Next question starts in ${seconds} seconds`));pending.delete(match[0]);match[1].run();for(let i=0;i<100&&!/Question 2 of 10/.test(d.querySelector('#round-progress').textContent);i++)await wait(5);assert.match(d.querySelector('#round-progress').textContent,/Question 2 of 10/,'auto-advance moves to the next question at the selected delay')}
+    async function manualOnly(){assert(![...pending.values()].some(item=>item.ms===10000||item.ms===15000),'Off schedules no automatic question shift');assert.doesNotMatch(d.querySelector('#answer-feedback').textContent,/Next question starts in|Results appear in/,'Off does not announce an automatic move');d.querySelector('.next-question').click();assert.match(d.querySelector('#round-progress').textContent,/Question 2 of 10/,'Next still advances manually when auto-advance is off')}
+    await setPreferences(10,45);await startQuiz();assert.equal(d.querySelector('#hud-seconds').textContent,'45s','the 45-second timer is used for a quiz');await finishAnswer();await expectDelay(10);
+    await setPreferences(15,60);await startQuiz();assert.equal(d.querySelector('#hud-seconds').textContent,'60s','the 60-second timer is used for a quiz');await finishAnswer();await expectDelay(15);
+    await setPreferences(0,0);await startQuiz();assert.equal(d.querySelector('#hud-timer').hidden,true,'timer Off remains available');await finishAnswer();await manualOnly();
+  }finally{globalThis.setTimeout=nativeSet;globalThis.clearTimeout=nativeClear;pending.clear()}
+  console.log('ok 13d auto-advance Off/10/15 seconds and 45/60-second question timers persist and work');
+}
 // 14. Profile Change: read-only User ID, username cooldown message, uniqueness error, current answer required, instant refresh.
 {
   const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
