@@ -80,7 +80,7 @@ function shareLinks(currentUrl, scoreText) {
 
 export function createCountMatch({
   $, announce = () => {}, playSfx = () => {}, unlockAudio = () => Promise.resolve(false),
-  openExternal = defaultOpenExternal, rnd = Math.random, now = () => Date.now(),
+  canSpeak = () => true, openExternal = defaultOpenExternal, rnd = Math.random, now = () => Date.now(),
 } = {}) {
   const setup = $('#cm-setup');
   const gameView = $('#cm-game');
@@ -106,6 +106,7 @@ export function createCountMatch({
   function playClue() {
     const target = currentRound()?.target;
     if (!target) return;
+    if (!canSpeak()) { textClue.textContent = `Text clue: ${target.spoken}.`; textClue.hidden = false; return; }
     const { synth, Utterance } = getSpeech();
     if (!synth || !Utterance) {
       textClue.textContent = `Text clue: ${target.spoken}.`;

@@ -30,7 +30,7 @@ export function createModeration({ $, callApi, go, announce = () => {} }) {
     const note = document.createElement('textarea'); note.className = 'admin-report-note'; note.maxLength = 500; note.rows = 2; note.autocomplete = 'off';
     note.setAttribute('aria-label', `Optional private admin note for report ${report.id}`); note.placeholder = 'Optional private admin note (up to 500 characters)';
     const actions = el('div', 'admin-report-actions');
-    const result = el('p', 'admin-report-status'); result.setAttribute('role', 'status'); result.setAttribute('aria-live', 'polite');
+    const result = el('p', 'admin-report-status');
     const runAction = async (action, control) => {
       if (action === 'restrict' && !globalThis.confirm?.(`Restrict ${report.target || 'this account'} after reviewing the report? This is an explicit admin decision and prevents the account from signing in or using the service until restored.`)) return;
       if (action === 'restore' && !globalThis.confirm?.(`Restore access for ${report.target || 'this account'}?`)) return;

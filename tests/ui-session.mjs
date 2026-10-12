@@ -251,7 +251,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(d.querySelector('#view-auth').inert,'sign-in view is inert during a game');
   d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
   for(let i=0;i<20&&!/Answer choices:/.test(d.querySelector('#announcer').textContent);i++)await wait(5);
-  assert.match(d.querySelector('#announcer').textContent,/Answer choices: A, .+\. B, .+\. C, .+\. D, .+/,'TalkBack receives the answer choices when a question starts');
+  assert.match(d.querySelector('#announcer').textContent,/Answer choices: Option A: .+\. Double tap to select\. Option B: .+\. Double tap to select\. Option C: .+\. Double tap to select\. Option D: .+\. Double tap to select\./,'TalkBack receives full option labels and the selection hint when a question starts');
   const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
   const right=[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===q.correctAnswer);right.focus();right.click();
   for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
@@ -274,32 +274,58 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   globalThis.setTimeout=fast;
   console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
 }
-// In-app text-to-speech remains audible when the operating-system screen reader is off.
+// TalkBack is one persisted gate for app live announcements and explicit device speech; announcement channels never duplicate.
 {
-  const nativeSetTimeout=globalThis.setTimeout,oldSynth=Object.getOwnPropertyDescriptor(globalThis,'speechSynthesis'),oldUtterance=Object.getOwnPropertyDescriptor(globalThis,'SpeechSynthesisUtterance'),spoken=[];
+  const nativeSetTimeout=globalThis.setTimeout,oldSynth=Object.getOwnPropertyDescriptor(globalThis,'speechSynthesis'),oldUtterance=Object.getOwnPropertyDescriptor(globalThis,'SpeechSynthesisUtterance'),spoken=[];let cancellations=0;
   class TestUtterance{constructor(text){this.text=text}}
   Object.defineProperty(globalThis,'SpeechSynthesisUtterance',{value:TestUtterance,configurable:true,writable:true});
-  Object.defineProperty(globalThis,'speechSynthesis',{value:{cancel(){},getVoices:()=>[{lang:'en-IN'}],speak(utterance){spoken.push({text:utterance.text,lang:utterance.lang})}},configurable:true,writable:true});
+  Object.defineProperty(globalThis,'speechSynthesis',{value:{cancel(){cancellations++},getVoices:()=>[{lang:'en-IN'}],speak(utterance){spoken.push({text:utterance.text,lang:utterance.lang})}},configurable:true,writable:true});
   globalThis.setTimeout=(fn,ms,...args)=>nativeSetTimeout(fn,Math.min(ms||0,3),...args);
   try{
-    t=await boot({local:{'bq.settings':{speech:false,voiceAnnouncements:true,sfx:false,music:false}},fetchImpl:()=>{throw new Error('no network expected')}});
-    const d=t.d,wait=ms=>new Promise(r=>nativeSetTimeout(r,ms));
-    assert.equal(d.querySelector('#speech-on').checked,false,'OS screen-reader announcements can be off');
-    assert.equal(d.querySelector('#voice-announcements').checked,true,'independent spoken game guidance is on');
-    d.querySelector('#category-list [data-category="business"]').click();
-    assert(spoken.some(x=>x.text.startsWith('Welcome to Blind Quiz')),'game setup speaks instructions without TalkBack');
-    d.querySelector('#game-start').click();
+    t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
+    const d=t.d,wait=ms=>new Promise(r=>nativeSetTimeout(r,ms)),toggle=d.querySelector('#talkback-enabled');
+    assert.equal(toggle.checked,true,'TalkBack announcements start enabled by default');
+    const welcome=d.querySelector('#announcer').textContent;
+    assert.equal(welcome,'Welcome to Accessible Quiz Game, created by K M Sanjay. Screen reader announcements are ON. Swipe right or press Next to navigate.','the opening greeting exactly identifies the game and creator and gives a navigation cue');
+    assert.equal(spoken.length,0,'the opening greeting uses the screen-reader channel rather than speaking it twice with device TTS');
+    d.querySelector('#voice-instructions').click();
+    assert.match(spoken.at(-1).text,/Welcome to Blind Quiz/,'the explicit Hear how to play control uses device TTS while enabled');
+    assert.equal(d.querySelector('#announcer').textContent,welcome,'explicit TTS does not also update the live region');
+    d.querySelector('#settings-open').click();await wait(80);assert.equal(d.querySelector('#view-settings').hidden,false);
+    const cancelBefore=cancellations;toggle.checked=false;toggle.dispatchEvent(new t.w.Event('change',{bubbles:true}));await wait(50);
+    assert.equal(toggle.checked,false);assert(cancellations>cancelBefore,'turning announcements off immediately cancels active TTS');
+    assert.equal(d.querySelector('#announcer').textContent,'TalkBack announcements turned OFF.','only the final off confirmation is emitted');
+    assert.equal(d.querySelector('#quiz-stage-status').getAttribute('aria-live'),'off','existing app live regions are muted globally');
+    assert.equal(d.querySelector('#assertive-announcer').getAttribute('aria-live'),'off','assertive app announcements are muted too');
+    const dynamicStatus=d.createElement('p');dynamicStatus.setAttribute('role','status');dynamicStatus.setAttribute('aria-live','polite');d.body.append(dynamicStatus);await wait(10);
+    assert.equal(dynamicStatus.getAttribute('aria-live'),'off','newly created live regions are muted while the global setting is off');
+    const offCount=spoken.length;
+    d.querySelector('#view-settings [data-go="home"]').click();await wait(50);d.querySelector('#voice-instructions').click();
+    d.querySelector('#category-list [data-category="business"]').click();d.querySelector('#game-start').click();
     for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
-    const question=d.querySelector('#game-title').textContent;
-    assert(spoken.some(x=>x.text.includes(question)&&x.text.includes('Answer choices')),'the spoken prompt includes the question and answer choices');
-    assert.equal(d.querySelector('#announcer').textContent,'','in-app speech does not depend on the screen-reader live region');
-    assert(spoken.every(x=>x.lang==='en-IN'),'speech uses the selected game language');
+    assert.equal(spoken.length,offCount,'TTS does not resume for instructions, questions, or choices while disabled');
+    assert.equal(d.querySelector('#announcer').textContent,'TalkBack announcements turned OFF.','subsequent app events do not update live announcements while disabled');
+    d.querySelector('#settings-open').click();await wait(10);if(!d.querySelector('#exit-confirm').hidden)d.querySelector('#exit-leave').click();await wait(80);assert.equal(d.querySelector('#view-settings').hidden,false,'the settings menu can be reopened after the quiz exit confirmation');const nextToggle=d.querySelector('#talkback-enabled');
+    nextToggle.checked=true;nextToggle.dispatchEvent(new t.w.Event('change',{bubbles:true}));await wait(50);
+    assert.equal(d.querySelector('#announcer').textContent,'TalkBack announcements turned ON.');
+    assert.equal(dynamicStatus.getAttribute('aria-live'),'polite','enabling restores the original live-region behavior');
+    assert.equal(JSON.parse(t.w.localStorage.getItem('bq.settings')).talkBackEnabled,true,'the global setting persists');
+    assert.equal(spoken.length,offCount,'turning announcements back on uses one screen-reader confirmation, not duplicate TTS');
+    d.querySelector('#view-settings [data-go="home"]').click();await wait(50);d.querySelector('#category-list [data-category="business"]').click();d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!/Answer choices:/.test(d.querySelector('#announcer').textContent);i++)await wait(5);
+    assert.match(d.querySelector('#announcer').textContent,/Answer choices: Option A: .+Double tap to select/,'enabled TalkBack receives full descriptive answer options');
+    assert.equal(spoken.length,offCount,'dynamic screen-reader details use one channel and do not trigger TTS a second time');
+    const beforeLegacy=spoken.length;
+    t=await boot({local:{'bq.settings':{speech:false,voiceAnnouncements:true,sfx:false,music:false}},fetchImpl:()=>{throw new Error('no network expected')}});
+    assert.equal(t.d.querySelector('#talkback-enabled').checked,false,'legacy screen-reader-off preference migrates to the unified setting');
+    assert.equal(t.d.querySelector('#announcer').textContent,'','a saved disabled preference suppresses the opening announcement');
+    assert.equal(spoken.length,beforeLegacy,'a saved disabled preference suppresses device TTS too');
   }finally{
     globalThis.setTimeout=nativeSetTimeout;
     if(oldSynth)Object.defineProperty(globalThis,'speechSynthesis',oldSynth);else delete globalThis.speechSynthesis;
     if(oldUtterance)Object.defineProperty(globalThis,'SpeechSynthesisUtterance',oldUtterance);else delete globalThis.SpeechSynthesisUtterance;
   }
-  console.log('ok 13b in-app spoken instructions/questions work independently of TalkBack being enabled');
+  console.log('ok 13b one TalkBack setting persists, announces welcome and ON/OFF, gates all live regions and explicit TTS');
 }
 // Timed questions play the existing recorded clock tick, with ticks throughout 15 seconds or the final 15 of 30.
 {
@@ -493,7 +519,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   $('#category-list [data-category="history"]').click();await wait(10);$('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
   const btns=[...d.querySelectorAll('.answer-button')];
   assert.equal(btns.length,4);
-  btns.forEach((b,i)=>{const L='ABCD'[i];assert.equal(b.dataset.letter,L);assert.equal(b.getAttribute('aria-label'),`Option ${L}: ${b.dataset.answer}`);assert.equal(b.querySelector('.answer-letter').textContent,L);assert.equal(b.querySelector('.answer-letter').getAttribute('aria-hidden'),'true');assert(!b.hasAttribute('aria-describedby'),'options do not repeat the progress')});
+  btns.forEach((b,i)=>{const L='ABCD'[i];assert.equal(b.dataset.letter,L);assert.equal(b.getAttribute('aria-label'),`Option ${L}: ${b.dataset.answer}. Double tap to select.`);assert.equal(b.querySelector('.answer-letter').textContent,L);assert.equal(b.querySelector('.answer-letter').getAttribute('aria-hidden'),'true');assert(!b.hasAttribute('aria-describedby'),'options do not repeat the progress')});
   assert.match($('#game-title').textContent,/^Question 1 of 10\. /);assert.equal($('#round-progress').getAttribute('aria-hidden'),'true');
   const spoken=[...d.querySelectorAll('#view-game *')].filter(el=>!el.closest('[aria-hidden="true"]')&&el.children.length===0).map(el=>el.getAttribute('aria-label')||el.textContent).join(' | ');
   assert.equal((spoken.match(/Question 1 of 10/g)||[]).length,1,'"Question 1 of 10" is exposed once: '+spoken);
