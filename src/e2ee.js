@@ -21,9 +21,9 @@ export const MAX_MESSAGE = 1000;
 export function idbStore(dbName = 'blindquiz-e2ee') {
   const open = () => new Promise((ok, no) => { const r = indexedDB.open(dbName, 1); r.onupgradeneeded = () => r.result.createObjectStore('keys'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
   const run = async (mode, fn) => { const db = await open(); return new Promise((ok, no) => { const tx = db.transaction('keys', mode); const req = fn(tx.objectStore('keys')); tx.oncomplete = () => { ok(req?.result); db.close(); }; tx.onerror = () => { no(tx.error); db.close(); }; }); };
-  return { get: k => run('readonly', s => s.get(k)), set: (k, v) => run('readwrite', s => s.put(v, k)) };
+  return { get: k => run('readonly', s => s.get(k)), set: (k, v) => run('readwrite', s => s.put(v, k)), delete: k => run('readwrite', s => s.delete(k)) };
 }
-export const memoryStore = () => { const m = new Map(); return { get: async k => m.get(k), set: async (k, v) => { m.set(k, v); } }; };
+export const memoryStore = () => { const m = new Map(); return { get: async k => m.get(k), set: async (k, v) => { m.set(k, v); }, delete: async k => m.delete(k) }; };
 
 // Returns { deviceId, privateKey (non-extractable CryptoKey), publicKey (base64 raw, 88 chars) } for this account.
 export async function deviceKey(store, account) {

@@ -59,6 +59,18 @@ void main() {
     expect(kApkUrl, startsWith('https://mahicouragw.github.io/Blind-Quiz/'));
   });
 
+  test('notification tap routes accept only safe destinations and IDs', () {
+    expect(normalizeNotificationRoute(<String, dynamic>{'target': 'home'}), <String, dynamic>{'target': 'home'});
+    expect(normalizeNotificationRoute(<String, dynamic>{'target': 'notification', 'id': '42'}), <String, dynamic>{'target': 'notification', 'id': '42'});
+    expect(normalizeNotificationRoute(<String, dynamic>{'target': 'notification', 'id': '0'}), isNull);
+    expect(normalizeNotificationRoute(<String, dynamic>{'target': 'notification', 'id': 'not-an-id'}), isNull);
+    expect(normalizeNotificationRoute(<String, dynamic>{'target': 'notification', 'id': '9007199254740992'}), isNull);
+    expect(normalizeNotificationRoute(<String, dynamic>{'target': 'unknown'}), isNull);
+    expect(notificationRouteAvailabilityCheck(<String, dynamic>{'target': 'notification', 'id': 42}), 'typeof globalThis.bqOpenNotificationById === "function"');
+    expect(notificationRouteOpenScript(<String, dynamic>{'target': 'notification', 'id': 42}), 'globalThis.bqOpenNotificationById("42");');
+    expect(notificationRouteOpenScript(<String, dynamic>{'target': 'home'}), 'globalThis.bqOpenHomeFromNotification();');
+  });
+
   test('files received from friends get safe names', () {
     expect(safeReceivedName('notes.pdf'), 'notes.pdf');
     expect(safeReceivedName('../../shared_prefs/a.xml'), '__.._shared_prefs_a.xml');
@@ -66,5 +78,6 @@ void main() {
     expect(safeReceivedName(''), 'file');
     expect(safeReceivedName('x' * 200).length, 120);
     expect(kMaxReceivedBytes, 2 * 1024 * 1024 * 1024);
+    expect(kReceivedFileTtl, const Duration(hours: 3));
   });
 }

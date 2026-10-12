@@ -1,28 +1,40 @@
-// Behavioural UI test (jsdom): session restore after reload, expiry, offline, friendly errors, storage hygiene,
+// Behavioural UI test (jsdom): session restore after reload, revoke handling, offline, friendly errors, storage hygiene,
 // legal links. Run: npm i --no-save jsdom@24 && node tests/ui-session.mjs
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { createBoardState, reduceBoardGame } from '../src/board-games.js';
 const ROOT=fileURLToPath(new URL('../',import.meta.url));
 const html=readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,'');
 let n=0;
 const WINDOWS=[]; // src/audio.js is loaded once, so its cached audio elements may belong to an earlier window
-async function boot({session,fetchImpl,local}){
-  const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});
+async function boot({session,fetchImpl,local,nativeBridge,url='https://mahicouragw.github.io/Blind-Quiz/'}){
+  const dom=new JSDOM(html,{url,pretendToBeVisual:true});
   const w=dom.window;WINDOWS.push(w);
-  for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
+  for(const k of ['window','document','localStorage','sessionStorage','navigator','getSelection','HTMLElement','Node','history','location','Audio','HTMLMediaElement','Event'])Object.defineProperty(globalThis,k,{value:w[k],configurable:true,writable:true});
   w.scrollTo=()=>{};globalThis.scrollTo=()=>{};
+  w.confirm=()=>true;Object.defineProperty(globalThis,'confirm',{value:w.confirm.bind(w),configurable:true,writable:true});
+  Object.defineProperty(globalThis,'BQNotify',{value:nativeBridge,configurable:true,writable:true});
+  const backend=await import(ROOT+'src/backend.js');backend.setSession(null);
+  // jsdom does not implement media playback; native controls are represented by HTMLAudioElements in tests.
+  w.HTMLMediaElement.prototype.play=()=>Promise.resolve();w.HTMLMediaElement.prototype.pause=()=>{};w.HTMLMediaElement.prototype.load=()=>{};
+  w.sessionStorage.clear();
   for(const [k,v] of Object.entries(local||{}))w.localStorage.setItem(k,JSON.stringify(v));
   if(session)w.sessionStorage.setItem('blindquiz.session.v1',JSON.stringify(session));
   // Presence heartbeats (Task 19 'touch') are recorded separately so older tests keep checking their own calls.
   const calls=[],beats=[];globalThis.fetch=async(url,init)=>{if(init?.body){const a=JSON.parse(init.body).action;(a==='touch'?beats:calls).push(a)}return fetchImpl(url,init)};
   await import(ROOT+'src/main.js?'+(++n));
+  const gate=w.document.querySelector('#audio-gate');
+  assert(gate?.getAttribute('aria-modal')==='true'&&w.document.querySelector('#main').hasAttribute('inert'),'the mandatory audio gate blocks the app shell on load');
+  w.document.querySelector('#audio-gate-start').click();
+  assert.equal(gate.hidden,true,'the explicit user gesture dismisses the audio gate');
+  assert.equal(w.document.querySelector('#main').inert,false,'the app becomes interactive only after audio start');
   await new Promise(r=>setTimeout(r,200));
   return {w,d:w.document,calls,beats};
 }
 const json=(status,body)=>({ok:status<300,status,json:async()=>body});
-const future=new Date(Date.now()+86400000).toISOString(), past=new Date(Date.now()-1000).toISOString();
+const future=new Date(Date.now()+86400000).toISOString(), past=new Date(Date.now()-8*86400000).toISOString();
 const profile={name:'Asha',xp:10,coins:2,level:1};
 // 1. No session
 let t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
@@ -35,20 +47,42 @@ assert.equal(pl.href,'https://mahicouragw.github.io/Blind-Quiz/privacy-policy.ht
 assert(pl.closest('#view-settings')&&tl.closest('#view-settings'),'links in Settings');
 t.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,100));assert.equal(t.d.querySelector('#view-settings').hidden,false);
 console.log('ok 1 signed-out load, no internal counts, legal links in Settings');
+// Signup name generation is silent, and the button creates another name on demand.
+t.d.querySelector('#account-open').click();t.d.querySelector('[data-auth-tab="signup"]').click();
+let signupName=t.d.querySelector('#signup-name');const suggestionPattern=/^[A-Z][a-z]+ [A-Z][a-z]+ \d{2}$/;
+assert.match(signupName.value,suggestionPattern,'opening account creation immediately fills a name');
+assert.equal(t.d.querySelector('#signup-name-generate').textContent,'Generate name');
+assert.equal(t.d.querySelector('#signup-ai-status'),null,'no provider or fallback status is shown on signup');
+assert.doesNotMatch(t.d.querySelector('#signup-form').textContent,/AI|offline|Gemini/i,'signup presents only the name-generation feature');
+t.d.querySelector('#signup-name-generate').click();assert.match(signupName.value,suggestionPattern,'Generate name immediately supplies a new name');await new Promise(r=>setTimeout(r,500));
+assert.doesNotMatch(t.d.querySelector('#signup-form').textContent,/AI name suggestions are unavailable|offline suggestion|AI-generated/i,'provider availability is never shown to players');
+console.log('ok 1a signup fills a name silently and Generate name can be used again');
+// A successful server-generated name replaces the immediate name, without sending player fields.
+const aiNames=['Bright Comet 42','Curious Fox 38'],suggestionPayloads=[];
+t=await boot({fetchImpl:(u,i)=>{const body=JSON.parse(i.body);if(body.action==='suggest-name'){suggestionPayloads.push(body);return json(200,{ok:true,name:aiNames.shift()})}return json(200,{ok:true,available:true})}});
+t.d.querySelector('#account-open').click();t.d.querySelector('[data-auth-tab="signup"]').click();await new Promise(r=>setTimeout(r,20));
+signupName=t.d.querySelector('#signup-name');assert.equal(signupName.value,'Bright Comet 42');
+t.d.querySelector('#signup-name-generate').click();await new Promise(r=>setTimeout(r,20));assert.equal(signupName.value,'Curious Fox 38');
+assert.deepEqual(suggestionPayloads,[{action:'suggest-name'},{action:'suggest-name'}],'name-generation requests send no player data');await new Promise(r=>setTimeout(r,500));
+console.log('ok 1b server-generated names replace the immediate name without sending signup data');
 // 2. Valid session survives reload
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(200,{ok:true,profile:{...profile,xp:20}})});
 assert.deepEqual(t.calls,['profile']);assert.match(t.d.querySelector('#top-meta').textContent,/Asha/);assert.equal(t.d.querySelector('#logout-button').hidden,false);
 assert.equal(JSON.parse(t.w.sessionStorage.getItem('blindquiz.session.v1')).profile.xp,20);
 console.log('ok 2 valid session restored after reload and re-validated by server');
-// 3. Revoked/expired on server
+// 3. Revoked on server
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(401,{ok:false,code:'session_expired'})});
 assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#top-meta').textContent,'');assert.equal(t.d.querySelector('#logout-button').hidden,true);
 await new Promise(r=>setTimeout(r,100));assert.match(t.d.querySelector('#announcer').textContent,/session has ended/i);
 console.log('ok 3 server-rejected session cleared; signed-out state with announcement');
-// 4. Locally expired
-t=await boot({session:{token:'x'.repeat(43),expiresAt:past,profile},fetchImpl:()=>{throw new Error('no call')}});
-assert.equal(t.calls.length,0);assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
-console.log('ok 4 locally expired session discarded without network');
+// A newly restricted account is signed out locally and shown the admin-review explanation after reload.
+t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(403,{ok:false,code:'account_restricted'})});
+assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#top-meta').textContent,'');assert.equal(t.d.querySelector('#view-auth').hidden,false);assert.match(t.d.querySelector('#login-error').textContent,/restricted after admin review/);
+console.log('ok 3a active restrictions clear the local session and explain the admin-reviewed access restriction');
+// 4. A legacy seven-day timestamp does not expire a session; the server decides whether it was revoked.
+t=await boot({session:{token:'x'.repeat(43),expiresAt:past,profile},fetchImpl:()=>json(200,{ok:true,profile})});
+assert.deepEqual(t.calls,['profile']);assert(t.w.sessionStorage.getItem('blindquiz.session.v1'));assert.equal(t.d.querySelector('#logout-button').hidden,false);
+console.log('ok 4 legacy seven-day expiry is ignored and the existing token is revalidated by the server');
 // 5. Offline: keep session
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>{throw new TypeError('Failed to fetch')}});
 assert(t.w.sessionStorage.getItem('blindquiz.session.v1'));assert.equal(t.d.querySelector('#logout-button').hidden,false);
@@ -61,18 +95,28 @@ t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelabl
 const err=t.d.querySelector('#login-error');assert.equal(err.hidden,false);assert(!/service_error|500|supabase/i.test(err.textContent),err.textContent);
 assert.equal(t.w.localStorage.getItem('blindquiz.remembered.v1'),null,'nothing remembered on failure');
 console.log('ok 6 failed login shows friendly error only:',JSON.stringify(err.textContent));
-// 7. Successful login stores token only in sessionStorage, never the answer
-t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:future,profile}):json(200,{ok:true,question:'Q?'})}});
+// 7. Successful login stores a token in tab storage by default, never the answer
+t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:null,profile}):json(200,{ok:true,question:'Q?'})}});
 t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
 t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCDEFGH';t.d.querySelector('#login-answer').value='mysecret';
 t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,150));
 const all=JSON.stringify({...t.w.localStorage})+JSON.stringify({...t.w.sessionStorage});
 assert(!all.includes('mysecret'));assert(!JSON.stringify({...t.w.localStorage}).includes('tttt'),'token not in localStorage');assert.equal(t.d.querySelector('#login-answer').value,'');
-console.log('ok 7 login: token only in sessionStorage, secret answer never stored');
-// 8. Logout clears
-t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,100));
-assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
-console.log('ok 8 logout clears session');
+console.log('ok 7 login: tab-scoped token by default; secret answer never stored');
+// 7b. Explicitly opting in persists the session across app/browser restarts and server validation still runs.
+t=await boot({fetchImpl:(u,i)=>{const a=JSON.parse(i.body).action;return a==='login'?json(200,{ok:true,firstLogin:false,token:'p'.repeat(43),expiresAt:null,profile}):json(200,{ok:true,profile})}});
+t.d.querySelector('#account-open').click();await new Promise(r=>setTimeout(r,80));
+t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCDEFGH';t.d.querySelector('#login-answer').value='mysecret';t.d.querySelector('#remember-session').checked=true;
+t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,150));
+assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert(JSON.parse(t.w.localStorage.getItem('blindquiz.persisted-session.v1')).token==='p'.repeat(43));assert(!JSON.stringify({...t.w.localStorage}).includes('mysecret'));
+const rememberedSession=JSON.parse(t.w.localStorage.getItem('blindquiz.persisted-session.v1'));
+const restored=await boot({local:{'blindquiz.persisted-session.v1':rememberedSession},fetchImpl:()=>json(200,{ok:true,profile})});
+await new Promise(r=>setTimeout(r,80));assert.equal(restored.d.querySelector('#top-meta').textContent,'Signed in as Asha');
+console.log('ok 7b opt-in session survives reload and is revalidated');
+// 8. Logout clears either kind of session
+t=restored;t.d.querySelector('#logout-button').click();await new Promise(r=>setTimeout(r,100));
+assert.equal(t.w.sessionStorage.getItem('blindquiz.session.v1'),null);assert.equal(t.w.localStorage.getItem('blindquiz.persisted-session.v1'),null);assert.equal(t.d.querySelector('#logout-button').hidden,true);
+console.log('ok 8 logout clears persisted session');
 // 9. Back button returns from a sub-view to Home (Android WebView back / browser back)
 t=await boot({fetchImpl:()=>{throw new Error('none')}});
 const L0=t.w.history.length;
@@ -86,14 +130,14 @@ assert.equal(t.d.querySelector('#view-home').hidden,false);assert.equal(t.w.hist
 console.log('ok 9 back navigation returns to Home');
 // 10. Every category and every mode starts, plays to the results screen, and Play again works.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   t=await boot({fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms));
   const play=async()=>{d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);assert(d.querySelector('.answer-button'),'question appears after the countdown');
     for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.answer-button:not([aria-disabled])')?.click();await wait(5);d.querySelector('.next-question')?.click();await wait(5)}
     assert.equal(d.querySelector('#view-results').hidden,false,'round reaches results')};
   const cats=[...d.querySelectorAll('#category-list [data-category]')].map(b=>b.dataset.category);
-  assert.equal(cats.length,25);for(const c of ['medical','math','physics','chemistry','biology'])assert(cats.includes(c),`${c} category listed`);
+  assert.equal(cats.length,30);for(const c of ['medical','math','physics','chemistry','biology','mathematics','health','literature','food','arts'])assert(cats.includes(c),`${c} category listed`);
   for(const c of cats){d.querySelector('#view-results [data-go="home"]')?.click();go:{d.querySelector(`#category-list [data-category="${c}"]`).click()}await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,`${c} opens`);await play()}
   for(const m of [...d.querySelectorAll('#mode-list [data-mode]')].map(b=>b.dataset.mode).filter(m=>m!=='letters')){d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector(`#mode-list [data-mode="${m}"]`).click();await wait(5);await play()}
   d.querySelector('#play-again').click();await wait(5);await play();
@@ -115,8 +159,43 @@ console.log('ok 9 back navigation returns to Home');
   await wait(60);assert.equal(d.querySelector('#view-home').hidden,false,'timer does not drag the player back');
   d.querySelector('#random-category').click();await wait(5);assert.equal(d.querySelector('#view-game').hidden,false,'Surprise me opens a game');await play();
   d.querySelector('#view-results [data-go="home"]').click();await wait(5);d.querySelector('.callout [data-category="braille"]').click();await wait(5);assert.match(d.querySelector('#round-label').textContent,/BRAILLE/);
+  // A server-verified mismatch must reconcile the local score and terminate Survival on that miss.
+  const verifiedProfile={...profile,currentStreak:0};
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(u,i)=>{if(!i?.body)return json(404,{});const action=JSON.parse(i.body).action;return action==='record-answer'?json(200,{ok:true,correct:false,alreadyAnswered:false,xp:0,coins:0,profile:verifiedProfile}):json(200,{ok:true,profile:verifiedProfile})}});
+  const dm=t.d,wait2=ms=>new Promise(r=>fast(r,ms));dm.querySelector('#mode-list [data-mode="survival"]').click();await wait2(5);dm.querySelector('#game-start').click();
+  for(let i=0;i<100&&!dm.querySelector('.answer-button');i++)await wait2(5);
+  const questionTitle=dm.querySelector('#game-title').textContent;const {QUESTION_BANK}=await import(ROOT+'src/content.js');const localQuestion=QUESTION_BANK.find(q=>questionTitle.endsWith(q.question));
+  [...dm.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===localQuestion.correctAnswer).click();await wait2(10);
+  assert.match(dm.querySelector('#answer-feedback').textContent,/Incorrect/);assert.equal(dm.querySelector('.next-question').textContent,'View results');
+  dm.querySelector('.next-question').click();await wait2(10);assert.equal(dm.querySelector('#result-score').textContent,'0 correct out of 1');assert.match(dm.querySelector('#result-message').textContent,/Survival run ended on a miss/);
   globalThis.setTimeout=fast;
-  console.log(`ok 10 all ${cats.length} categories and 6 modes play to results; leaving mid-countdown/mid-timer never blocks the next game`);
+  console.log(`ok 10 all ${cats.length} categories and 11 quiz modes play to results; leaving mid-countdown/mid-timer never blocks the next game`);
+}
+// 10a. Telugu starter UI, localized voice instructions and a selectable stage use the translated quiz bank.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
+  t=await boot({local:{'bq.settings':{language:'te',quizDifficulty:'easy',quizRoundLength:5,quizStage:1}},fetchImpl:()=>{throw new Error('offline')}});
+  const d=t.d;assert.equal(d.documentElement.lang,'te-IN');assert.equal(d.querySelectorAll('#category-list [data-category]').length,12);
+  const languageChoice=d.querySelector('#language-choice');assert(languageChoice.closest('#view-settings'),'language selection is kept in Settings');assert.equal(d.querySelector('#view-home #language-choice'),null,'language selection is removed from quiz setup');
+  assert.equal(languageChoice.value,'te');assert.equal(d.querySelector('#quiz-stage').value,'1');assert.equal(d.querySelector('#quiz-difficulty').value,'easy');assert.equal(d.querySelector('#quiz-round-length').value,'5');
+  d.querySelector('#settings-open').click();await new Promise(r=>fast(r,5));languageChoice.value='en';languageChoice.dispatchEvent(new t.w.Event('change',{bubbles:true}));assert.equal(d.documentElement.lang,'en');assert.equal(JSON.parse(t.w.localStorage.getItem('bq.settings')).language,'en','language changes are persisted from Settings');languageChoice.value='te';languageChoice.dispatchEvent(new t.w.Event('change',{bubbles:true}));assert.equal(d.documentElement.lang,'te-IN');d.querySelector('#view-settings [data-go="home"]').click();await new Promise(r=>fast(r,5));
+  assert(d.querySelector('#mode-list [data-mode="vocabulary"]').disabled,'unsupported Telugu modes are not presented as playable');
+  let spoken=null;t.w.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};t.w.speechSynthesis={cancel(){},getVoices:()=>[{lang:'te-IN'}],speak(u){spoken=u}};
+  d.querySelector('#voice-instructions').click();assert.equal(spoken.lang,'te-IN');assert.match(spoken.text,/బ్లైండ్ క్విజ్/);
+  d.querySelector('#play-featured').click();assert.match(d.querySelector('#round-label').textContent,/దశ 1/);assert.equal(d.querySelector('#round-progress').textContent,'5 ప్రశ్నలు');
+  d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await new Promise(r=>fast(r,5));
+  const {QUESTION_BANK}=await import(ROOT+'src/content.js'),{localizedBank}=await import(ROOT+'src/language.js'),bank=localizedBank(QUESTION_BANK,'te');
+  for(let n=0;n<5;n++){
+    const title=d.querySelector('#game-title').textContent,question=bank.find(q=>title.endsWith(q.question));assert(question,'the displayed question is a translated starter question');
+    if(n===0)assert(title.match(/\p{Script=Telugu}/u));
+    const right=[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===question.correctAnswer);right.click();
+    for(let i=0;i<100&&!d.querySelector('.next-question');i++)await new Promise(r=>fast(r,5));
+    assert.match(d.querySelector('#answer-feedback').textContent,/సరైన సమాధానం/);
+    d.querySelector('.next-question').click();if(n<4)for(let i=0;i<100&&!d.querySelector('.answer-button:not([aria-disabled])');i++)await new Promise(r=>fast(r,5));
+  }
+  assert.equal(d.querySelector('#view-results').hidden,false);assert.equal(t.w.localStorage.getItem('bq.quizProgress.v1.guest'),'2','a cleared stage unlocks the next numbered stage');assert.equal(d.querySelector('#quiz-stage option[value="2"]').disabled,false);
+  globalThis.setTimeout=fast;
+  console.log('ok 10a Telugu starter UI, voice instructions, stage difficulty/length and translated answer feedback');
 }
 // 11. Signed-in players see their profile, not a sign-in prompt.
 t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}},fetchImpl:()=>json(200,{ok:true,profile:{...profile,name:'goldfish',questionsAnswered:4,questionsCorrect:3,currentStreak:2,bestStreak:3}})});
@@ -128,7 +207,7 @@ assert.match(t.d.querySelector('#profile-stats').textContent,/Player, goldfish.*
 console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile with stats');
 // 12. Recorded sounds: correct/wrong answers, countdown, GO, results, and music per screen.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   const manifestBody=JSON.parse(readFileSync(ROOT+'assets/audio/manifest.json','utf8'));
   t=await boot({fetchImpl:(u)=>String(u).includes('manifest.json')?json(200,manifestBody):(()=>{throw new Error('offline')})()});
   const played=[];t.w.HTMLMediaElement.prototype.play=function(){played.push(this.src.split('/').pop().split('?')[0]);return Promise.resolve()};t.w.HTMLMediaElement.prototype.pause=function(){};
@@ -159,7 +238,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 }
 // 13. TalkBack: after answering, focus lands on the result (verdict, correct answer, XP, coins, streak), never on sign-in UI.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   const { QUESTION_BANK }=await import(ROOT+'src/content.js');
   const p0={...profile,name:'goldfish',currentStreak:4,bestStreak:4,questionsAnswered:4,questionsCorrect:4};
   t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:p0,loginId:'ABCD2345'},fetchImpl:(u,init)=>{const b=init?.body?JSON.parse(init.body):{};
@@ -171,12 +250,15 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   for(const v of d.querySelectorAll('.view'))if(v.id!=='view-game')assert(v.hidden&&v.inert&&v.getAttribute('aria-hidden')==='true',`${v.id} hidden from the accessibility tree`);
   assert(d.querySelector('#view-auth').inert,'sign-in view is inert during a game');
   d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  for(let i=0;i<20&&!/Answer choices:/.test(d.querySelector('#announcer').textContent);i++)await wait(5);
+  assert.match(d.querySelector('#announcer').textContent,/Answer choices: Option A: .+\. Double tap to select\. Option B: .+\. Double tap to select\. Option C: .+\. Double tap to select\. Option D: .+\. Double tap to select\./,'TalkBack receives full option labels and the selection hint when a question starts');
   const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));
   const right=[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===q.correctAnswer);right.focus();right.click();
   for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);await wait(20);
   const fb=d.querySelector('#answer-feedback');
   assert.equal(d.activeElement,fb,'focus moves to the result, got '+(d.activeElement?.id||d.activeElement?.tagName));
   assert.match(fb.textContent,/^Correct! The answer is .+ You earned 10 XP and 2 coins\. Streak: 5 in a row\./);
+  assert.match(fb.textContent,/Next question starts in 6 seconds\. Choose Next question to continue now\./,'result explains the six-second auto-advance and manual control');
   assert(fb.compareDocumentPosition(d.querySelector('.next-question'))&4,'Next question follows the result');
   assert(!d.activeElement.closest('#view-auth, form, input'),'focus is not on sign-in UI');
   assert(!d.querySelectorAll('.answer-button[disabled]').length,'answer buttons stay focusable (aria-disabled)');
@@ -191,6 +273,142 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(d.activeElement.textContent,new RegExp(`^Incorrect\\. You chose [A-D]: .+ The correct answer is [A-D]: ${q2.correctAnswer.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\..*Streak reset\\.`));
   globalThis.setTimeout=fast;
   console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
+}
+// TalkBack is one persisted gate for app live announcements and explicit device speech; announcement channels never duplicate.
+{
+  const nativeSetTimeout=globalThis.setTimeout,oldSynth=Object.getOwnPropertyDescriptor(globalThis,'speechSynthesis'),oldUtterance=Object.getOwnPropertyDescriptor(globalThis,'SpeechSynthesisUtterance'),spoken=[];let cancellations=0;
+  class TestUtterance{constructor(text){this.text=text}}
+  Object.defineProperty(globalThis,'SpeechSynthesisUtterance',{value:TestUtterance,configurable:true,writable:true});
+  Object.defineProperty(globalThis,'speechSynthesis',{value:{cancel(){cancellations++},getVoices:()=>[{lang:'en-IN'}],speak(utterance){spoken.push({text:utterance.text,lang:utterance.lang})}},configurable:true,writable:true});
+  globalThis.setTimeout=(fn,ms,...args)=>nativeSetTimeout(fn,Math.min(ms||0,3),...args);
+  try{
+    t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
+    const d=t.d,wait=ms=>new Promise(r=>nativeSetTimeout(r,ms)),toggle=d.querySelector('#talkback-enabled');
+    assert.equal(toggle.checked,true,'TalkBack announcements start enabled by default');
+    const welcome=d.querySelector('#announcer').textContent;
+    assert.equal(welcome,'Welcome to Accessible Quiz Game, created by K M Sanjay. Screen reader announcements are ON. Swipe right or press Next to navigate.','the opening greeting exactly identifies the game and creator and gives a navigation cue');
+    assert.equal(spoken.length,0,'the opening greeting uses the screen-reader channel rather than speaking it twice with device TTS');
+    d.querySelector('#voice-instructions').click();
+    assert.match(spoken.at(-1).text,/Welcome to Blind Quiz/,'the explicit Hear how to play control uses device TTS while enabled');
+    assert.equal(d.querySelector('#announcer').textContent,welcome,'explicit TTS does not also update the live region');
+    d.querySelector('#settings-open').click();await wait(80);assert.equal(d.querySelector('#view-settings').hidden,false);
+    const cancelBefore=cancellations;toggle.checked=false;toggle.dispatchEvent(new t.w.Event('change',{bubbles:true}));await wait(50);
+    assert.equal(toggle.checked,false);assert(cancellations>cancelBefore,'turning announcements off immediately cancels active TTS');
+    assert.equal(d.querySelector('#announcer').textContent,'TalkBack announcements turned OFF.','only the final off confirmation is emitted');
+    assert.equal(d.querySelector('#quiz-stage-status').getAttribute('aria-live'),'off','existing app live regions are muted globally');
+    assert.equal(d.querySelector('#assertive-announcer').getAttribute('aria-live'),'off','assertive app announcements are muted too');
+    const dynamicStatus=d.createElement('p');dynamicStatus.setAttribute('role','status');dynamicStatus.setAttribute('aria-live','polite');d.body.append(dynamicStatus);await wait(10);
+    assert.equal(dynamicStatus.getAttribute('aria-live'),'off','newly created live regions are muted while the global setting is off');
+    const offCount=spoken.length;
+    d.querySelector('#view-settings [data-go="home"]').click();await wait(50);d.querySelector('#voice-instructions').click();
+    d.querySelector('#category-list [data-category="business"]').click();d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+    assert.equal(spoken.length,offCount,'TTS does not resume for instructions, questions, or choices while disabled');
+    assert.equal(d.querySelector('#announcer').textContent,'TalkBack announcements turned OFF.','subsequent app events do not update live announcements while disabled');
+    d.querySelector('#settings-open').click();await wait(10);if(!d.querySelector('#exit-confirm').hidden)d.querySelector('#exit-leave').click();await wait(80);assert.equal(d.querySelector('#view-settings').hidden,false,'the settings menu can be reopened after the quiz exit confirmation');const nextToggle=d.querySelector('#talkback-enabled');
+    nextToggle.checked=true;nextToggle.dispatchEvent(new t.w.Event('change',{bubbles:true}));await wait(50);
+    assert.equal(d.querySelector('#announcer').textContent,'TalkBack announcements turned ON.');
+    assert.equal(dynamicStatus.getAttribute('aria-live'),'polite','enabling restores the original live-region behavior');
+    assert.equal(JSON.parse(t.w.localStorage.getItem('bq.settings')).talkBackEnabled,true,'the global setting persists');
+    assert.equal(spoken.length,offCount,'turning announcements back on uses one screen-reader confirmation, not duplicate TTS');
+    d.querySelector('#view-settings [data-go="home"]').click();await wait(50);d.querySelector('#category-list [data-category="business"]').click();d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!/Answer choices:/.test(d.querySelector('#announcer').textContent);i++)await wait(5);
+    assert.match(d.querySelector('#announcer').textContent,/Answer choices: Option A: .+Double tap to select/,'enabled TalkBack receives full descriptive answer options');
+    assert.equal(spoken.length,offCount,'dynamic screen-reader details use one channel and do not trigger TTS a second time');
+    const beforeLegacy=spoken.length;
+    t=await boot({local:{'bq.settings':{speech:false,voiceAnnouncements:true,sfx:false,music:false}},fetchImpl:()=>{throw new Error('no network expected')}});
+    assert.equal(t.d.querySelector('#talkback-enabled').checked,false,'legacy screen-reader-off preference migrates to the unified setting');
+    assert.equal(t.d.querySelector('#announcer').textContent,'','a saved disabled preference suppresses the opening announcement');
+    assert.equal(spoken.length,beforeLegacy,'a saved disabled preference suppresses device TTS too');
+  }finally{
+    globalThis.setTimeout=nativeSetTimeout;
+    if(oldSynth)Object.defineProperty(globalThis,'speechSynthesis',oldSynth);else delete globalThis.speechSynthesis;
+    if(oldUtterance)Object.defineProperty(globalThis,'SpeechSynthesisUtterance',oldUtterance);else delete globalThis.SpeechSynthesisUtterance;
+  }
+  console.log('ok 13b one TalkBack setting persists, announces welcome and ON/OFF, gates all live regions and explicit TTS');
+}
+// Timed questions play the existing recorded clock tick, with ticks throughout 15 seconds or the final 15 of 30.
+{
+  const nativeSetTimeout=globalThis.setTimeout,nativeSetInterval=globalThis.setInterval,nativeClearInterval=globalThis.clearInterval,intervals=[],mediaMethods=[],manifestBody=JSON.parse(readFileSync(ROOT+'assets/audio/manifest.json','utf8'));
+  globalThis.setTimeout=(fn,ms,...args)=>nativeSetTimeout(fn,Math.min(ms||0,3),...args);
+  globalThis.setInterval=(fn,ms,...args)=>{const item={fn,ms,args,id:intervals.length+1};intervals.push(item);return item.id};
+  globalThis.clearInterval=()=>{};
+  try{
+    t=await boot({local:{'bq.settings':{timer:15,sfx:true,music:false,voiceAnnouncements:false}},fetchImpl:u=>String(u).includes('manifest.json')?json(200,manifestBody):(()=>{throw new Error('no network expected')})()});
+    const played=[];
+    // audio.js caches media elements from the first window that loads its manifest, so instrument every test window.
+    for(const w of WINDOWS){const proto=w.HTMLMediaElement.prototype;mediaMethods.push([proto,proto.play,proto.pause]);proto.play=function(){played.push(this.src.split('/').pop().split('?')[0]);return Promise.resolve()};proto.pause=function(){}}
+    const d=t.d,wait=ms=>new Promise(r=>nativeSetTimeout(r,ms));
+    d.querySelector('#category-list [data-category="business"]').click();d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+    await wait(25);const countTicks=()=>played.filter(name=>name==='tick.mp3').length;
+    assert(countTicks()>=4,'countdown ticks plus the first timed-question tick use the recorded sound');
+    const timer=intervals.find(item=>item.ms===1000);assert(timer,'15-second timer is active');timer.fn(...timer.args);await wait(25);
+    assert(countTicks()>=5,'a recorded tick plays again on the next second');
+  }finally{globalThis.setTimeout=nativeSetTimeout;globalThis.setInterval=nativeSetInterval;globalThis.clearInterval=nativeClearInterval;for(const [proto,play,pause] of mediaMethods){proto.play=play;proto.pause=pause}}
+  console.log('ok 13c recorded tick sound tracks timed questions without depending on TalkBack');
+}
+// Quiz feedback advances after six seconds, while manual advance cancels its pending timer.
+{
+  const nativeSet=globalThis.setTimeout,nativeClear=globalThis.clearTimeout,pending=new Map();let id=100000;
+  globalThis.setTimeout=(fn,ms,...args)=>{if(ms===6000){const key=++id;pending.set(key,()=>fn(...args));return key}return nativeSet(fn,Math.min(ms||0,2),...args)};
+  globalThis.clearTimeout=key=>{if(pending.delete(key))return;nativeClear(key)};
+  try{
+    const {QUESTION_BANK}=await import(ROOT+'src/content.js');
+    t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});const d=t.d,wait=ms=>new Promise(r=>nativeSet(r,ms));
+    d.querySelector('#category-list [data-category="business"]').click();await wait(10);d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+    const answerRight=()=>{const q=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer===q.correctAnswer).click()};
+    answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);
+    const firstTimer=[...pending.keys()].at(-1);assert(firstTimer,'answer feedback schedules a six-second timer');
+    const firstAuto=pending.get(firstTimer);pending.delete(firstTimer);firstAuto();
+    assert.match(d.querySelector('#round-progress').textContent,/Question 2 of/,'the timer advances to the next quiz question');
+    answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);
+    const secondTimer=[...pending.keys()].at(-1);assert(secondTimer,'each answered question gets a fresh timer');
+    d.querySelector('.next-question').click();
+    assert(!pending.has(secondTimer),'manual advance cancels the scheduled auto-advance');
+    assert.match(d.querySelector('#round-progress').textContent,/Question 3 of/,'manual advance remains available');
+    for(let question=3;question<=10;question++){
+      answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);
+      const timer=[...pending.keys()].at(-1);assert(timer,`question ${question} has its own auto-advance`);
+      if(question===10)assert.match(d.querySelector('#answer-feedback').textContent,/Results appear in 6 seconds\. Choose View results to view them now\./);
+      const auto=pending.get(timer);pending.delete(timer);auto();
+      if(question<10)assert.match(d.querySelector('#round-progress').textContent,new RegExp(`Question ${question+1} of`));
+    }
+    assert.equal(d.querySelector('#view-results').hidden,false,'the final six-second advance opens results');
+  }finally{globalThis.setTimeout=nativeSet;globalThis.clearTimeout=nativeClear;pending.clear()}
+  console.log('ok 13a quiz auto-advance: six-second timer advances once; manual Next cancels it');
+}
+// Auto-advance and question timer choices persist, including manual-only mode and longer 45/60-second clocks.
+{
+  const nativeSet=globalThis.setTimeout,nativeClear=globalThis.clearTimeout,pending=new Map();let id=200000;
+  globalThis.setTimeout=(fn,ms,...args)=>{if(ms===10000||ms===15000){const key=++id;pending.set(key,{ms,run:()=>fn(...args)});return key}return nativeSet(fn,Math.min(ms||0,2),...args)};
+  globalThis.clearTimeout=key=>{pending.delete(key);nativeClear(key)};
+  try{
+    const {QUESTION_BANK}=await import(ROOT+'src/content.js');
+    t=await boot({fetchImpl:()=>{throw new Error('no network expected')}});const d=t.d,w=t.w,wait=ms=>new Promise(r=>nativeSet(r,ms));
+    assert.equal(d.querySelector('#auto-advance-choice').value,'6','the existing six-second behavior remains the default');
+    assert.deepEqual([...d.querySelector('#timer-choice').options].map(option=>option.value),['0','15','30','45','60'],'timer settings offer up to a 60-second question');
+    async function setPreferences(auto,timer){
+      if(d.querySelector('#view-settings').hidden){d.querySelector('#settings-open').click();await wait(5);if(!d.querySelector('#exit-confirm').hidden)d.querySelector('#exit-leave').click();await wait(10)}
+      assert.equal(d.querySelector('#view-settings').hidden,false,'settings opens from the current view');
+      d.querySelector('#auto-advance-choice').value=String(auto);d.querySelector('#timer-choice').value=String(timer);d.querySelector('#save-settings').click();await wait(10);
+      const saved=JSON.parse(w.localStorage.getItem('bq.settings'));assert.equal(saved.autoAdvanceSeconds,auto);assert.equal(saved.timer,timer);
+    }
+    async function startQuiz(){
+      d.querySelector('#category-list [data-category="business"]').click();await wait(5);d.querySelector('#game-start').click();
+      for(let i=0;i<100&&!/^Question 1 of 10/.test(d.querySelector('#game-title').textContent);i++)await wait(5);
+      assert.match(d.querySelector('#game-title').textContent,/^Question 1 of 10\./,'a fresh round reaches question one');
+    }
+    function answerRight(){const q=QUESTION_BANK.find(question=>d.querySelector('#game-title').textContent.endsWith(question.question));assert(q,'current quiz question is in the bank');d.querySelectorAll('.answer-button').forEach(button=>{if(button.dataset.answer===q.correctAnswer)button.click()})}
+    async function finishAnswer(){answerRight();for(let i=0;i<50&&!d.querySelector('.next-question');i++)await wait(5);assert(d.querySelector('.next-question'),'answer feedback offers a manual Next button')}
+    async function expectDelay(seconds){const match=[...pending].find(([,item])=>item.ms===seconds*1000);assert(match,`${seconds}-second auto-advance is scheduled`);assert.match(d.querySelector('#answer-feedback').textContent,new RegExp(`Next question starts in ${seconds} seconds`));pending.delete(match[0]);match[1].run();for(let i=0;i<100&&!/Question 2 of 10/.test(d.querySelector('#round-progress').textContent);i++)await wait(5);assert.match(d.querySelector('#round-progress').textContent,/Question 2 of 10/,'auto-advance moves to the next question at the selected delay')}
+    async function manualOnly(){assert(![...pending.values()].some(item=>item.ms===10000||item.ms===15000),'Off schedules no automatic question shift');assert.doesNotMatch(d.querySelector('#answer-feedback').textContent,/Next question starts in|Results appear in/,'Off does not announce an automatic move');d.querySelector('.next-question').click();assert.match(d.querySelector('#round-progress').textContent,/Question 2 of 10/,'Next still advances manually when auto-advance is off')}
+    await setPreferences(10,45);await startQuiz();assert.equal(d.querySelector('#hud-seconds').textContent,'45s','the 45-second timer is used for a quiz');await finishAnswer();await expectDelay(10);
+    await setPreferences(15,60);await startQuiz();assert.equal(d.querySelector('#hud-seconds').textContent,'60s','the 60-second timer is used for a quiz');await finishAnswer();await expectDelay(15);
+    await setPreferences(0,0);await startQuiz();assert.equal(d.querySelector('#hud-timer').hidden,true,'timer Off remains available');await finishAnswer();await manualOnly();
+  }finally{globalThis.setTimeout=nativeSet;globalThis.clearTimeout=nativeClear;pending.clear()}
+  console.log('ok 13d auto-advance Off/10/15 seconds and 45/60-second question timers persist and work');
 }
 // 14. Profile Change: read-only User ID, username cooldown message, uniqueness error, current answer required, instant refresh.
 {
@@ -326,13 +544,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 }
 // 16. Options are A, B, C, D; "Question 1 of 10" is spoken once (title only), never repeated on every option.
 {
-  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>ms===6000?0:fast(f,Math.min(ms||0,2));
   t=await boot({fetchImpl:()=>{throw new Error('offline')}});
   const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
   $('#category-list [data-category="history"]').click();await wait(10);$('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
   const btns=[...d.querySelectorAll('.answer-button')];
   assert.equal(btns.length,4);
-  btns.forEach((b,i)=>{const L='ABCD'[i];assert.equal(b.dataset.letter,L);assert.equal(b.getAttribute('aria-label'),`Option ${L}: ${b.dataset.answer}`);assert.equal(b.querySelector('.answer-letter').textContent,L);assert.equal(b.querySelector('.answer-letter').getAttribute('aria-hidden'),'true');assert(!b.hasAttribute('aria-describedby'),'options do not repeat the progress')});
+  btns.forEach((b,i)=>{const L='ABCD'[i];assert.equal(b.dataset.letter,L);assert.equal(b.getAttribute('aria-label'),`Option ${L}: ${b.dataset.answer}. Double tap to select.`);assert.equal(b.querySelector('.answer-letter').textContent,L);assert.equal(b.querySelector('.answer-letter').getAttribute('aria-hidden'),'true');assert(!b.hasAttribute('aria-describedby'),'options do not repeat the progress')});
   assert.match($('#game-title').textContent,/^Question 1 of 10\. /);assert.equal($('#round-progress').getAttribute('aria-hidden'),'true');
   const spoken=[...d.querySelectorAll('#view-game *')].filter(el=>!el.closest('[aria-hidden="true"]')&&el.children.length===0).map(el=>el.getAttribute('aria-label')||el.textContent).join(' | ');
   assert.equal((spoken.match(/Question 1 of 10/g)||[]).length,1,'"Question 1 of 10" is exposed once: '+spoken);
@@ -348,13 +566,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
 { // 18. Settings > Send feedback: name check, problem screenshot prompt, send; admin inbox for Goldfish only.
   const sent=[];const shot='data:image/jpeg;base64,/9j/AAAA';
   const items=[{id:7,name:'Asha',kind:'problem',message:'The timer froze.\nOn question 3.',hasScreenshot:true,createdAt:'2026-10-06T10:00:00Z',read:false},{id:6,name:'Ravi',kind:'idea',message:'More music please',hasScreenshot:false,createdAt:'2026-10-05T10:00:00Z',read:true}];
-  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});if(b.action==='admin-feedback-reply')return json(200,{ok:true});if(b.action==='admin-announce')return json(200,{ok:true,sent:364});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});return json(400,{ok:false,code:'invalid_request'})};
+  const api=(admin)=>(url,init)=>{const b=JSON.parse(init.body);sent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,loginId:'ABCDEFGH',isAdmin:admin}});if(b.action==='submit-feedback')return json(201,{ok:true});if(b.action==='feedback-inbox')return json(200,{ok:true,unread:1,items});if(b.action==='feedback-item')return json(200,{ok:true,id:7,screenshot:shot});if(b.action==='admin-feedback-reply')return json(200,{ok:true});if(b.action==='admin-monitor')return json(200,{ok:true,generatedAt:new Date().toISOString(),registeredAccounts:680,onlineNow:2,seenLast24Hours:14,createdLast7Days:3,onlinePlayers:[{name:'Asha',activity:'Playing Quiz',lastSeenAt:new Date().toISOString()},{name:'Ravi',activity:'Online in Blind Quiz (screen not tracked)',lastSeenAt:new Date().toISOString()}]});if(b.action==='admin-announce')return json(200,{ok:true,sent:364});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});return json(400,{ok:false,code:'invalid_request'})};
   let s=await boot({fetchImpl:()=>{throw new Error('no network expected')}});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,80));
   assert.equal(s.d.querySelector('#feedback-signin').hidden,false);assert.equal(s.d.querySelector('#feedback-name-form').hidden,true);assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true);
   s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,loginId:'ABCDEFGH'}},fetchImpl:api(false)});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,120));
-  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true,'players never see the inbox');
+  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,true,'players never see admin tools');assert.equal(s.d.querySelector('#open-player-monitor').closest('#admin-inbox-box').hidden,true,'non-admins cannot open the player monitor');
   const nf=s.d.querySelector('#feedback-name-form'),ff=s.d.querySelector('#feedback-form'),st=s.d.querySelector('#feedback-status');
   assert.equal(nf.hidden,false);assert.equal(ff.hidden,true);
   s.d.querySelector('#feedback-name').value='Someone Else';nf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));
@@ -370,7 +588,13 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Admin (Goldfish) sees the inbox, opens it, and views a screenshot.
   sent.length=0;s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:api(true)});
   s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,120));
-  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,false,'the admin sees the inbox entry');
+  assert.equal(s.d.querySelector('#admin-inbox-box').hidden,false,'the admin sees admin tools');
+  s.d.querySelector('#open-player-monitor').click();await new Promise(r=>setTimeout(r,120));
+  assert.equal(s.d.querySelector('#view-admin-monitor').hidden,false,'admin can open the read-only player monitor');
+  assert.equal(s.d.querySelector('#monitor-registered').textContent,'680');assert.equal(s.d.querySelector('#monitor-online').textContent,'2');assert.equal(s.d.querySelector('#monitor-active-day').textContent,'14');assert.equal(s.d.querySelector('#monitor-new-week').textContent,'3');
+  assert.match(s.d.querySelector('#admin-active-list').textContent,/Asha.*Playing Quiz.*Ravi.*Online in Blind Quiz/s);assert.equal(sent.filter(b=>b.action==='admin-monitor').length,1);
+  s.d.querySelector('#admin-monitor-refresh').click();await new Promise(r=>setTimeout(r,80));assert.equal(sent.filter(b=>b.action==='admin-monitor').length,2,'admin can manually refresh the read-only snapshot');
+  s.d.querySelector('#view-admin-monitor [data-go="settings"]').click();await new Promise(r=>setTimeout(r,80));
   s.d.querySelector('#open-inbox').click();await new Promise(r=>setTimeout(r,120));
   assert.equal(s.d.querySelector('#view-inbox').hidden,false);const lis=s.d.querySelectorAll('#inbox-list li');assert.equal(lis.length,2);
   assert.equal(lis[0].querySelector('h2').textContent,'Problem report from Asha');assert.match(lis[0].querySelector('.inbox-meta').textContent,/New · Screenshot attached/);assert.equal(lis[0].querySelector('.inbox-message').textContent,'The timer froze.\nOn question 3.');
@@ -381,9 +605,73 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Task 19: the admin replies (the player is notified) and sends an announcement.
   {const rf=lis[1].querySelector('.inbox-reply form');rf.querySelector('textarea').value='Thanks, fixed now.';rf.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
    const rep=sent.find(b=>b.action==='admin-feedback-reply');assert.equal(rep.reply,'Thanks, fixed now.');assert.match(lis[1].querySelector('.feedback-reply').textContent,/Your reply: Thanks, fixed now\./);
-   const af=s.d.querySelector('#announce-form');s.d.querySelector('#announce-text').value='A new game was added: Sound Match';af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
-   assert.deepEqual(sent.find(b=>b.action==='admin-announce'),{action:'admin-announce',text:'A new game was added: Sound Match'});}
+   const af=s.d.querySelector('#announce-form');let confirmation='';globalThis.confirm=message=>{confirmation=message;return false};
+   s.d.querySelector('#announce-text').value='A new game was added: Sound Match';af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,20));
+   assert.match(confirmation,/every player profile/);assert.match(confirmation,/inactive accounts/);assert.match(confirmation,/does not confirm phone-notification delivery/);
+   assert.equal(sent.some(b=>b.action==='admin-announce'),false,'cancelled broadcast is not sent');assert.equal(s.d.querySelector('#announce-status').textContent,'Announcement cancelled.');
+   globalThis.confirm=()=>true;af.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+   assert.deepEqual(sent.find(b=>b.action==='admin-announce'),{action:'admin-announce',text:'A new game was added: Sound Match'});
+   assert.equal(s.d.querySelector('#announce-status').textContent,'Announcement queued in player inboxes. Phone-notification delivery is not confirmed.');
+   assert.doesNotMatch(s.d.querySelector('#announce-status').textContent,/364|players/,'row count is not presented as an active-player or delivery count');
+   assert.match(s.d.querySelector('#announce-audience-note').textContent,/does not measure active players/);}
   console.log('ok 18 feedback: sign-in required, name checked against the account, screenshot asked for problems, sent; Goldfish-only inbox with screenshots');
+}
+{ // Account deletion reauthenticates self/admin, confirms the exact target, paginates, and clears current-device account secrets.
+  const answer='correct horse battery';
+  const selfProfile={...profile,name:'Asha',loginId:'ABCDEFGH',secretQuestion:'What is your favorite color?'};
+  const selfSent=[];
+  const selfApi=(url,init)=>{const b=JSON.parse(init.body);selfSent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...selfProfile,isAdmin:false}});if(b.action==='delete-account')return json(200,{ok:true,deletedSelf:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});return json(400,{ok:false,code:'invalid_request'})};
+  let s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:selfProfile},local:{'blindquiz.remembered.v1':{name:'Asha',loginId:'ABCDEFGH'},'bq.quizProgress.v1.ABCDEFGH':'4','bq.e2ee.pins.ABCDEFGH':{bob:['key']},'blindquiz.soundmatch.best.v1':9},fetchImpl:selfApi});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,80));
+  assert.equal(s.d.querySelector('#delete-account-box').hidden,false,'signed-in players see self-deletion in Settings');
+  assert.match(s.d.querySelector('#delete-account-question').textContent,/What is your favorite color/);
+  const selfForm=s.d.querySelector('#delete-account-form'),selfName=s.d.querySelector('#delete-account-name'),selfAnswer=s.d.querySelector('#delete-account-answer');
+  selfName.value='Someone Else';selfAnswer.value=answer;selfForm.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,10));
+  assert.equal(selfSent.some(b=>b.action==='delete-account'),false,'wrong typed account name is rejected before submission');
+  selfName.value='Asha';selfForm.dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,100));
+  const selfDelete=selfSent.find(b=>b.action==='delete-account');assert.deepEqual(selfDelete,{action:'delete-account',confirmName:'Asha',currentAnswer:answer},'self deletion sends no target id and requires the current answer');
+  assert.equal(s.w.sessionStorage.getItem('blindquiz.session.v1'),null,'deletion signs this device out');
+  assert.equal(s.w.localStorage.getItem('blindquiz.remembered.v1'),null,'deleted account is no longer remembered');
+  assert.equal(s.w.localStorage.getItem('bq.quizProgress.v1.ABCDEFGH'),null,'account-linked quiz progress is removed locally');
+  assert.equal(s.w.localStorage.getItem('bq.e2ee.pins.ABCDEFGH'),null,'local E2EE trust pins are removed');
+  assert.equal(s.w.localStorage.getItem('blindquiz.soundmatch.best.v1'),'9','device-global mini-game scores are preserved on shared devices');
+  assert.match(s.d.querySelector('#announcer').textContent,/account.*deleted/i);
+  console.log('ok 18a self deletion requires the exact account name and answer, signs out, and removes account-scoped local data only');
+
+  const accounts=Array.from({length:52},(_,i)=>({id:`account-${i}`,name:i===0?'Asha <img src=x onerror=alert(1)>':i===1?'Ravi':`Player ${String(i).padStart(2,'0')}`,createdAt:'2026-10-10T12:00:00Z'}));
+  const adminSent=[];
+  const adminApi=(url,init)=>{const b=JSON.parse(init.body);adminSent.push(b);if(b.action==='profile')return json(200,{ok:true,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH',secretQuestion:'Admin color?',isAdmin:true}});if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});if(b.action==='my-feedback')return json(200,{ok:true,items:[]});if(b.action==='admin-account-directory'){const found=accounts.filter(a=>a.name.toLowerCase().includes((b.search||'').toLowerCase()));return json(200,{ok:true,items:found.slice(b.page*50,b.page*50+50),totalAccounts:found.length,page:b.page,pageSize:50})}if(b.action==='admin-delete-account'){const at=accounts.findIndex(a=>a.id===b.targetId);if(at>=0)accounts.splice(at,1);return json(200,{ok:true,deletedSelf:false})}return json(400,{ok:false,code:'invalid_request'})};
+  s=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:adminApi});
+  s.d.querySelector('#settings-open').click();await new Promise(r=>setTimeout(r,100));
+  assert.equal(s.d.querySelector('#open-account-directory').closest('#admin-inbox-box').hidden,false,'only admin tools expose the account directory');
+  s.d.querySelector('#open-account-directory').click();await new Promise(r=>setTimeout(r,100));
+  assert.equal(s.d.querySelector('#view-admin-accounts').hidden,false);assert.equal(s.d.querySelectorAll('#admin-account-list li').length,50);
+  assert.equal(s.d.querySelector('#admin-account-page-status').textContent,'Page 1 of 2.');assert.equal(s.d.querySelector('#admin-account-next').disabled,false);
+  assert.equal(s.d.querySelector('#admin-account-list img'),null,'account names are rendered as text, never HTML');
+  assert.match(s.d.querySelector('#admin-accounts-title').textContent,/Account directory/);
+  assert.doesNotMatch(s.d.querySelector('#admin-account-list').textContent,/GOLDFISH|ABCDEFGH|answer_hash/i,'directory rows expose no Login IDs or secret hashes');
+  s.d.querySelector('#admin-account-next').click();await new Promise(r=>setTimeout(r,80));assert.equal(s.d.querySelectorAll('#admin-account-list li').length,2,'next page shows the remaining two accounts');
+  s.d.querySelector('#admin-account-previous').click();await new Promise(r=>setTimeout(r,80));
+  const search=s.d.querySelector('#admin-account-search');search.value='Asha';s.d.querySelector('#admin-account-search-form').dispatchEvent(new s.w.Event('submit',{cancelable:true}));await new Promise(r=>setTimeout(r,80));
+  assert.deepEqual(adminSent.filter(b=>b.action==='admin-account-directory').at(-1),{action:'admin-account-directory',page:0,search:'Asha'});
+  const toggle=s.d.querySelector('#admin-account-list [data-account-action="toggle"]');toggle.click();
+  const adminDeleteForm=s.d.querySelector('#admin-account-list form[data-account-delete-form]');
+  assert.match(adminDeleteForm.textContent,/Admin color/,'admin reauthentication uses the current account secret question');
+  const targetName=adminDeleteForm.querySelector('[name="confirmName"]'),adminAnswer=adminDeleteForm.querySelector('[name="currentAnswer"]');
+  targetName.value='Ravi';adminAnswer.value=answer;adminDeleteForm.dispatchEvent(new s.w.Event('submit',{cancelable:true,bubbles:true}));await new Promise(r=>setTimeout(r,10));
+  assert.equal(adminSent.some(b=>b.action==='admin-delete-account'),false,'admin cannot delete without confirming the exact target name');
+  const targetDisplayName=accounts[0].name;targetName.value=targetDisplayName;adminAnswer.value=answer;adminDeleteForm.dispatchEvent(new s.w.Event('submit',{cancelable:true,bubbles:true}));await new Promise(r=>setTimeout(r,100));
+  const adminDelete=adminSent.find(b=>b.action==='admin-delete-account');assert.deepEqual(adminDelete,{action:'admin-delete-account',targetId:'account-0',confirmName:targetDisplayName,currentAnswer:answer});
+  assert.equal(accounts.some(a=>a.id==='account-0'),false,'admin deletion removes the selected account');
+  assert.equal(s.d.querySelector('#admin-account-list [name="currentAnswer"]'),null,'the removed target no longer has a delete form or retained answer field');
+  console.log('ok 18b admin account directory is admin-only, searchable, paginated, text-safe, and requires target confirmation plus reauthentication');
+}
+{ // Sound Match entry opens the setup, never an unrequested board.
+  const s=await boot({fetchImpl:()=>{throw new Error('no network expected')}}),d=s.d;
+  d.querySelector('#sm-open').click();assert.equal(d.querySelector('#view-soundmatch').hidden,false);
+  assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('#sm-start').hidden,false);
+  d.querySelector('[data-sm-level="hard"]').click();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
+  console.log('ok 18a Sound Match navigation opens difficulty setup and waits for Start Game');
 }
 { // 19. Sound Match screen (Easy): numbers 1-10, press plays a sound, match/miss feedback, finish with stars and best score.
   const dom=new JSDOM(html,{url:'https://mahicouragw.github.io/Blind-Quiz/',pretendToBeVisual:true});const w=dom.window,d=w.document;
@@ -393,12 +681,14 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const played=[],sfx=[],said=[];let seed=11;const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
   const fakeAudio={addEventListener:(ev,fn)=>{if(ev==='ended')setTimeout(fn,1)}};
   const sm=createSoundMatch({$:(s)=>d.querySelector(s),announce:t=>said.push(t),matchSounds:async()=>pool,playMatchSound:async s=>{played.push(s);return fakeAudio},stopMatchSound:()=>{},playSfx:s=>sfx.push(s),rnd,wait:async()=>{}});
-  sm.wire();await sm.start('easy');
+  sm.wire();const tick=()=>new Promise(r=>setTimeout(r,20));
+  assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0,'the board does not start when Sound Match opens');assert.equal(d.querySelector('#sm-start').hidden,false,'Start Game is available before the board');
+  d.querySelector('[data-sm-level="easy"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0,'choosing a difficulty does not start the board');
+  d.querySelector('#sm-start').click();await tick();
   const cards=[...d.querySelectorAll('#sm-grid .sm-card')];assert.equal(cards.length,10);assert.deepEqual(cards.map(c=>c.textContent.trim()),['1','2','3','4','5','6','7','8','9','10']);
   assert.equal(cards[0].getAttribute('aria-label'),'Number 1');assert.match(d.querySelector('#sm-stats').textContent,/Pairs found: 0 of 5 · Tries: 0/);
   assert.match(d.querySelector('#sm-status').textContent,/Easy: Numbers 1 to 10, 5 pairs of sounds\. Press a number/);
   const board=sm.state.board,pairOf=n=>board.find(c=>c.number!==n&&c.sound.slot===board[n-1].sound.slot).number,other=n=>board.find(c=>c.sound.slot!==board[n-1].sound.slot).number;
-  const tick=()=>new Promise(r=>setTimeout(r,20));
   cards[0].click();await tick();assert.equal(played.at(-1),board[0].sound.slot,'pressing 1 plays its sound');assert(cards[0].classList.contains('open'));assert.equal(cards[0].getAttribute('aria-label'),'Number 1, playing');
   const o=other(1);cards[o-1].click();await tick();await tick();
   assert.equal(played.at(-1),board[o-1].sound.slot);assert.match(d.querySelector('#sm-status').textContent,new RegExp(`Not a match\\. 1 and ${o} play different sounds\\.`));assert.equal(sfx.at(-1),'wrong');
@@ -410,8 +700,10 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   for(const c of board){if(sm.state.matched.has(c.number))continue;cards[c.number-1].click();await tick();cards[pairOf(c.number)-1].click();await tick();await tick()}
   assert.equal(d.querySelector('#sm-finish').hidden,false);assert.match(d.querySelector('#sm-finish-text').textContent,/You found all 5 pairs in 6 tries! 3 stars\. New best score!/);
   assert.equal(JSON.parse(w.localStorage.getItem('blindquiz.soundmatch.best.v1')).easy,6);assert(['cheer','applause'].includes(sfx.at(-1)));
-  d.querySelector('[data-sm-level="hard"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,20);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
-  d.querySelector('[data-sm-level="medium"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,16);assert.equal(d.querySelector('#sm-finish').hidden,true);
+  d.querySelector('[data-sm-level="hard"]').click();await tick();assert.equal(d.querySelector('#sm-grid').hidden,true);assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('#sm-start').hidden,false);assert.equal(d.querySelector('[data-sm-level="hard"]').getAttribute('aria-pressed'),'true');
+  d.querySelector('#sm-start').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,20,'Start Game begins the selected Hard board');
+  d.querySelector('#sm-new').click();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);assert.equal(d.querySelector('#sm-start').hidden,false);
+  d.querySelector('[data-sm-level="medium"]').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,0);d.querySelector('#sm-start').click();await tick();assert.equal(d.querySelectorAll('#sm-grid .sm-card').length,16,'Start Game begins the selected Medium board');assert.equal(d.querySelector('#sm-finish').hidden,true);
   // Signed in: the board registers a game, and finishing it pays the server-checked reward.
   const api=[];let sess={token:'t',profile:{name:'Asha',level:1,xp:95,coins:3}};const profs=[];
   const sm2=createSoundMatch({$:(s)=>d.querySelector(s),announce:()=>{},matchSounds:async()=>pool,playMatchSound:async()=>fakeAudio,stopMatchSound:()=>{},playSfx:s=>sfx.push(s),rnd,wait:async()=>{},
@@ -427,15 +719,70 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.equal(sess.profile.xp,105);assert.equal(profs.at(-1).level,2);assert(sfx.includes('coin'));
   console.log('ok 19 Sound Match: numbers 1-10 on Easy (16 Medium, 20 Hard), press plays its sound, match/miss spoken, found sounds named, stars and best score; signed-in players earn server-checked XP and coins');
 }
+// Count Match: tap-to-start gate, fruit/count listening, wrong/correct feedback, scorecard and challenge sharing.
+{
+  const { d, w } = await boot({ fetchImpl: () => { throw new Error('no network expected'); } });
+  const { COUNT_MATCH_ITEMS } = await import(ROOT + 'src/count-match.js');
+  d.querySelector('#cm-open').click();
+  assert.equal(d.querySelector('#view-countmatch').hidden, false, 'Count Match opens from Home');
+  d.querySelector('#cm-round-count').value = '10';
+  d.querySelector('#cm-start').click();
+  assert.equal(d.querySelector('#cm-game').hidden, false, 'Start Game begins the selected round length');
+  const clueTarget = () => {
+    const clue = d.querySelector('#cm-text-clue').textContent.toLowerCase();
+    return COUNT_MATCH_ITEMS.find(item => clue.includes(item.spoken));
+  };
+  const firstTarget = clueTarget();
+  assert(firstTarget, 'unsupported speech synthesis shows a spoken-clue text fallback');
+  const wrong = [...d.querySelectorAll('.cm-option')].find(button => button.dataset.itemId !== firstTarget.id);
+  wrong.click();
+  assert(wrong.classList.contains('cm-wrong'), 'incorrect choice gets distinct visual feedback');
+  assert(d.querySelector(`[data-item-id="${firstTarget.id}"]`).classList.contains('cm-correct'), 'the correct fruit/count pair is revealed');
+  assert.match(d.querySelector('#cm-status').textContent, /Not quite/);
+  for (let round = 1; round < 10; round++) {
+    d.querySelector('#cm-next').click();
+    const target = clueTarget();
+    d.querySelector(`[data-item-id="${target.id}"]`).click();
+    assert(d.querySelector(`[data-item-id="${target.id}"]`).classList.contains('cm-correct'), 'correct choice is identified');
+  }
+  d.querySelector('#cm-next').click();
+  assert.equal(d.querySelector('#cm-scorecard').hidden, false, 'the final answer opens the scorecard');
+  assert.equal(d.querySelector('#cm-final-score').textContent, '1,550');
+  assert.equal(d.querySelector('#cm-final-correct').textContent, '9 of 10');
+  assert.equal(d.querySelector('#cm-final-accuracy').textContent, '90%');
+  assert.match(d.querySelector('#cm-final-time').textContent, /^\d+:\d{2}$/);
+  const opened = [], shared = [];
+  w.open = url => { opened.push(url); return {}; };
+  Object.defineProperty(w.navigator, 'share', { configurable: true, value: async payload => { shared.push(payload); } });
+  Object.defineProperty(w.navigator, 'clipboard', { configurable: true, value: { writeText: async text => shared.push(text) } });
+  d.querySelector('#cm-share-whatsapp').click();
+  d.querySelector('#cm-share-facebook').click();
+  d.querySelector('#cm-share-x').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert(opened.some(url => url.startsWith('https://wa.me/')) && opened.some(url => url.includes('facebook.com/sharer')) && opened.some(url => url.includes('twitter.com/intent/tweet')), 'WhatsApp, Facebook and X launch score-share links');
+  d.querySelector('#cm-share-instagram').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert(shared.some(item => typeof item === 'object' && item.url.includes('game=count-match')), 'Instagram uses the native share sheet with a direct game link');
+  d.querySelector('#cm-share-copy').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert(shared.some(item => typeof item === 'string' && item.includes('game=count-match')), 'Copy Link includes the direct challenge URL');
+  assert.match(d.querySelector('#cm-share-status').textContent, /copied/);
+  d.querySelector('#cm-new-settings').click();
+  d.querySelector('#cm-sound-open').click();
+  assert.equal(d.querySelector('#view-soundmatch').hidden, false, 'Count Match setup links to identical-clip Sound Match');
+  const direct=await boot({url:'https://mahicouragw.github.io/Blind-Quiz/?game=count-match',fetchImpl:()=>{throw new Error('no network expected')}});
+  assert.equal(direct.d.querySelector('#view-countmatch').hidden,false,'a shared game=count-match URL opens the Count Match setup after the audio gate');
+  console.log('ok Count Match UI: fruit/count clue fallback, distinct answer states, 10-round scorecard, five share paths, identical-clip entry, and direct links');
+}
 // 20. Task 19: notifications bell, friend request Accept, Multiplayer online list, player card privacy and the friendship rule.
 {
-  const tick=()=>new Promise(r=>setTimeout(r,60));const sent=[];let rel='none';
-  const card=()=>({ok:true,player:{name:'Bob',level:3,xp:240,coins:12,questionsAnswered:120,questionsCorrect:90,quizzesCompleted:11,bestStreak:4,wordsFound:3,soundMatchGames:0,memberSince:'2026-10',online:true,self:false,relation:rel}});
+  const tick=()=>new Promise(r=>setTimeout(r,60));const sent=[];let rel='none',muted=false,blocked=false,blockedByMe=false;
+  const card=()=>({ok:true,player:{name:'Bob',level:3,xp:240,coins:12,questionsAnswered:120,questionsCorrect:90,quizzesCompleted:11,bestStreak:4,wordsFound:3,soundMatchGames:0,memberSince:'2026-10',online:true,self:false,relation:rel,isMuted:muted,blocked,blockedByMe}});
   const t20=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);
     const r={profile:{ok:true,profile},touch:{ok:true,unread:2,notificationsEnabled:true},
       notifications:{ok:true,items:[{id:7,kind:'friend_request',actor:'Bob',createdAt:future,read:false,relation:'incoming'},{id:6,kind:'feedback_reply',actor:'Goldfish',body:'Fixed, thanks!',createdAt:future,read:false}]},
       'notifications-read':{ok:true,unread:0},'friend-respond':{ok:true,relation:'friends'},'online-players':{ok:true,items:[{name:'Bob',level:3,relation:'none'}]},
-      'player-card':()=>card(),'friend-request':()=>(rel='outgoing',{ok:true,relation:'outgoing'}),'my-feedback':{ok:true,items:[{id:1,message:'It breaks',createdAt:future,status:'replied',reply:'Fixed, thanks!'}]}}[b.action];
+      'player-card':()=>card(),'friend-request':()=>(rel='outgoing',{ok:true,relation:'outgoing'}),'player-mute':()=>{muted=b.muted;return {ok:true,muted}},'player-block':()=>{blocked=b.blocked;blockedByMe=b.blocked;rel='none';return {ok:true,blocked,relation:'none'}},'player-report':()=>({ok:true,id:1}),'my-feedback':{ok:true,items:[{id:1,message:'It breaks',createdAt:future,status:'replied',reply:'Fixed, thanks!'}]}}[b.action];
     return json(200,(typeof r==='function'?r():r)||{ok:true});}});
   const {d}=t20;await tick();
   const bell=d.querySelector('#notif-open');assert.equal(bell.hidden,false);assert.equal(bell.getAttribute('aria-label'),'Notifications, 2 new');
@@ -456,12 +803,59 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(pv,/To send Bob a match, you need to be friends first\./);
   [...d.querySelectorAll('#player-actions button')].find(b=>/Add friend/.test(b.textContent)).click();await tick();await tick();
   assert.deepEqual(sent.find(b=>b.action==='friend-request'),{action:'friend-request',name:'Bob'});assert.match(d.querySelector('#player-actions').textContent,/Friend request sent/);
+  // Player-card Mute preserves the friendship; Report sends a reason for review without an automatic restriction; Block removes the friendship.
+  rel='friends';[...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Mute Bob').click();await tick();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='player-mute'),{action:'player-mute',name:'Bob',muted:true});assert(d.querySelector('#player-actions').textContent.includes('Unmute Bob'));assert.match(d.querySelector('#player-actions').textContent,/You and Bob are friends/);
+  const reportToggle=[...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Report Bob');reportToggle.click();
+  const reportForm=d.querySelector('.player-report-form');assert(reportForm&&reportToggle.getAttribute('aria-expanded')==='true');reportForm.querySelector('select').value='cheating';reportForm.querySelector('textarea').value='Suspected score manipulation in our room match.';reportForm.dispatchEvent(new t20.w.Event('submit',{cancelable:true}));await tick();
+  assert.deepEqual(sent.find(b=>b.action==='player-report'),{action:'player-report',name:'Bob',reason:'cheating',details:'Suspected score manipulation in our room match.'});assert.match(reportForm.textContent,/sent to the admin review inbox.*do not automatically restrict/s);
+  [...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Block Bob').click();await tick();await tick();
+  assert.deepEqual(sent.find(b=>b.action==='player-block'),{action:'player-block',name:'Bob',blocked:true});assert.equal(rel,'none');assert.match(d.querySelector('#player-actions').textContent,/You blocked Bob/);assert(!d.querySelector('#player-actions').textContent.includes('Send Bob a private message'));
+  [...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Unmute Bob').click();await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='player-mute').at(-1),{action:'player-mute',name:'Bob',muted:false});assert.equal(rel,'none','unmuting never creates a friendship');
+  [...d.querySelectorAll('#player-actions button')].find(b=>b.textContent==='Unblock Bob').click();await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='player-block').at(-1),{action:'player-block',name:'Bob',blocked:false});assert.equal(rel,'none','unblocking does not restore friendship');assert([...d.querySelectorAll('#player-actions button')].some(b=>b.textContent==='Add friend: send a friend request'));
   // Settings: notifications switch and My feedback with the developer's reply.
   d.querySelector('#settings-open').click();await tick();await tick();
   assert.equal(d.querySelector('#notif-settings').hidden,false);assert.match(d.querySelector('#my-feedback-list').textContent,/Replied.*It breaks.*Reply from the developer: Fixed, thanks!/s);
   const sw=d.querySelector('#notif-on');sw.checked=false;sw.dispatchEvent(new t20.w.Event('change'));await tick();
   assert.deepEqual(sent.find(b=>b.action==='set-notifications'),{action:'set-notifications',enabled:false});
   console.log('ok 20 notifications bell, Accept/Reject friend requests, feedback replies, online players, private player card with achievements, friends-first matches, notification switch');
+}
+// Player-card safety actions and the admin-only report inbox require an explicit human restriction decision.
+{
+  const tick=()=>new Promise(r=>setTimeout(r,70));let reportStatus='open',restricted=false;const sent=[];
+  const report=()=>({id:91,reporter:'Asha',target:'Bob',reason:'harassment',details:'Repeated unwanted room messages. <img src=x onerror=alert(1)>',status:reportStatus,createdAt:future,reviewedAt:reportStatus==='open'?null:future,reviewNote:'Admin note',restricted});
+  const t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH'}},fetchImpl:(url,init)=>{
+    const b=JSON.parse(init.body);sent.push(b);
+    if(b.action==='profile')return json(200,{ok:true,profile:{...profile,name:'Goldfish',loginId:'GOLDFISH',isAdmin:true}});
+    if(b.action==='admin-player-reports'){const items=reportStatus===b.status||b.status==='all'? [report()]:[];return json(200,{ok:true,items})}
+    if(b.action==='admin-player-report-action'){
+      if(b.decision==='review')reportStatus='reviewed';
+      if(b.decision==='dismiss')reportStatus='dismissed';
+      if(b.decision==='restrict'){reportStatus='restricted';restricted=true;}
+      if(b.decision==='restore'){reportStatus='reviewed';restricted=false;}
+      return json(200,{ok:true,status:reportStatus,restricted});
+    }
+    if(b.action==='touch')return json(200,{ok:true,unread:0,notificationsEnabled:true});
+    return json(200,{ok:true,items:[]});
+  }});
+  const {d}=t;d.querySelector('#settings-open').click();await tick();await tick();
+  assert.equal(d.querySelector('#admin-inbox-box').hidden,false);d.querySelector('#open-player-reports').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-admin-reports').hidden,false);assert.match(d.querySelector('#admin-report-list').textContent,/Reported by Asha.*Repeated unwanted room messages/s);
+  assert.equal(d.querySelectorAll('#admin-report-list img').length,0,'report details are inserted as text, not HTML');
+  d.querySelector('#admin-report-list button').click();await tick();await tick();
+  assert.match(d.querySelector('#announcer').textContent,/marked as reviewed.*No account restriction/);assert.equal(restricted,false,'reviewing alone never restricts an account');
+  assert(sent.some(call=>call.action==='admin-player-report-action'&&call.decision==='review'));
+  d.querySelector('#admin-report-filter').value='all';d.querySelector('#admin-report-filter').dispatchEvent(new t.w.Event('change'));await tick();await tick();
+  let item=d.querySelector('#admin-report-list li.admin-report-item');assert(item);item.querySelector('.admin-report-note').value='Reviewed the evidence.';
+  [...item.querySelectorAll('button')].find(button=>button.textContent==='Restrict account').click();await tick();await tick();
+  assert.match(d.querySelector('#announcer').textContent,/Account restricted after your review.*No automatic action was taken/);assert.equal(restricted,true,'restriction follows a separate, explicit admin decision');
+  assert(sent.some(call=>call.action==='admin-player-report-action'&&call.decision==='restrict'&&call.note==='Reviewed the evidence.'));
+  item=d.querySelector('#admin-report-list li.admin-report-item');assert(item);[...item.querySelectorAll('button')].find(button=>button.textContent==='Restore account access').click();await tick();await tick();
+  assert.match(d.querySelector('#announcer').textContent,/Account access restored after your review/);assert.equal(restricted,false,'admin can explicitly restore the account');
+  assert(sent.some(call=>call.action==='admin-player-report-action'&&call.decision==='restore'));
+  console.log('ok player-card safety actions and admin-only report inbox: safe text rendering, review without automatic restriction, explicit restrict and restore');
 }
 // 21. Task 19 stage C: encrypted chat UI with real WebCrypto against a relay that only stores sealed boxes.
 {
@@ -503,62 +897,168 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   chat.stop();
   console.log('ok 21 encrypted chat: safety code, honest other-device notice, sealed for both devices, tampered message hidden, incoming announced, key change blocks sending until confirmed');
 }
-// 22. Task 19 stage D: rooms list, entering a room, room chat, watching live (sounds and announcements replayed), creating a room game that broadcasts, exit confirmation.
+// 22. Migration 026: game slots, invite/readiness flow, synchronized quick quiz, comments/replies and a playable board.
 {
-  const tick=(ms=60)=>new Promise(r=>setTimeout(r,ms));const sent=[];let watchCalls=0;
-  const ROOM='b1a1d000-0000-4000-8000-000000000001',GAME='c0ffee00-0000-4000-8000-000000000001',NEWGAME='c0ffee00-0000-4000-8000-000000000002';
-  const state=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Ann',level:4}],
-    games:[{id:GAME,kind:'quiz',title:'Quiz: History, Classic Quiz',config:{category:'history',mode:'classic'},status:'playing',host:'Ann',players:[{name:'Ann',score:2,finished:false}]}],chat:sent.filter(b=>b.action==='room-state').length>1?[]:[{id:5,name:'Ann',body:'hi all',createdAt:future}]});
-  const watch=()=>{watchCalls++;return watchCalls===1?{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:2,finished:false}],events:[{id:10,name:'Ann',kind:'say',body:'Question 3 of 10.'},{id:11,name:'Ann',kind:'sfx',body:'correct'}]}
-    :watchCalls===2?{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:3,finished:false}],events:[{id:12,name:'Ann',kind:'sfx',body:'correct'},{id:13,name:'Ann',kind:'say',body:'Correct! The answer is B: 1857.'},{id:14,name:'Ann',kind:'score',body:'3'},{id:15,name:'Bo',kind:'comment',body:'Great pick'}]}
-    :{ok:true,status:'playing',kind:'quiz',title:'Quiz: History, Classic Quiz',roomId:ROOM,players:[{name:'Ann',score:3,finished:false}],events:[]}};
-  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(url,init)=>{const b=JSON.parse(init.body);sent.push(b);
-    const r={profile:{ok:true,profile},touch:{ok:true,unread:0,notificationsEnabled:true},'online-players':{ok:true,items:[]},
-      rooms:{ok:true,items:[{id:ROOM,name:'Blind Quiz',isPublic:true,isDefault:true,mine:false,games:1,users:2},{id:'b1a1d000-0000-4000-8000-000000000002',name:'Word Lovers',isPublic:true,isDefault:true,mine:false,games:0,users:0}]},
-      'room-state':state,'game-watch':watch,'room-say':{ok:true},'game-create':{ok:true,id:NEWGAME},'game-post':{ok:true,stored:1},'room-leave':{ok:true}}[b.action];
-    return json(200,(typeof r==='function'?r():r)||{ok:true});}});
+  const tick=(ms=60)=>new Promise(r=>setTimeout(r,ms)),sent=[];
+  const ROOM='b1a1d000-0000-4000-8000-000000000001',QUIZ='c0ffee00-0000-4000-8000-000000000001',BOARD='c0ffee00-0000-4000-8000-000000000002',LETTERS='c0ffee00-0000-4000-8000-000000000003';
+  let gameId=null,gameKind='quiz',gameTitle='Quiz: History, Quick Decision',gameConfig={category:'history',mode:'quickdecision',players:2},gameSynchronized=true,gamePhase='lobby',gameMax=2,gamePlayers=[],gameState={},gameEvents=[],eventId=100,gameCount=0,watchAsCreator=false;
+  const makePlayers=ready=>Array.from({length:gameMax},(_,i)=>({seat:i+1,name:i===0?'Asha':`Google${i>1?` ${i+1}`:''}`,ready:i===0?ready:ready,score:0,finished:false}));
+  const addComment=(name,body,replyTo)=>{const parent=gameEvents.find(e=>e.id===replyTo);gameEvents.push({id:++eventId,name,kind:'comment',body,replyTo,replyName:parent?.name||null});};
+  const roomState=()=>({ok:true,room:{id:ROOM,name:'Blind Quiz',isPublic:true,mine:false,isDefault:true},people:[{name:'Asha',level:1},{name:'Google',level:2}],
+    games:gameId?[{id:gameId,kind:gameKind,title:gameTitle,config:gameConfig,synchronized:gameSynchronized,status:gamePhase==='finished'?'finished':'playing',phase:gamePhase,maxPlayers:gameMax,host:'Asha',hostMe:true,creatorMe:true,commentCount:gameEvents.filter(e=>e.kind==='comment').length,recentComments:gameEvents.filter(e=>e.kind==='comment').slice(-3),players:gamePlayers}]:[],
+    chat:[{id:4,name:'BQ Renamed bqabcdef012345',body:'Live room hello bqff61103a9107',createdAt:future},{id:5,name:'Google',body:'hi room',createdAt:future}],voices:[{id:77,name:'Google',durationMs:2400}]});
+  const stateFor=body=>({ok:true,phase:gamePhase,status:gamePhase==='finished'?'finished':'playing',kind:gameKind,title:gameTitle,roomId:ROOM,maxPlayers:gameMax,synchronized:gameSynchronized,host:'Asha',hostMe:true,creatorMe:true,seat:gamePlayers.find(p=>p.name==='Asha')?.seat||1,players:gamePlayers,state:gameState,
+    events:gameEvents.filter(e=>Number(e.id)>Number(body.afterId||0))});
+  let holdNextGameWatch=false,signalHeldWatch=null,releaseHeldWatch=null;
+  const t22=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:async(url,init)=>{const b=JSON.parse(init.body);sent.push(b);let r;
+    if(b.action==='room-state')r=roomState();
+    else if(b.action==='room-voice')r={ok:true,audio:'data:audio/webm;base64,QUFB'};
+    else if(b.action==='room-voice-send')r={ok:true,id:77};
+    else if(b.action==='game-state')r=stateFor(b);
+    else if(b.action==='game-watch'){r=structuredClone({...stateFor(b),status:gamePhase==='finished'?'finished':'playing',hostMe:!watchAsCreator,creatorMe:watchAsCreator,commentsEnabled:true});if(holdNextGameWatch){holdNextGameWatch=false;signalHeldWatch?.();await new Promise(resolve=>{releaseHeldWatch=resolve;});}}
+    else if(b.action==='game-create'){gameCount++;gameId=b.kind==='quiz'?QUIZ:b.kind==='letters'?LETTERS:BOARD;gameKind=b.kind;gameConfig=b.config;gameSynchronized=true;gameTitle=b.title;gameMax=Number(b.config.players)||2;gamePhase='lobby';gameState={};gameEvents=[];gamePlayers=[{seat:1,name:'Asha',ready:false,score:0,finished:false}];r={ok:true,id:gameId,maxPlayers:gameMax,phase:'lobby',synchronized:true};}
+    else if(b.action==='game-ready'){if(gameKind==='letters')gamePlayers=gamePlayers.map(p=>p.name==='Asha'?{...p,ready:!!b.ready}:p);else gamePlayers=makePlayers(!!b.ready);r={ok:true,ready:b.ready};}
+    else if(b.action==='game-start'){gamePhase='playing';gameState=b.initialState.questionIds?{questionIds:b.initialState.questionIds,currentIndex:0,questionStartedAt:new Date().toISOString()}:gameKind==='letters'?{kind:'letters',letters:'STARE',foundWords:[],endsAt:new Date(Date.now()+90000).toISOString(),winner:null,finished:false}:createBoardState(gameKind,gameMax,()=>.5);if(gameKind==='snakes'){gameState.players[0].position=96;gameState.players[0].score=96;}r={ok:true,phase:'playing'};}
+    else if(b.action==='game-answer')r={ok:true,correct:true,points:2,currentIndex:b.questionIndex};
+    else if(b.action==='game-comment'){addComment('Asha',b.text,b.replyTo??null);r={ok:true};}
+    else if(b.action==='game-invite'){if(gameKind==='letters'&&!gamePlayers.some(p=>p.name==='Google'))gamePlayers.push({seat:2,name:'Google',ready:false,score:0,finished:false});r={ok:true};}
+    else if(b.action==='game-action'){const result=reduceBoardGame(gameKind,gameState,1,b.move,()=>.5);gameState=result.state;if(result.finished)gamePhase='finished';for(const s of result.sounds||[result.sfx||'click'])gameEvents.push({id:++eventId,name:'Asha',kind:'sfx',body:s});gameEvents.push({id:++eventId,name:'Asha',kind:'say',body:result.announcement});r={ok:true,finished:result.finished,sfx:result.sfx,sounds:result.sounds||[result.sfx||'click']};}
+    else {r={profile:{ok:true,profile},touch:{ok:true,unread:0,notificationsEnabled:true},'online-players':{ok:true,items:[]},
+      rooms:{ok:true,items:[{id:ROOM,name:'Blind Quiz',isPublic:true,isDefault:true,mine:false,games:0,users:2}]},
+      'room-say':{ok:true},notifications:{ok:true,items:[{kind:'game_invite',actor:'Google',ref:BOARD,body:`game-invite|${ROOM}|Snakes and Ladders`,createdAt:future,read:false}]},'notifications-read':{ok:true,unread:0},'game-invite':{ok:true},'game-invite-respond':{ok:true,accepted:true,roomId:ROOM,gameId:BOARD,seat:2,title:'Snakes and Ladders'},'game-post':{ok:true,stored:1},'room-leave':{ok:true}}[b.action]||{ok:true};}
+    return json(200,r);}});
   const {d,w}=t22;await tick();
   d.querySelector('#mp-open').click();await tick();d.querySelector('[data-mp-tab="rooms"]').click();await tick();await tick();
-  const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,2);
-  assert.equal(rb[0].getAttribute('aria-label'),'Blind Quiz. Public room, 1 game, 2 players inside. Enter room');
-  rb[0].click();await tick();await tick();
-  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');
-  assert.match(d.querySelector('#room-status').textContent,/You are in Blind Quiz\. 2 players here, 1 game being played\./);
-  assert.match(d.querySelector('#room-chat').textContent,/Ann: hi all/);assert.match(d.querySelector('#room-people').textContent,/Ann, level 4/);
-  assert.match(d.querySelector('#room-games').textContent,/Quiz: History, Classic Quiz.*Playing now\. Host Ann\. Scores: Ann 2\./s);
-  assert.equal(d.querySelector('#room-invite-box').hidden,true,'public rooms you do not own need no invitations');
-  d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
-  assert.deepEqual(sent.find(b=>b.action==='room-say'),{action:'room-say',roomId:ROOM,text:'hello room'});
-  // Watch: earlier events are text only; new ones are heard (recorded sound effect) and announced, comments too.
-  [...d.querySelectorAll('#room-games button')].find(b=>/^Watch /.test(b.textContent)).click();await tick();await tick();
-  assert.equal(d.querySelector('#exit-confirm').hidden,true,'watching a room game does not ask to leave the room');
-  assert.equal(d.querySelector('#view-watch').hidden,false);assert.match(d.querySelector('#watch-log').textContent,/Ann's game: Question 3 of 10\./);
-  const played=[];for(const win of WINDOWS)win.HTMLMediaElement.prototype.play=function(){played.push(this.src);return Promise.resolve()};
-  await tick(1700);
-  assert.match(d.querySelector('#watch-log').textContent,/Ann's game: Correct! The answer is B: 1857\..*Ann score: 3.*Bo commented: Great pick/s);
-  assert.match(d.querySelector('#watch-scores').textContent,/Ann: 3/);
-  assert(played.some(src=>/correct/.test(src)),'the spectator hears the player\'s correct-answer sound');
-  assert.match(d.querySelector('#announcer').textContent,/Correct! The answer is B: 1857\.|Bo commented: Great pick/);
-  d.querySelector('#watch-comment-text').value='Well done';d.querySelector('#watch-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
-  assert.deepEqual(sent.filter(b=>b.action==='room-say').at(-1),{action:'room-say',roomId:ROOM,gameId:GAME,text:'Well done'});
-  d.querySelector('#watch-back').click();await tick();await tick();assert.equal(d.querySelector('#view-room').hidden,false);
-  // Create a quiz game: it starts locally without the leave-room question, and broadcasts announcements and score.
-  d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-category').value='history';d.querySelector('#room-game-mode').value='classic';
+  const rb=[...d.querySelectorAll('#mp-room-list .room-button')];assert.equal(rb.length,1);rb[0].click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.equal(d.querySelector('#room-title').textContent,'Blind Quiz');assert.match(d.querySelector('#room-chat').textContent,/Google: hi room/);assert.doesNotMatch(d.querySelector('#room-chat').textContent,/Live room hello bqff61103a9107|BQ Renamed bqabcdef012345/,'legacy live-test chat echoes are hidden from public rooms');assert.equal(d.querySelector('#room-voice-status').getAttribute('aria-live'),'off','recording-duration updates do not repeatedly interrupt TalkBack');
+  d.querySelector('#room-chat-text').value='hello room';d.querySelector('#room-chat-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();assert(sent.some(b=>b.action==='room-say'&&b.text==='hello room'));
+  const roomVoiceLine=d.querySelector('.room-voice'),loadRoomVoice=roomVoiceLine.querySelector('button');loadRoomVoice.click();await tick();
+  const roomPlayer=roomVoiceLine.querySelector('audio');assert.equal(roomPlayer.controls,true);assert.equal(roomPlayer.hidden,false,'room recordings use a native player with pause, resume and seek controls');
+  const roomSpeed=roomVoiceLine.querySelector('#room-voice-77-speed');assert.equal(roomVoiceLine.querySelector('#room-voice-77-effect'),null,'listeners have no voice-style filter control');
+  assert.equal(roomSpeed.tagName,'BUTTON');assert.equal(roomPlayer.preservesPitch,true,'playback controls preserve the sender’s recorded pitch');
+  roomSpeed.click();assert.equal(roomPlayer.playbackRate,1.25,'the speed cycle starts with faster playback');
+  roomSpeed.click();assert.equal(roomPlayer.playbackRate,0.75,'the speed cycle then offers slower playback');
+  roomSpeed.click();assert.equal(roomPlayer.playbackRate,1,'the speed cycle returns to normal playback');
+  roomPlayer.currentTime=1.25;roomPlayer.pause();const pausedAt=roomPlayer.currentTime;await roomPlayer.play();assert.equal(roomPlayer.currentTime,pausedAt,'pause and resume retain the current playback position');
+  const priorRecorder=globalThis.MediaRecorder,priorSetTimeout=globalThis.setTimeout,priorClearTimeout=globalThis.clearTimeout,mediaDevicesDescriptor=Object.getOwnPropertyDescriptor(w.navigator,'mediaDevices');
+  const roomTimerToken={},roomTracks=[];let triggerRoomVoiceLimit=null;
+  globalThis.setTimeout=(fn,ms,...args)=>{if(ms===60000){triggerRoomVoiceLimit=()=>fn(...args);return roomTimerToken}return priorSetTimeout(fn,ms,...args)};
+  globalThis.clearTimeout=(id,...args)=>id===roomTimerToken?undefined:priorClearTimeout(id,...args);
+  class RoomRecorder{static isTypeSupported=()=>true;constructor(stream,options){this.stream=stream;this.mimeType=options?.mimeType||'audio/webm';this.state='inactive'}start(){this.state='recording'}stop(){this.state='inactive';this.ondataavailable?.({data:new Blob([new Uint8Array(1200)],{type:this.mimeType})});this.onstop?.()}}
+  Object.defineProperty(globalThis,'MediaRecorder',{value:RoomRecorder,configurable:true,writable:true});
+  Object.defineProperty(w.navigator,'mediaDevices',{value:{getUserMedia:async()=>{const tracks=[{stop(){this.stopped=true}}];roomTracks.push(tracks);return{getTracks:()=>tracks}}},configurable:true});
+  const recordRoomVoice=async()=>{d.querySelector('#room-voice-record').click();await new Promise(r=>setTimeout(r,10));assert.equal(d.querySelector('#room-voice-record').textContent,'Stop recording')};
+  await recordRoomVoice();await new Promise(r=>setTimeout(r,520));d.querySelector('#room-voice-record').click();
+  assert.equal(d.querySelector('#room-voice-review').hidden,false);assert.equal(d.querySelector('#room-voice-send').hidden,false);
+  assert(!sent.some(b=>b.action==='room-voice-send'),'stopping a room recording never sends it automatically');
+  assert.match(d.querySelector('#room-voice-status').textContent,/has not been sent|preview/i);
+  d.querySelector('#room-voice-cancel').click();assert.equal(d.querySelector('#room-voice-review').hidden,true,'a room preview can be discarded');assert.equal(d.querySelector('#room-voice-record').disabled,false);
+  await recordRoomVoice();assert.equal(typeof triggerRoomVoiceLimit,'function','room recording installs its 60-second stop timer');
+  const realNow=Date.now;Date.now=()=>realNow()+60000;triggerRoomVoiceLimit();Date.now=realNow;
+  assert.equal(d.querySelector('#room-voice-review').hidden,false);assert.equal(d.querySelector('#room-voice-send').hidden,false);
+  assert(!sent.some(b=>b.action==='room-voice-send'),'the 60-second room timer previews without sending');assert.match(d.querySelector('#room-voice-status').textContent,/Maximum length reached.*(not been sent|Nothing has been sent)/i);
+  d.querySelector('#room-voice-send').click();
+  for(let i=0;i<100&&!sent.some(b=>b.action==='room-voice-send');i++)await new Promise(r=>setTimeout(r,5));
+  const sentRoomVoice=sent.find(b=>b.action==='room-voice-send');assert(sentRoomVoice?.audio.startsWith('data:audio/webm'));assert.equal(sentRoomVoice.durationMs,60000);assert(roomTracks.flat().every(t=>t.stopped));
+  await recordRoomVoice();await new Promise(r=>setTimeout(r,520));d.querySelector('#room-voice-record').click();d.querySelector('#room-voice-cancel').click();
+  assert.equal(d.querySelector('#room-voice-review').hidden,true);assert.equal(sent.filter(b=>b.action==='room-voice-send').length,1,'discarding a preview never sends it');
+  globalThis.setTimeout=priorSetTimeout;globalThis.clearTimeout=priorClearTimeout;
+  if(mediaDevicesDescriptor)Object.defineProperty(w.navigator,'mediaDevices',mediaDevicesDescriptor);else delete w.navigator.mediaDevices;
+  if(priorRecorder===undefined)delete globalThis.MediaRecorder;else Object.defineProperty(globalThis,'MediaRecorder',{value:priorRecorder,configurable:true,writable:true});
+  console.log('ok room voices stop at 60 seconds without sending, require explicit Send, support discard and resume at the paused position with speed-only playback controls');
+
+  // A new quiz opens a lobby; no questions appear while only one of two player slots is ready.
+  d.querySelector('#room-game-kind').value='quiz';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));
+  d.querySelector('#room-game-category').value='history';d.querySelector('#room-game-mode').value='quickdecision';d.querySelector('#room-game-player-count').value='2';
   d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
-  assert.deepEqual(sent.find(b=>b.action==='game-create'),{action:'game-create',roomId:ROOM,kind:'quiz',title:'Quiz: History, Classic Quiz',config:{category:'history',mode:'classic'}});
-  assert.equal(d.querySelector('#exit-confirm').hidden,true);assert.equal(d.querySelector('#view-game').hidden,false);
-  d.querySelector('#game-start').click();await tick(6900);
-  const posts=sent.filter(b=>b.action==='game-post');assert(posts.length>=1&&posts.every(b=>b.gameId===NEWGAME),'the game is broadcast');
-  const evs=posts.flatMap(b=>b.events);assert(evs.some(e=>e.k==='say'&&/Question 1 of/.test(e.b)),'announcements reach spectators');assert(evs.some(e=>e.k==='score'&&e.b==='0'),'score is sent');
-  d.querySelector('#view-game .back-link').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false);
-  d.querySelector('#exit-leave').click();await tick();
-  assert.deepEqual(sent.filter(b=>b.action==='game-post').at(-1).events.slice(-1),[{k:'end',b:''}],'leaving ends the room game');
-  const after=sent.length;await tick(1500);assert(!sent.slice(after).some(b=>b.action==='game-post'),'nothing is broadcast after the game ends');
-  // Leaving the room asks first, then tells the server.
-  [...d.querySelectorAll('#mp-room-list .room-button')][0]?.click();rb[0].click();await tick();await tick();
-  d.querySelector('#view-room .back-link').click();await tick();assert.equal(d.querySelector('#exit-title').textContent,'Leave this room?');
-  d.querySelector('#exit-leave').click();await tick();assert(sent.some(b=>b.action==='room-leave'&&b.roomId===ROOM));assert.equal(d.querySelector('#view-multiplayer').hidden,false);
-  console.log('ok 22 rooms: list with game and player counts, room chat, watch live with sounds/announcements/comments, create game broadcasts, exit confirmation');
+  assert.deepEqual(sent.find(b=>b.action==='game-create'),{action:'game-create',roomId:ROOM,kind:'quiz',title:'Quiz: History, Quick Decision',config:{category:'history',mode:'quickdecision',players:2,hostName:'Asha'}});
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert.equal(d.querySelector('#room-play-quiz').hidden,true);assert.equal(d.querySelector('#room-play-start').disabled,true);
+  assert.match(d.querySelector('#room-play-players').textContent,/Player 1: Asha.*Player 2: Waiting/s);
+  d.querySelector('#room-play-invite-name').value='Google';d.querySelector('#room-play-invite-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  assert.deepEqual(sent.find(b=>b.action==='game-invite'),{action:'game-invite',gameId:QUIZ,name:'Google'});
+  d.querySelector('#room-play-ready').click();await tick();await tick();assert.equal(d.querySelector('#room-play-start').disabled,false,'the host can start only after both slots are ready');
+  assert.equal(d.querySelector('#room-play-quiz').hidden,true,'ready players still see the waiting lobby before the host start');
+  d.querySelector('#room-play-start').click();await tick();await tick();
+  const start=sent.find(b=>b.action==='game-start');assert.equal(start.gameId,QUIZ);assert.equal(start.initialState.questionIds.length,10);assert.equal(start.initialState.questionIds.length,start.initialState.answerKeys.length);
+  assert.equal(d.querySelector('#room-play-quiz').hidden,false);assert.equal(d.querySelectorAll('#room-play-options button').length,2,'Quick Decision shares two answer options');
+  d.querySelector('#room-play-options button').click();await tick();assert(sent.some(b=>b.action==='game-answer'&&b.gameId===QUIZ&&b.questionIndex===0),'answer is submitted against the shared question index');
+
+  d.querySelector('#room-play-comment-text').value='Everyone can see this';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-comment').at(-1),{action:'game-comment',roomId:ROOM,gameId:QUIZ,text:'Everyone can see this',replyTo:null});
+  const commentLine=d.querySelector('#room-play-comments li');assert.match(commentLine.textContent,/Asha: Everyone can see this/);
+  commentLine.querySelector('button').click();assert.equal(d.querySelector('#room-play-replying').textContent,'Replying to Asha.');
+  d.querySelector('#room-play-comment-text').value='Thanks!';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.equal(sent.filter(b=>b.action==='game-comment').at(-1).replyTo,Number(gameEvents.find(e=>e.kind==='comment')?.id),'replies point at the visible parent comment');
+
+  d.querySelector('#room-play-back').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false,'leaving a match is confirmed without ending it for everyone');d.querySelector('#exit-leave').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.match(d.querySelector('#room-games').textContent,/Everyone can see this/,'recent game comments also appear on the room card');
+  watchAsCreator=true;[...d.querySelectorAll('#room-games button')].find(b=>/^Watch /.test(b.textContent)).click();await tick();await tick();
+  assert.equal(d.querySelector('#view-watch').hidden,false);assert.match(d.querySelector('#watch-log').textContent,/replied to Asha: Thanks!/,'spectators see another player’s reply');assert.equal(d.querySelector('#watch-comments-toggle-wrap').hidden,false,'the original creator can moderate comments even when not the selected host');
+  const replyBtn=d.querySelector('#watch-log .watch-comment button');assert(replyBtn,'watchers can reply to a spectator comment');replyBtn.click();d.querySelector('#watch-comment-text').value='Watching too';d.querySelector('#watch-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  assert.equal(sent.filter(b=>b.action==='game-comment').at(-1).replyTo,Number(gameEvents.find(e=>e.kind==='comment')?.id));
+  d.querySelector('#watch-back').click();await tick();await tick();watchAsCreator=false;
+
+  // Letters to Words uses the server's synchronized flag (even when older config data omits roomSync),
+  // stays in its waiting room until the host explicitly starts, and retains comments on re-entry.
+  d.querySelector('#room-game-kind').value='letters';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));d.querySelector('#room-game-player-count').value='2';
+  const startsBeforeLetters=sent.filter(b=>b.action==='game-start').length;
+  d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-create').at(-1).config,{players:2,hostName:'Asha'});
+  assert.equal(gameSynchronized,true);assert.equal(gameConfig.roomSync,undefined,'server synchronization is not inferred from a client config flag');
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert.equal(d.querySelector('#room-play-lobby').hidden,false);
+  assert.equal(d.querySelector('#room-play-letters').hidden,true);assert.equal(d.querySelector('#room-play-start').disabled,true);
+  assert.equal(sent.filter(b=>b.action==='game-start').length,startsBeforeLetters,'creating a Letters match never starts it automatically');
+  d.querySelector('#room-play-invite-name').value='Google';d.querySelector('#room-play-invite-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();
+  d.querySelector('#room-play-ready').click();await tick();await tick();
+  assert.equal(d.querySelector('#room-play-start').disabled,true,'the host cannot start while the invited player is not ready');
+  assert.equal(sent.filter(b=>b.action==='game-start').length,startsBeforeLetters,'readiness alone does not start a Letters match');
+  Object.defineProperty(d,'hidden',{value:false,configurable:true});
+  gamePlayers=gamePlayers.map(p=>p.name==='Google'?{...p,ready:true}:p);d.dispatchEvent(new w.Event('visibilitychange'));await tick();await tick();
+  assert.equal(d.querySelector('#room-play-start').disabled,false,'the host becomes able to start only after every player is ready');
+  assert.equal(sent.filter(b=>b.action==='game-start').length,startsBeforeLetters,'ready players still wait for the host to press Start match');
+  d.querySelector('#room-play-start').click();await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-start').at(-1).initialState,{kind:'letters'});
+  assert.equal(d.querySelector('#room-play-letters').hidden,false);assert.match(d.querySelector('#room-play-letters-tiles').textContent,/S.*T.*A.*R.*E/);
+  d.querySelector('#room-play-comment-text').value='Letters comment';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  let lettersComment=d.querySelector('#room-play-comments li');assert.match(lettersComment.textContent,/Asha: Letters comment/);
+  lettersComment.querySelector('button').click();d.querySelector('#room-play-comment-text').value='Letters reply';d.querySelector('#room-play-comment-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.match(d.querySelector('#room-play-comments').textContent,/Asha replied to Asha: Letters reply/,'Letters match replies render in the live thread');
+  d.querySelector('#room-play-back').click();await tick();assert.equal(d.querySelector('#exit-confirm').hidden,false);
+  assert.match(d.querySelector('#room-play-back').textContent,/Leave match and return to room/i,'the control clearly says it leaves only this match view');
+  d.querySelector('#exit-leave').click();await tick();await tick();
+  assert.equal(d.querySelector('#view-room').hidden,false);assert.match(d.querySelector('#room-games').textContent,/Letters comment/);
+  const returnLetters=[...d.querySelectorAll('#room-games button')].find(b=>b.textContent==='Return to Letters to Words');assert(returnLetters,'a player who leaves the view gets an explicit return control');
+  returnLetters.click();await tick();await tick();assert.equal(d.querySelector('#view-room-game').hidden,false);assert.equal(d.querySelector('#room-play-letters').hidden,false);
+  assert.match(d.querySelector('#room-play-comments').textContent,/Letters comment/);assert.match(d.querySelector('#room-play-comments').textContent,/Letters reply/,'comments and replies persist after leaving and re-entering');
+  // A slow pre-refresh lobby response must not overwrite a newer playing snapshot or hide its controls.
+  const staleWatchStarted=new Promise(resolve=>{signalHeldWatch=resolve});holdNextGameWatch=true;gamePhase='lobby';
+  d.dispatchEvent(new w.Event('visibilitychange'));await staleWatchStarted;
+  gamePhase='playing';d.dispatchEvent(new w.Event('visibilitychange'));await tick();await tick();assert.equal(d.querySelector('#room-play-letters').hidden,false);
+  releaseHeldWatch?.();releaseHeldWatch=null;signalHeldWatch=null;await tick();await tick();
+  assert.equal(d.querySelector('#room-play-letters').hidden,false,'an out-of-order lobby poll cannot overwrite the current Letters match');
+  d.querySelector('#room-play-back').click();await tick();d.querySelector('#exit-leave').click();await tick();await tick();
+
+  // Snakes and Ladders is a real roll-and-move board with separate, action-timed dice/token sounds.
+  d.querySelector('#room-game-kind').value='snakes';d.querySelector('#room-game-kind').dispatchEvent(new w.Event('change'));d.querySelector('#room-game-player-count').value='1';
+  d.querySelector('#room-game-form').dispatchEvent(new w.Event('submit',{cancelable:true}));await tick();await tick();
+  assert.deepEqual(sent.filter(b=>b.action==='game-create').at(-1).config,{players:1,hostName:'Asha'});assert.equal(d.querySelector('#room-play-quiz').hidden,true);
+  d.querySelector('#room-play-ready').click();await tick();await tick();assert.equal(d.querySelector('#room-play-start').disabled,false);
+  d.querySelector('#room-play-start').click();await tick();await tick();assert.equal(d.querySelector('#room-play-board-wrap').hidden,false);
+  assert.match(d.querySelector('#room-play-board').textContent,/Snakes and Ladders|Square 100|reach exactly 100/);
+  d.querySelector('#room-play-controls button').click();await tick();await tick();
+  const move=sent.filter(b=>b.action==='game-action').at(-1);assert.equal(move.gameId,BOARD);assert.deepEqual(move.move,{type:'roll'},'the browser sends only an action, never a dice value or replacement board state');
+  assert.deepEqual(gameEvents.filter(e=>e.kind==='sfx').map(e=>e.body),['tick','click'],'the trusted board reducer publishes distinct dice and token sounds');
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert.match(d.querySelector('#room-play-board').textContent,/Player 1 wins!/,'the finished board shows the winner instead of a blank post-game screen');
+
+  d.querySelector('#room-play-back').click();await tick();d.querySelector('#exit-leave').click();await tick();await tick();
+  d.querySelector('#view-room .back-link').click();await tick();assert.equal(d.querySelector('#exit-title').textContent,'Leave this room?');d.querySelector('#exit-leave').click();await tick();
+  assert(sent.some(b=>b.action==='room-leave'&&b.roomId===ROOM));assert.equal(d.querySelector('#view-multiplayer').hidden,false);
+  d.querySelector('#notif-open').click();await tick();await tick();
+  const accept=[...d.querySelectorAll('#notif-list button')].find(b=>b.textContent.includes('Accept Google')&&b.textContent.includes('game invite'));assert(accept,'game invite notification offers an explicit Accept action');
+  accept.click();await tick();await tick();await tick();
+  assert(sent.some(b=>b.action==='game-invite-respond'&&b.gameId===BOARD&&b.accept===true),'accepting a notification responds to that exact match invitation');
+  assert.equal(d.querySelector('#view-room-game').hidden,false);assert(sent.some(b=>b.action==='game-watch'&&b.gameId===BOARD),'accepted invite opens the shared game in its room');
+  console.log('ok 22 room matches: invite/readiness gates, explicit quiz and Letters starts, synchronized Letters comments/replies and re-entry, spectator watch, playable Snakes and Ladders and action-timed cues');
 }
 // 23. Direct file transfer and calls between two friends: real WebCrypto sealing through a relay that sees only boxes,
 //     an in-memory WebRTC stand-in, ring -> accept -> offer -> answer, chunked file with confirmation, call and hang up.
@@ -603,6 +1103,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const media = () => ({ getUserMedia: async ({ video }) => { const a = [track()], v = video ? [track()] : []; return { getTracks: () => [...a, ...v], getAudioTracks: () => a, getVideoTracks: () => v }; } });
   const party = who => {
     const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/' }); const d = dom.window.document; const said = [];
+    dom.window.HTMLMediaElement.prototype.play = () => Promise.resolve(); dom.window.HTMLMediaElement.prototype.pause = () => {}; dom.window.HTMLMediaElement.prototype.load = () => {};
     const store = new Map(); const pinsStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
     const prevDoc = globalThis.document; globalThis.document = d;
     const direct = createDirect({ $: sel => d.querySelector(sel), announce: t => said.push(t), callApi: api(who), getSession: () => ({ loginId: who.toUpperCase().padEnd(8, 'X'), profile: { name: who } }), store: memoryStore(), pinsStorage, RTC: FakePC, mediaDevices: media });
@@ -621,9 +1122,23 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert.match(B.text(), /Asha wants to send you a file: notes\.pdf, 200 KB\./); assert.equal(B.d.querySelector('#direct-panel').getAttribute('role'), 'alertdialog');
   B.btn('Accept file').click();
   await wait(() => /File received/.test(B.text()) && /File sent/.test(A.text()));
-  assert.match(B.text(), /notes\.pdf, 200 KB, from Asha\. It is not stored anywhere else, so save it now\./); assert(B.btn('Save notes.pdf').href.startsWith('blob:'));
+  assert.match(B.text(), /notes\.pdf, 200 KB, from Asha\. Choose Save now\. The temporary copy in Blind Quiz is removed after three hours/); assert(B.btn('Save notes.pdf').href.startsWith('blob:'));
   assert.match(A.text(), /Bob received notes\.pdf\./); assert(A.said.some(t => /percent/.test(t)), 'progress is spoken');
   assert(!relayLog.join('\n').includes('notes.pdf') && !relayLog.join('\n').includes('fake-offer'), 'the relay never sees the file name or the connection description');
+  B.btn('Close').click(); A.btn('Close').click();
+  // A short recorded voice message uses a direct, online-only transfer and is playable for three hours.
+  globalThis.document = A.d; await A.direct.startVoiceMessage('Bob', new Blob([bytes], { type: 'audio/webm' }), 1800);
+  assert.match(A.text(), /Waiting for Bob to accept your 2-second voice message\./);
+  globalThis.document = B.d; await B.direct.poll(); assert.match(B.text(), /Asha sent a 2-second voice message/);
+  B.btn('Listen').click();
+  await wait(() => /Voice message received/.test(B.text()) && /Voice message sent/.test(A.text()));
+  assert.equal(B.d.querySelector('#direct-voice-playback').hidden, false);
+  const receivedVoice=B.d.querySelector('#direct-voice-audio');assert(receivedVoice.src.startsWith('blob:'),'received voice is played from a temporary local audio object');assert.equal(receivedVoice.controls,true);
+  receivedVoice.currentTime=1.25;receivedVoice.pause();const receivedPausedAt=receivedVoice.currentTime;await receivedVoice.play();assert.equal(receivedVoice.currentTime,receivedPausedAt,'private playback resumes at the same position');
+  const directSpeed=B.d.querySelector('#direct-voice-speed');assert.equal(B.d.querySelector('#direct-voice-effect'),null,'private-message recipients cannot change the sender’s voice style');
+  assert.equal(receivedVoice.preservesPitch,true);directSpeed.click();assert.equal(receivedVoice.playbackRate,1.25);
+  directSpeed.click();assert.equal(receivedVoice.playbackRate,0.75);directSpeed.click();assert.equal(receivedVoice.playbackRate,1);
+  assert.match(B.d.querySelector('#direct-expiry').textContent, /three hours/);
   B.btn('Close').click(); A.btn('Close').click();
   // Video call, then Bob hangs up.
   globalThis.document = A.d; await A.direct.startCall('Bob', true); assert.match(A.text(), /Calling Bob…/);
@@ -638,7 +1153,178 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   // Declining.
   globalThis.document = A.d; await A.direct.startCall('Bob', false); globalThis.document = B.d; await B.direct.poll(); B.btn('Decline').click();
   await wait(() => /Bob declined\./.test(A.text()));
-  console.log('ok 23 direct file transfer and calls: sealed ring/accept/offer/answer, chunked file with confirmation and spoken progress, relay sees no file names, video call with mute and hang up, decline');
+  console.log('ok 23 direct files, private voice messages and calls: sealed ring/accept/offer/answer, chunked transfer, expiring voice playback, video call with mute and hang up, decline');
+}
+{ // Private chat extras: emoji insertion, encrypted stickers, microphone recording, send and cancel.
+  const { webcrypto } = await import('node:crypto');
+  Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true, writable: true });
+  const dom = new JSDOM(html, { url: 'https://mahicouragw.github.io/Blind-Quiz/', pretendToBeVisual: true });
+  const d = dom.window.document;dom.window.HTMLMediaElement.prototype.play=()=>Promise.resolve();dom.window.HTMLMediaElement.prototype.pause=()=>{};dom.window.HTMLMediaElement.prototype.load=()=>{};globalThis.document = d; globalThis.localStorage = dom.window.localStorage;
+  const { createChat } = await import(ROOT + 'src/chat.js');
+  const E = await import(ROOT + 'src/e2ee.js'), store = E.memoryStore(), identity = 'ASHA1234';
+  const bob = await E.deviceKey(store, 'bob-device');
+  let registered = null, sent = null, sendCount = 0, triggerVoiceLimit = null; const said = [], recordings = [];
+  const callApi = async (action, body) => {
+    if (action === 'register-device') { registered = body; return { ok: true }; }
+    if (action === 'message-keys') return { ok: true, theirs: [{ deviceId: bob.deviceId, publicKey: bob.publicKey }], mine: [] };
+    if (action === 'messages') return { ok: true, relation: 'friends', messages: sent ? [{ id: sendCount, fromMe: true, createdAt: new Date().toISOString(), read: true, senderDevice: registered.deviceId, senderKey: registered.publicKey, box: sent.boxes[registered.deviceId] }] : [] };
+    if (action === 'send-message') { sent = body; sendCount++; return { ok: true, id: sendCount }; }
+    throw new Error(`unexpected chat action: ${action}`);
+  };
+  const tracks = [{ stop() { this.stopped = true; } }]; const stream = { getTracks: () => tracks };
+  const filteredTracks = [{ stop() { this.stopped = true; } }], filteredStream = { getTracks: () => filteredTracks }, effectRequests = [], fakeRecorders = [];
+  class FakeRecorder {
+    constructor(s) { this.stream = s; this.mimeType = 'audio/webm'; this.state = 'inactive'; fakeRecorders.push(this); }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['private voice clip'], { type: this.mimeType }) }); this.onstop?.(); }
+  }
+  const direct = { supported: () => true, startVoiceMessage: async (...args) => { recordings.push(args); return true; } };
+  const chat = createChat({
+    $: sel => d.querySelector(sel), announce: t => said.push(t), callApi,
+    getSession: () => ({ loginId: identity, profile: { name: 'Asha', loginId: identity } }),
+    go: view => assert.equal(view, 'chat'), playSfx: () => {}, currentView: () => 'chat',
+    store, direct, Recorder: FakeRecorder,
+    voiceTimeout: fn => { triggerVoiceLimit = fn; return 1; }, clearVoiceTimeout: () => {},
+    mediaDevices: () => ({ getUserMedia: async () => stream }),
+    makeVoiceEffectPipeline: style => ({ prepare: async () => {}, connect: input => { assert.equal(input, stream); effectRequests.push(style); return filteredStream; }, dispose: () => { for (const track of filteredTracks) track.stop(); } }),
+    pinsStorage: { values: new Map(), getItem(k) { return this.values.get(k) ?? null; }, setItem(k, v) { this.values.set(k, v); } },
+  });
+  await chat.openChat('Bob');
+  const styleSelect=d.querySelector('#chat-voice-style');styleSelect.value='chipmunk';styleSelect.dispatchEvent(new dom.window.Event('change'));
+  const area = d.querySelector('#chat-text'); area.value = 'Hi '; area.setSelectionRange(3, 3);
+  d.querySelector('#chat-emoji-toggle').click(); d.querySelector('[data-chat-emoji="😊"]').click();
+  assert.equal(area.value, 'Hi 😊', 'the emoji picker inserts at the cursor');
+  d.querySelector('#chat-sticker-toggle').click(); d.querySelector('[data-chat-sticker="party"]').click();
+  for (let i = 0; i < 100 && !d.querySelector('.chat-msg-sticker'); i++) await new Promise(r => setTimeout(r, 5));
+  assert.equal(d.querySelector('.chat-sticker-caption').textContent, 'Celebrate');
+  const self = await E.deviceKey(store, identity);
+  assert.equal((await E.open(sent.boxes[self.deviceId], self, self.deviceId, self.publicKey)).t, '[[bq-sticker:party]]', 'stickers stay inside the end-to-end encrypted message');
+  d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5));
+  assert.equal(d.querySelector('#chat-voice-controls').hidden, false, 'the recorder shows its stop and cancel controls');
+  await new Promise(r => setTimeout(r, 280)); d.querySelector('#chat-voice-stop').click();
+  assert.equal(d.querySelector('#chat-voice-review').hidden, false, 'stopping a recording opens a review player');
+  assert.equal(recordings.length, 0, 'stopping never sends a private voice message automatically');
+  const preview=d.querySelector('#chat-voice-preview');assert(preview.src.startsWith('blob:'));assert.equal(preview.controls,true);
+  preview.currentTime=0.5;preview.pause();const previewPausedAt=preview.currentTime;await preview.play();assert.equal(preview.currentTime,previewPausedAt,'private preview resumes where playback was paused');
+  assert.equal(d.querySelector('#chat-voice-preview-effect'),null,'the preview cannot apply a different effect after the recording is made');
+  assert.equal(styleSelect.disabled,true,'the chosen style is locked into the recording through review');
+  const speed=d.querySelector('#chat-voice-preview-speed');assert.equal(speed.tagName,'BUTTON');assert.equal(preview.preservesPitch,true);
+  speed.click();assert.equal(preview.playbackRate,1.25);speed.click();assert.equal(preview.playbackRate,0.75);speed.click();assert.equal(preview.playbackRate,1);
+  d.querySelector('#chat-voice-send').click();
+  for (let i = 0; i < 100 && recordings.length === 0; i++) await new Promise(r => setTimeout(r, 5));
+  for (let i = 0; i < 100 && d.querySelector('#chat-voice-record').disabled; i++) await new Promise(r => setTimeout(r, 5));
+  assert.equal(recordings[0][0], 'Bob'); assert.equal(recordings[0][1].type, 'audio/webm'); assert(recordings[0][2] >= 250);
+  assert.equal(effectRequests[0], 'chipmunk');assert.equal(fakeRecorders[0].stream,filteredStream,'the selected local effect is in the recording sent to the friend');
+  assert(tracks.every(t => t.stopped) && filteredTracks.every(t => t.stopped), 'the microphone and processed capture tracks stop after previewing');
+  d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5));
+  const realNow=Date.now;Date.now=()=>realNow()+60000;triggerVoiceLimit();Date.now=realNow;
+  assert.equal(d.querySelector('#chat-voice-review').hidden,false);assert.equal(recordings.length,1,'the 60-second limit stops and previews but does not send');
+  assert.match(d.querySelector('#chat-voice-status').textContent,/Maximum length reached/);
+  d.querySelector('#chat-voice-send').click();for(let i=0;i<100&&recordings.length<2;i++)await new Promise(r=>setTimeout(r,5));
+  for(let i=0;i<100&&d.querySelector('#chat-voice-record').disabled;i++)await new Promise(r=>setTimeout(r,5));
+  assert.equal(recordings[1][2],60000,'the 60-second recording is sent only after confirmation');
+  d.querySelector('#chat-voice-record').click();await new Promise(r=>setTimeout(r,5));await new Promise(r=>setTimeout(r,280));d.querySelector('#chat-voice-stop').click();
+  assert.equal(d.querySelector('#chat-voice-review').hidden,false);d.querySelector('#chat-voice-discard').click();
+  assert.equal(d.querySelector('#chat-voice-review').hidden,true,'a private preview can be discarded without sending');assert.equal(recordings.length,2);
+  d.querySelector('#chat-voice-record').click(); await new Promise(r => setTimeout(r, 5)); d.querySelector('#chat-voice-cancel').click();
+  assert.equal(recordings.length, 2, 'cancelling a recording never sends it');
+  chat.stop(); dom.window.close(); console.log('ok private chat voice recordings stop at 60 seconds, require Send, support discard/cancel, bake the selected effect into the microphone stream and preview with speed-only controls');
+}
+// Android notification lifecycle: initial signed-out rendering must not erase the native token;
+// explicit logout still does, and tapping a notification opens/focuses its inbox item.
+{
+  const waitFor=async(predicate,message)=>{const deadline=Date.now()+3000;while(!predicate()&&Date.now()<deadline)await new Promise(r=>setTimeout(r,10));assert(predicate(),message)};
+  const initialMessages=[];
+  await boot({fetchImpl:()=>{throw new Error('no request expected')},nativeBridge:{postMessage:raw=>initialMessages.push(JSON.parse(raw))}});
+  assert.deepEqual(initialMessages,[],'the initial signed-out render does not send a native logout');
+
+  const nativeMessages=[];
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},nativeBridge:{postMessage:raw=>nativeMessages.push(JSON.parse(raw))},fetchImpl:(u,init)=>{
+    const action=JSON.parse(init.body).action;
+    if(action==='notify-register')return json(200,{ok:true,token:'n'.repeat(43)});
+    if(action==='logout')return json(200,{ok:true});
+    if(action==='profile')return json(200,{ok:true,profile});
+    return json(200,{ok:true,unread:0});
+  }});
+  await waitFor(()=>nativeMessages.some(m=>m.op==='enable'),'a signed-in player registers Android background notifications');
+  t.d.querySelector('#logout-button').click();
+  await waitFor(()=>nativeMessages.filter(m=>m.op==='logout').length===1,'explicit logout removes the native account-notification token exactly once');
+
+  const item={id:42,kind:'message',actor:'Bob',body:'',createdAt:new Date().toISOString(),read:true};
+  t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:(u,init)=>{
+    const action=JSON.parse(init.body).action;
+    if(action==='notifications')return json(200,{ok:true,items:[item]});
+    return json(200,{ok:true,unread:0,profile});
+  }});
+  globalThis.bqOpenNotificationById('42');
+  let row;
+  await waitFor(()=>{row=t.d.querySelector('#notif-list [data-notification-id="42"]');return !!row&&t.d.activeElement===row},'the notification click loads and focuses its inbox item');
+  assert.equal(t.d.querySelector('#view-notifications').hidden,false);
+
+  t=await boot({fetchImpl:(u,init)=>{
+    const action=JSON.parse(init.body).action;
+    if(action==='login')return json(200,{ok:true,firstLogin:false,token:'t'.repeat(43),expiresAt:null,profile});
+    if(action==='notifications')return json(200,{ok:true,items:[item]});
+    return json(200,{ok:true,unread:0,profile});
+  }});
+  globalThis.bqOpenNotificationById('42');
+  await waitFor(()=>!t.d.querySelector('#view-auth').hidden,'a signed-out tap asks the player to sign in');
+  t.d.querySelector('#login-name').value='Asha';t.d.querySelector('#login-id').value='ABCD2345';t.d.querySelector('#login-answer').value='blue';
+  t.d.querySelector('#login-form').dispatchEvent(new t.w.Event('submit',{cancelable:true}));
+  let afterLogin;
+  await waitFor(()=>{afterLogin=t.d.querySelector('#notif-list [data-notification-id="42"]');return !!afterLogin&&!t.d.querySelector('#view-notifications').hidden&&t.d.activeElement===afterLogin},'the queued notification opens and receives focus after sign-in');
+  console.log('ok Android notification lifecycle preserves registration while signed out, unregisters only on explicit logout, and routes/focuses a tapped inbox item before or after sign-in');
+}
+// Finished multiplayer matches create copy/share links, downloadable sanitized JSON, and no replay controls for spectators.
+{
+  const t=await boot({session:{token:'x'.repeat(43),expiresAt:future,profile},fetchImpl:()=>json(200,{ok:true,profile})});
+  const {createRoomPlay}=await import(ROOT+'src/room-play.js');let view='home',viewerSeat=1,copied='',downloaded=null;const calls=[];
+  const shareId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',gameId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const sample={ok:true,game:{kind:'quiz',title:'Friendly room match'},steps:[{step:1,phase:'finished',createdAt:future,state:{questionIds:['bq-en-0415'],currentIndex:1},attemptsByQuestion:[]}]};
+  const roomPlay=createRoomPlay({$:selector=>t.d.querySelector(selector),announce:()=>{},getSession:()=>({profile}),go:next=>{view=next},currentView:()=>view,questionBank:[],callApi:async(action,payload)=>{
+    calls.push({action,...payload});if(action==='game-watch')return {ok:true,phase:'finished',kind:'quiz',title:'Friendly room match',roomId:gameId,maxPlayers:1,config:{mode:'classic'},state:{questionIds:['bq-en-0415'],currentIndex:1},seat:viewerSeat,hostMe:viewerSeat===1,players:[{name:'Asha',seat:1,score:8,ready:true,finished:true}],events:[]};
+    if(action==='replay-create')return {ok:true,shareId,expiresAt:new Date(Date.now()+86400000).toISOString()};
+    if(action==='replay-read')return sample;throw new Error('unexpected action '+action);
+  }});
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,50));
+  roomPlay.open({id:gameId,kind:'quiz',title:'Friendly room match',joined:true,seat:1,host:false,phase:'finished',maxPlayers:1});await tick();
+  assert.equal(t.d.querySelector('#room-play-replay').hidden,false,'a finished player sees the replay share section');
+  t.w.navigator.clipboard={writeText:async value=>{copied=value}};
+  t.d.querySelector('#room-play-replay-create').click();await tick();await tick();
+  const link=t.d.querySelector('#room-play-replay-link').value;assert(link.endsWith(`/replay.html?id=${shareId}`));assert(calls.some(call=>call.action==='replay-create'&&call.gameId===gameId));
+  t.d.querySelector('#room-play-replay-copy').click();await tick();assert.equal(copied,link);
+  t.d.querySelector('#room-play-replay-share').click();await tick();assert.equal(copied,link,'unsupported native share falls back to copying the replay link');
+  const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL,oldClick=t.w.HTMLAnchorElement.prototype.click;
+  URL.createObjectURL=()=> 'blob:replay-test';URL.revokeObjectURL=()=>{};t.w.HTMLAnchorElement.prototype.click=function(){downloaded={href:this.href,name:this.download}};
+  t.d.querySelector('#room-play-replay-download').click();await tick();await tick();
+  assert(calls.some(call=>call.action==='replay-read'&&call.shareId===shareId));assert.equal(downloaded.name,'Friendly-room-match-replay.json');assert.match(t.d.querySelector('#room-play-replay-status').textContent,/downloaded as JSON/);
+  URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;t.w.HTMLAnchorElement.prototype.click=oldClick;
+  viewerSeat=0;roomPlay.open({id:gameId,kind:'quiz',title:'Friendly room match',joined:true,seat:0,phase:'finished',maxPlayers:1});await tick();
+  assert.equal(t.d.querySelector('#room-play-replay').hidden,true,'spectators cannot create participant-only replay links');roomPlay.close();
+  console.log('ok finished room match: participant can create, copy/share and download replay JSON; spectators do not see share controls');
+}
+// The public replay page loads without a player session, provides a stepper and autoplay, and exports its sanitized data.
+{
+  const {setSession}=await import(ROOT+'src/backend.js');setSession(null);
+  const replayId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',steps=[
+    {step:1,phase:'playing',createdAt:future,state:{questionIds:['bq-en-0415'],currentIndex:0},attemptsByQuestion:[{questionIndex:0,responses:{'1':true,'2':false}}]},
+    {step:2,phase:'finished',createdAt:future,state:{questionIds:['bq-en-0415'],currentIndex:1},attemptsByQuestion:[{questionIndex:0,responses:{'1':true,'2':false}}]},
+  ];
+  const replayData={ok:true,shareId:replayId,expiresAt:future,game:{kind:'quiz',title:'Friendly room match',finishedAt:future,players:[{name:'Asha',seat:1,score:8},{name:'Bob',seat:2,score:2}]},steps};
+  const dom=new JSDOM(readFileSync(ROOT+'replay.html','utf8'),{url:`https://mahicouragw.github.io/Blind-Quiz/replay.html?id=${replayId}`,pretendToBeVisual:true});const w=dom.window;
+  for(const key of ['window','document','localStorage','sessionStorage','navigator','HTMLElement','Node','history','location','Event'])Object.defineProperty(globalThis,key,{value:w[key],configurable:true,writable:true});
+  const replayCalls=[];globalThis.fetch=async(url,init)=>{const body=JSON.parse(init.body);replayCalls.push(body);return body.action==='replay-read'?json(200,replayData):json(400,{ok:false,code:'invalid_request'})};
+  await import(ROOT+'src/replay.js?viewer='+Date.now());await new Promise(resolve=>setTimeout(resolve,80));
+  assert.equal(w.document.querySelector('#replay-game-title').textContent,'Friendly room match');assert.match(w.document.querySelector('#replay-step-view').textContent,/Question 1 of 1.*Asha.*1 correct, 0 incorrect.*Bob.*0 correct, 1 incorrect/s);
+  assert.equal(w.document.querySelector('#replay-range').max,'1');w.document.querySelector('#replay-next').click();assert.match(w.document.querySelector('#replay-step-status').textContent,/Step 2 of 2/);assert.match(w.document.querySelector('#replay-step-view').textContent,/Quiz complete/);
+  w.document.querySelector('#replay-previous').click();assert.match(w.document.querySelector('#replay-step-status').textContent,/Step 1 of 2/);
+  w.document.querySelector('#replay-play').click();assert.equal(w.document.querySelector('#replay-play').textContent,'Pause replay');w.document.querySelector('#replay-play').click();assert.equal(w.document.querySelector('#replay-play').textContent,'Play replay');
+  const oldCreate=URL.createObjectURL,oldRevoke=URL.revokeObjectURL,oldClick=w.HTMLAnchorElement.prototype.click;let downloaded=null;
+  URL.createObjectURL=()=> 'blob:public-replay-test';URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){downloaded={href:this.href,name:this.download}};
+  w.document.querySelector('#replay-download').click();await new Promise(resolve=>setTimeout(resolve,40));
+  assert(replayCalls.some(body=>body.action==='replay-read'&&body.shareId===replayId));assert.equal(downloaded.name,'Friendly-room-match-replay.json');assert.match(w.document.querySelector('#replay-download-status').textContent,/downloaded/);
+  URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;w.HTMLAnchorElement.prototype.click=oldClick;
+  console.log('ok interactive public replay: session-free load, seat-based quiz results, step navigation, autoplay and JSON download');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);
