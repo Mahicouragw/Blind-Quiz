@@ -274,6 +274,54 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   globalThis.setTimeout=fast;
   console.log('ok 13 TalkBack: result focused after each answer (verdict, answer, XP, coins, streak); hidden views inert; no sign-in announcements');
 }
+// In-app text-to-speech remains audible when the operating-system screen reader is off.
+{
+  const nativeSetTimeout=globalThis.setTimeout,oldSynth=Object.getOwnPropertyDescriptor(globalThis,'speechSynthesis'),oldUtterance=Object.getOwnPropertyDescriptor(globalThis,'SpeechSynthesisUtterance'),spoken=[];
+  class TestUtterance{constructor(text){this.text=text}}
+  Object.defineProperty(globalThis,'SpeechSynthesisUtterance',{value:TestUtterance,configurable:true,writable:true});
+  Object.defineProperty(globalThis,'speechSynthesis',{value:{cancel(){},getVoices:()=>[{lang:'en-IN'}],speak(utterance){spoken.push({text:utterance.text,lang:utterance.lang})}},configurable:true,writable:true});
+  globalThis.setTimeout=(fn,ms,...args)=>nativeSetTimeout(fn,Math.min(ms||0,3),...args);
+  try{
+    t=await boot({local:{'bq.settings':{speech:false,voiceAnnouncements:true,sfx:false,music:false}},fetchImpl:()=>{throw new Error('no network expected')}});
+    const d=t.d,wait=ms=>new Promise(r=>nativeSetTimeout(r,ms));
+    assert.equal(d.querySelector('#speech-on').checked,false,'OS screen-reader announcements can be off');
+    assert.equal(d.querySelector('#voice-announcements').checked,true,'independent spoken game guidance is on');
+    d.querySelector('#category-list [data-category="business"]').click();
+    assert(spoken.some(x=>x.text.startsWith('Welcome to Blind Quiz')),'game setup speaks instructions without TalkBack');
+    d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+    const question=d.querySelector('#game-title').textContent;
+    assert(spoken.some(x=>x.text.includes(question)&&x.text.includes('Answer choices')),'the spoken prompt includes the question and answer choices');
+    assert.equal(d.querySelector('#announcer').textContent,'','in-app speech does not depend on the screen-reader live region');
+    assert(spoken.every(x=>x.lang==='en-IN'),'speech uses the selected game language');
+  }finally{
+    globalThis.setTimeout=nativeSetTimeout;
+    if(oldSynth)Object.defineProperty(globalThis,'speechSynthesis',oldSynth);else delete globalThis.speechSynthesis;
+    if(oldUtterance)Object.defineProperty(globalThis,'SpeechSynthesisUtterance',oldUtterance);else delete globalThis.SpeechSynthesisUtterance;
+  }
+  console.log('ok 13b in-app spoken instructions/questions work independently of TalkBack being enabled');
+}
+// Timed questions play the existing recorded clock tick, with ticks throughout 15 seconds or the final 15 of 30.
+{
+  const nativeSetTimeout=globalThis.setTimeout,nativeSetInterval=globalThis.setInterval,nativeClearInterval=globalThis.clearInterval,intervals=[],mediaMethods=[],manifestBody=JSON.parse(readFileSync(ROOT+'assets/audio/manifest.json','utf8'));
+  globalThis.setTimeout=(fn,ms,...args)=>nativeSetTimeout(fn,Math.min(ms||0,3),...args);
+  globalThis.setInterval=(fn,ms,...args)=>{const item={fn,ms,args,id:intervals.length+1};intervals.push(item);return item.id};
+  globalThis.clearInterval=()=>{};
+  try{
+    t=await boot({local:{'bq.settings':{timer:15,sfx:true,music:false,voiceAnnouncements:false}},fetchImpl:u=>String(u).includes('manifest.json')?json(200,manifestBody):(()=>{throw new Error('no network expected')})()});
+    const played=[];
+    // audio.js caches media elements from the first window that loads its manifest, so instrument every test window.
+    for(const w of WINDOWS){const proto=w.HTMLMediaElement.prototype;mediaMethods.push([proto,proto.play,proto.pause]);proto.play=function(){played.push(this.src.split('/').pop().split('?')[0]);return Promise.resolve()};proto.pause=function(){}}
+    const d=t.d,wait=ms=>new Promise(r=>nativeSetTimeout(r,ms));
+    d.querySelector('#category-list [data-category="business"]').click();d.querySelector('#game-start').click();
+    for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+    await wait(25);const countTicks=()=>played.filter(name=>name==='tick.mp3').length;
+    assert(countTicks()>=4,'countdown ticks plus the first timed-question tick use the recorded sound');
+    const timer=intervals.find(item=>item.ms===1000);assert(timer,'15-second timer is active');timer.fn(...timer.args);await wait(25);
+    assert(countTicks()>=5,'a recorded tick plays again on the next second');
+  }finally{globalThis.setTimeout=nativeSetTimeout;globalThis.setInterval=nativeSetInterval;globalThis.clearInterval=nativeClearInterval;for(const [proto,play,pause] of mediaMethods){proto.play=play;proto.pause=pause}}
+  console.log('ok 13c recorded tick sound tracks timed questions without depending on TalkBack');
+}
 // Quiz feedback advances after six seconds, while manual advance cancels its pending timer.
 {
   const nativeSet=globalThis.setTimeout,nativeClear=globalThis.clearTimeout,pending=new Map();let id=100000;

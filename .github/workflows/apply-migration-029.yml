@@ -35,7 +35,7 @@ env:
 jobs:
   apply:
     name: Apply Migration 029 only
-    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'apply-migration-029') }}
+    if: ${{ github.event_name != 'pull_request' || (github.event.label.name == 'apply-migration-029' && contains(github.event.pull_request.labels.*.name, 'apply-migration-029')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
