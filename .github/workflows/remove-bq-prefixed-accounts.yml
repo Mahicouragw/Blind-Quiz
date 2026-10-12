@@ -6,6 +6,12 @@ name: Remove BQ-prefixed account records (guarded)
 # The workflow never prints account names, IDs, login IDs, or secrets.
 # Secret: SUPABASE_ACCESS_TOKEN (environment-only; never printed).
 on:
+  push:
+    branches: ['arena/**']
+    paths:
+      - '.github/workflows/remove-bq-prefixed-accounts.yml'
+      - 'scripts/remove-bq-prefixed-accounts.mjs'
+      - 'supabase/migrations/202610110029_account_deletion.sql'
   pull_request:
     types: [labeled]
     paths:
@@ -26,7 +32,7 @@ env:
 jobs:
   preview:
     name: Read-only prefix and safety preflight
-    if: ${{ github.event.label.name == 'preview-bq-prefix-removal' }}
+    if: ${{ github.event_name == 'push' || github.event.label.name == 'preview-bq-prefix-removal' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
