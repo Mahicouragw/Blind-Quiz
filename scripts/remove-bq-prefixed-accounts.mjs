@@ -1,10 +1,10 @@
 // Preview or remove the exact BQ-prefixed profile-name group requested by the owner.
-// The apply mode is intentionally restricted to 660 display names beginning with BQ and uses
+// The apply mode is intentionally restricted to 677 display names beginning with BQ and uses
 // the already-guarded transactional bq_delete_account function for every matching profile.
 // Usage: node scripts/remove-bq-prefixed-accounts.mjs --preview | --apply
 import { appendFileSync } from 'node:fs';
 
-const EXPECTED = 660;
+const EXPECTED = 677;
 const NAME_MATCH = "upper(left(display_name, 2)) = 'BQ'";
 const mode = process.argv[2];
 const summary = [];
@@ -24,7 +24,7 @@ const fail = message => {
   process.exit(1);
 };
 if (!['--preview', '--apply'].includes(mode)) fail('Usage: remove-bq-prefixed-accounts.mjs --preview | --apply');
-if (mode === '--apply' && process.env.BQ_DELETE_CONFIRMATION !== 'DELETE-660-BQ-ACCOUNTS') {
+if (mode === '--apply' && process.env.BQ_DELETE_CONFIRMATION !== 'DELETE-677-BQ-ACCOUNTS') {
   fail('The guarded workflow confirmation is missing. No account changes were made.');
 }
 const token = process.env.SUPABASE_ACCESS_TOKEN;
