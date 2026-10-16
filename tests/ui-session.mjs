@@ -228,7 +228,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   const q2=QUESTION_BANK.find(x=>d.querySelector('#game-title').textContent.endsWith(x.question));[...d.querySelectorAll('.answer-button')].find(b=>b.dataset.answer!==q2.correctAnswer).click();await wait(20);
   assert(played.includes('wrong.mp3'),'wrong answer plays the buzzer');
   for(let g=0;g<12&&d.querySelector('#view-results').hidden;g++){d.querySelector('.next-question')?.click();await wait(5);d.querySelector('.answer-button:not([aria-disabled])')?.click();await wait(5)}
-  assert(played.includes('applause.mp3')||played.includes('cheer.mp3'),'results applause');assert(played.includes('music_results.mp3'),'results music');
+  assert(played.includes('roundcomplete.mp3')||played.includes('cheer.mp3'),'results round-completion sound');assert(played.includes('music_results.mp3'),'results music');
   // Settings: turning sound effects off silences them.
   d.querySelector('#settings-open').click();await wait(10);d.querySelector('#sfx-on').checked=false;d.querySelector('#save-settings').click();await wait(10);
   const before=played.length;d.querySelector('#category-list [data-category="animals"]').click();await wait(10);d.querySelector('#game-start').click();for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
@@ -536,7 +536,7 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
     assert.equal(tiles().length,5,'level 2 is harder: 5 letters');assert.match($('#letters-level').textContent,/^Level 2, Easy plus\. Round 1\. 5 letters\./);assert.match($('#letters-xp').textContent,/^Level XP: 0 of 50\./);
     assert.equal(JSON.parse(t.w.localStorage.getItem('bq.letters.v1')).level,2,'level saved on the device');
     for(let i=0;i<100&&!played.includes('levelup.mp3');i++)await wait(5);
-    const a=played.lastIndexOf('applause.mp3'),l=played.lastIndexOf('levelup.mp3');
+    const a=played.lastIndexOf('roundcomplete.mp3'),l=played.lastIndexOf('levelup.mp3');
     assert(a>=0&&l>a,'round sound, then the level-up sound: '+played.join(','));
   }
   globalThis.setTimeout=fast;
@@ -1448,6 +1448,40 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   assert(moved&&moved.textContent==='One','a tiny drag does not move the focus');
   globalThis.document=before;
   console.log('ok 26 a sideways swipe moves between the choices; scrolling is left alone');
+}
+// 27. A two-finger sideways swipe moves the focus, so the game still works while a screen reader
+//     (Android TalkBack) keeps the one-finger swipe for itself.
+{
+  const { initGestures, moveFocus } = await import(ROOT+'src/gestures.js');
+  const dom=new JSDOM(readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,''));
+  const w=dom.window;
+  const list=w.document.createElement('div');list.id='category-list';
+  for(const name of ['One','Two','Three']){const b=w.document.createElement('button');b.textContent=name;b.setAttribute('aria-label',name);list.append(b)}
+  w.document.body.append(list);
+  const before=globalThis.document;
+  globalThis.document=w.document;   // the gesture module works on the page it was loaded with
+  let moved=null;
+  initGestures({onMove:el=>{moved=el;el.focus()}});
+  const twoFingerSwipe=(dx,dy)=>{
+    const t1={identifier:1,clientX:100,clientY:200},t2={identifier:2,clientX:140,clientY:200};
+    const start=new w.Event('touchstart',{bubbles:true});
+    w.document.dispatchEvent(Object.assign(start,{touches:[t1,t2],changedTouches:[t1,t2]}));
+    const end=new w.Event('touchend',{bubbles:true});
+    w.document.dispatchEvent(Object.assign(end,{touches:[],changedTouches:[{identifier:1,clientX:100+dx,clientY:200+dy},{identifier:2,clientX:140+dx,clientY:200+dy}]}));
+  };
+  list.querySelector('button').focus();
+  twoFingerSwipe(-120,10);        // two fingers, sideways: move forward
+  assert(moved&&moved.textContent==='Two','a two-finger sideways swipe moves to the next choice: '+(moved&&moved.textContent));
+  twoFingerSwipe(120,10);         // two fingers, the other way: move back
+  assert(moved&&moved.textContent==='One','a two-finger swipe the other way moves back');
+  twoFingerSwipe(-120,200);       // two fingers, mostly vertical: that is a scroll
+  assert(moved&&moved.textContent==='One','a two-finger vertical drag does not move the focus');
+  // The same movement is available without touching the screen.
+  list.querySelector('button').focus();
+  const stepped=moveFocus('forward');
+  assert(stepped&&stepped.textContent==='Two','the move helper moves the focus for the buttons and the arrow keys');
+  globalThis.document=before;
+  console.log('ok 27 a two-finger sideways swipe moves between the choices, so the game works with a screen reader on');
 }
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

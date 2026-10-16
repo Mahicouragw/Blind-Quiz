@@ -30,7 +30,7 @@ const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-
 
 /// The version of the app shell. The game itself is the live website, so this is the version of
 /// the wrapper, not of the questions or the sounds.
-const String kAppVersion = '1.2.0';
+const String kAppVersion = '1.3.0';
 
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
@@ -156,6 +156,7 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
   Map<String, dynamic>? _pendingNotificationRoute;
   bool _webViewReady = false;
   bool _openingNotificationRoute = false;
+  bool? _screenReader;
 
   @override
   void initState() {
@@ -179,6 +180,8 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
           onPageFinished: (_) {
             _webViewReady = true;
             unawaited(_openPendingNotificationRoute());
+            final reader = _screenReader;
+            if (reader != null) unawaited(_sendScreenReader(reader));
             if (!mounted || !_reloading || _failed) return;
             _reloading = false;
             _say('Blind Quiz reloaded.');
@@ -222,6 +225,19 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _cleanReceived();
       unawaited(_consumeNativeNotificationClick());
+    }
+  }
+
+  /// A screen reader (Android TalkBack) keeps the one-finger swipe for itself, so the page is told
+  /// that a screen reader is running. The page then explains the two-finger swipe, the arrow keys
+  /// and the Previous / Next buttons.
+  Future<void> _sendScreenReader(bool on) async {
+    try {
+      await _controller.runJavaScript(
+        'globalThis.bqSetScreenReader && globalThis.bqSetScreenReader(${on ? 'true' : 'false'});',
+      );
+    } catch (_) {
+      // The page may not be ready yet; the next page load sends it again.
     }
   }
 
@@ -488,6 +504,12 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // accessibleNavigation is true while TalkBack (or another screen reader) is reading the screen.
+    final reader = MediaQuery.of(context).accessibleNavigation;
+    if (reader != _screenReader) {
+      _screenReader = reader;
+      WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_sendScreenReader(reader)));
+    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {

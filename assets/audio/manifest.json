@@ -128,6 +128,36 @@
       "licence": "Mixkit Sound Effects Free License",
       "licenceUrl": "https://mixkit.co/license/#sfxFree"
     },
+    "roundcomplete": {
+      "file": "assets/audio/roundcomplete.mp3",
+      "duration": 6,
+      "bytes": 60649,
+      "kind": "sfx",
+      "use": "Round complete",
+      "title": "Round complete",
+      "source": "https://mixkit.co/free-sound-effects/applause/",
+      "assetId": 518,
+      "creator": "Mixkit",
+      "provider": "Mixkit",
+      "licence": "Mixkit Sound Effects Free License",
+      "licenceUrl": "https://mixkit.co/license/#sfxFree",
+      "fallbackOf": "Small group cheer and applause"
+    },
+    "swipe": {
+      "file": "assets/audio/swipe.mp3",
+      "duration": 0.5,
+      "bytes": 5792,
+      "kind": "sfx",
+      "use": "Swipe between choices",
+      "title": "Move between choices",
+      "source": "https://mixkit.co/free-sound-effects/click/",
+      "assetId": 1109,
+      "creator": "Mixkit",
+      "provider": "Mixkit",
+      "licence": "Mixkit Sound Effects Free License",
+      "licenceUrl": "https://mixkit.co/license/#sfxFree",
+      "fallbackOf": "Select click"
+    },
     "coin": {
       "file": "assets/audio/coin.mp3",
       "duration": 1,

@@ -1,9 +1,18 @@
-// Swipe left and right to move between the choices on the screen.
+// Swipe to move between the choices on the screen.
 //
-// Blind players who use touch exploration or a switch device can move through a list with a single
+// Blind players who use touch exploration or a switch device can move through a list with a
 // sideways swipe instead of hunting for the next button. The screen reader reads whatever receives
 // the focus, so the swipe only moves the focus - it never writes to a live region, which would
 // make a screen reader say the same thing twice.
+//
+// Three ways to move, because a screen reader keeps the ordinary one:
+//  - one finger: the usual sideways swipe. Android TalkBack takes single-finger swipes for its
+//    own navigation, so this one only reaches the game when the screen reader is off, or when the
+//    player is not touching the screen (a mouse, a keyboard, a switch device).
+//  - two fingers: a sideways swipe with two fingers. TalkBack does not use that gesture, so it
+//    reaches the game even with the screen reader on. The game cancels the browser's pinch zoom
+//    while the two fingers are down, so the gesture never turns into a zoom.
+//  - the arrow keys, and the Previous / Next buttons on the game screen.
 //
 // Rules that keep the gesture from getting in the way:
 //  - a swipe must travel sideways further than it travels up or down (a vertical drag scrolls);
@@ -59,6 +68,52 @@ function groupFor(el) {
   return null;
 }
 
+// The last control the player touched that belongs to a list, so the Previous / Next buttons and
+// the arrow keys know which list to move through even when the focus is on the button itself.
+let lastGrouped = null;
+
+/** The list the focus is in, or the last one the player touched. */
+function currentGroup() {
+  const active = typeof document !== 'undefined' ? document.activeElement : null;
+  return groupFor(active) || groupFor(lastGrouped);
+}
+
+/**
+ * The control before or after `from` in its list.
+ * Returns null when there is nothing to move to.
+ */
+function step(direction, from) {
+  const group = groupFor(from) || currentGroup();
+  if (!group) return null;
+  const list = items(group);
+  if (list.length < 2) return null;
+  const active = typeof document !== 'undefined' ? document.activeElement : null;
+  const current = list.indexOf(active);
+  const dir = direction === 'back' ? -1 : 1;
+  const next = current < 0 ? (dir > 0 ? 0 : list.length - 1) : (current + dir + list.length) % list.length;
+  if (next === current) return null;
+  return list[next];
+}
+
+/**
+ * Moves the focus one step forward or back in the current list.
+ * Used by the Previous / Next buttons, the arrow keys and the swipe gesture.
+ * Returns the control that received the focus, or null when nothing moved.
+ */
+export function moveFocus(direction) {
+  if (typeof document === 'undefined') return null;
+  const el = step(direction, document.activeElement);
+  if (!el) return null;
+  el.focus();
+  return el;
+}
+
+/** The name of the control that has the focus, as a screen reader would say it. */
+export function focusedLabel() {
+  if (typeof document === 'undefined') return '';
+  return labelOf(document.activeElement);
+}
+
 /**
  * Starts the swipe gesture.
  * `onMove(element)` is called with the control that should receive the focus.
@@ -66,48 +121,80 @@ function groupFor(el) {
  */
 export function initGestures({ onMove, enabled = () => true } = {}) {
   if (typeof document === 'undefined' || typeof onMove !== 'function') return () => {};
-  let start = null;
+  // The touches of the gesture in progress, each with the point where it started.
+  const touches = new Map();
+  let multi = false; // true when the gesture used more than one finger
+  let target = null;
 
   const onStart = event => {
-    if (!enabled()) { start = null; return; }
-    const touch = event.touches && event.touches[0];
-    if (!touch) return;
-    start = { x: touch.clientX, y: touch.clientY, at: Date.now(), target: event.target };
+    if (!enabled()) { touches.clear(); multi = false; return; }
+    // A browser reports the new touches in changedTouches; older WebViews only fill in touches.
+    const changed = event.changedTouches && event.changedTouches.length ? event.changedTouches : (event.touches || []);
+    for (const t of changed) {
+      touches.set(t.identifier, { x: t.clientX, y: t.clientY, at: Date.now(), target: event.target });
+    }
+    if ((event.touches || []).length > 1) multi = true;
+    if (event.target) {
+      target = event.target;
+      if (groupFor(event.target)) lastGrouped = event.target;
+    }
+  };
+
+  // Two fingers: the screen reader does not use a two-finger sideways swipe, so it reaches the
+  // game even with the screen reader on. Cancelling the default keeps the browser from turning
+  // the gesture into a pinch zoom.
+  const onMoveEvent = event => {
+    if (!enabled() || !multi || touches.size < 2) return;
+    let dx = 0, dy = 0, n = 0;
+    for (const t of event.touches || []) {
+      const from = touches.get(t.identifier);
+      if (!from) continue;
+      dx += t.clientX - from.x;
+      dy += t.clientY - from.y;
+      n++;
+    }
+    if (!n) return;
+    dx /= n;
+    dy /= n;
+    if (Math.abs(dx) < MIN_TRAVEL) return;
+    if (Math.abs(dy) > Math.abs(dx) * SIDE_RATIO) return;
+    if (event.cancelable) event.preventDefault();
   };
 
   const onEnd = event => {
-    const from = start;
-    start = null;
-    if (!from || !enabled()) return;
-    const touch = event.changedTouches && event.changedTouches[0];
-    if (!touch) return;
-    const dx = touch.clientX - from.x;
-    const dy = touch.clientY - from.y;
-    if (Date.now() - from.at > MAX_TIME) return;
-    if (Math.abs(dx) < MIN_TRAVEL) return;
-    if (Math.abs(dy) > Math.abs(dx) * SIDE_RATIO) return; // mostly up or down: that is a scroll
-    if (scrollsSideways(from.target)) return;
-
-    const active = document.activeElement;
-    const group = groupFor(active) || groupFor(from.target);
-    if (!group) return;
-    const list = items(group);
-    if (list.length < 2) return;
-    const current = list.indexOf(active);
-    const step = dx < 0 ? 1 : -1; // swipe left moves forward, swipe right moves back
-    const next = current < 0 ? (step > 0 ? 0 : list.length - 1) : (current + step + list.length) % list.length;
-    if (next === current) return;
-    onMove(list[next], { direction: step > 0 ? 'forward' : 'back', group });
+    let best = null;
+    for (const t of event.changedTouches || []) {
+      const from = touches.get(t.identifier);
+      touches.delete(t.identifier);
+      if (!from || !enabled()) continue;
+      const dx = t.clientX - from.x;
+      const dy = t.clientY - from.y;
+      if (Date.now() - from.at > MAX_TIME) continue;
+      if (Math.abs(dx) < MIN_TRAVEL) continue;
+      if (Math.abs(dy) > Math.abs(dx) * SIDE_RATIO) continue; // mostly up or down: that is a scroll
+      if (scrollsSideways(from.target)) continue;
+      if (!best || Math.abs(dx) > Math.abs(best.dx)) best = { dx, dy, from };
+    }
+    // A two-finger swipe counts once, not once per finger.
+    if (touches.size > 0) return;
+    multi = false;
+    if (!best) return;
+    const direction = best.dx < 0 ? 'forward' : 'back'; // swipe left moves forward, swipe right moves back
+    const el = step(direction, best.from.target || target);
+    if (!el) return;
+    onMove(el, { direction, group: groupFor(el) });
   };
 
-  const onCancel = () => { start = null; };
+  const onCancel = () => { touches.clear(); multi = false; };
 
   document.addEventListener('touchstart', onStart, { passive: true });
+  document.addEventListener('touchmove', onMoveEvent, { passive: false });
   document.addEventListener('touchend', onEnd, { passive: true });
   document.addEventListener('touchcancel', onCancel, { passive: true });
 
   return () => {
     document.removeEventListener('touchstart', onStart);
+    document.removeEventListener('touchmove', onMoveEvent);
     document.removeEventListener('touchend', onEnd);
     document.removeEventListener('touchcancel', onCancel);
   };

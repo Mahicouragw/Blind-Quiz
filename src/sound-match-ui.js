@@ -127,7 +127,7 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
     finish.hidden = false;
     $('#sm-finish-text').textContent = text;
     $('#sm-finish-stars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
-    playSfx(stars === 3 ? 'cheer' : 'applause');
+    playSfx(stars === 3 ? 'cheer' : 'roundcomplete');
     levelButtons().forEach(b => { b.disabled = false; });
     say(text);
     setTimeout(() => $('#sm-again')?.focus(), 60);

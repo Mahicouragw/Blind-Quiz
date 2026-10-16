@@ -6,7 +6,11 @@
 const BASE = './assets/audio/';
 // Recorded effects. 'tick_last' and 'hurry' mark the last seconds of a question, 'streak' marks a
 // run of correct answers. A slot that is missing from the manifest is simply silent.
-const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak'];
+const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak', 'roundcomplete', 'swipe'];
+// A slot that has no recording of its own yet falls back to another one, so a game never loses a
+// sound while a new recording is being prepared. 'roundcomplete' is the owner's round-completion
+// sound; until that file is in the app the small group applause is used.
+const FALLBACK = { roundcomplete: 'applause', swipe: 'click' };
 // Each category and mode gets its own music track from the available recordings.
 const TRACKS = ['music_menu', 'music_game1', 'music_game2', 'music_game3', 'music_results'];
 // A slot is a playlist: `music_menu`, then `music_menu2`, `music_menu3`… if the manifest has them.
@@ -125,9 +129,11 @@ export async function playSfx(slot) {
   if (!prefs.sfx) return null;
   unlocked = true;
   const have = await manifest();
-  if (!have.has(slot)) return null;
+  let target = slot;
+  if (!have.has(slot) && FALLBACK[slot] && have.has(FALLBACK[slot])) target = FALLBACK[slot];
+  if (!have.has(target)) return null;
   try {
-    const a = element(slot).cloneNode();
+    const a = element(target).cloneNode();
     connectMediaElement(a);
     a.volume = prefs.sfxVolume;
     playing.add(a);
@@ -159,6 +165,19 @@ export async function playSequence(slots, { maxMs = 1800 } = {}) {
     if (!a.ended) fadeOutEffect(a);
   }
   if (id === sequenceId && music && prefs.music && musicSlot) fadeTo(prefs.musicVolume, 800);
+}
+
+/**
+ * The level-up sound. The owner's recording plays in this slot, so every place where a player
+ * levels up - the quiz, Letters to Words, Sound Match - uses the same file.
+ */
+export async function playLevelUp() {
+  return playSfx('levelup');
+}
+
+/** The sound for a finished round: a cheer for a perfect round, the round-completion sound otherwise. */
+export async function playRoundComplete(perfect = false) {
+  return playSfx(perfect ? 'cheer' : 'roundcomplete');
 }
 
 function fadeTo(target, ms, done) {

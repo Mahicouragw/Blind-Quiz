@@ -17,7 +17,7 @@ import { createRooms } from './rooms.js';
 import { createRoomPlay } from './room-play.js';
 import { createDirect } from './direct.js';
 import { configureSpeech, speechPrefs, speak, speakOnly, speakPreview, cancelSpeech, speechVoices, speechSupported } from './speech.js';
-import { initGestures } from './gestures.js';
+import { initGestures, moveFocus } from './gestures.js';
 import { categoryDescription, categoryLabel, instructionText, localizedBank, modeLabel, stageLabel, uiText } from './language.js';
 import { normalizedUnlockedStage, questionMatchesDifficulty, QUIZ_STAGES, stagePasses } from './quiz-levels.js';
 // The app keeps its own document and WIN. A page never swaps them, but a timer that outlives the
@@ -47,6 +47,13 @@ function isLiveRegion(element){return element?.nodeType===1&&(element.hasAttribu
 function muteLiveRegion(element){if(!mutedLiveRegions.has(element))mutedLiveRegions.set(element,{had:element.hasAttribute('aria-live'),value:element.getAttribute('aria-live')});if(element.getAttribute('aria-live')!=='off')element.setAttribute('aria-live','off')}
 function restoreLiveRegion(element){const saved=mutedLiveRegions.get(element);if(!saved)return;if(saved.had)element.setAttribute('aria-live',saved.value);else element.removeAttribute('aria-live');mutedLiveRegions.delete(element)}
 const voiceMode=()=>state.settings.voiceMode||'screen';
+// The Android app tells the page when TalkBack (or another screen reader) is running, because a
+// screen reader keeps single-finger swipes for itself. The hint then explains the two-finger
+// swipe, the arrow keys and the Previous / Next buttons.
+let screenReaderOn=false;
+const gestureHintText=()=>screenReaderOn?ui('gestureHintScreenReader'):ui('gestureHint');
+const refreshGestureHint=()=>{const el=DOC.getElementById('gesture-hint');if(el)el.textContent=gestureHintText()};
+if(WIN)WIN.bqSetScreenReader=on=>{screenReaderOn=!!on;refreshGestureHint();if(on)announce(gestureHintText())};
 // The game's own voice is only used when the player asks for it: 'screen' leaves the message to the
 // screen reader, 'app' speaks it with the device voice, 'both' does both.
 const speakMessage=text=>{if(voiceMode()==='screen')return false;return speak(text)};
@@ -194,7 +201,7 @@ function startRound(category='general',mode='classic',options={}){
 if(state.settings.autoStart!==false)countdownAndBegin()
 }
 async function countdownAndBegin(){if(state.locked)return;unlockAudio();state.locked=true;const id=state.roundId,alive=()=>id===state.roundId&&state.view==='game';try{const b=$('#game-start');b.disabled=true;b.textContent=ui('starting');$('#phase-label').textContent=state.roundLanguage==='te'?'సిద్ధంగా ఉండండి':'GET READY';$('#game-title').textContent=ui('getReady');$('#game-copy').textContent=ui('getReadyCopy');announce(ui('getReady'));await sleep(1050);if(!alive())return;$('#game-title').className='countdown-num';for(const n of ['3','2','1']){$('#game-title').textContent=n;$('#game-title').classList.remove('pop');void $('#game-title').offsetWidth;$('#game-title').classList.add('pop');$('#game-copy').textContent='';playSfx('tick');announce(n,true);await sleep(1120);if(!alive())return}$('#game-title').textContent=ui('go');playSfx('go');announce(ui('go'),true);await sleep(950);if(!alive())return;$('#game-tools').hidden=false;showQuestion()}finally{if(id===state.roundId)state.locked=false}}
-function showQuestion(){clearTimer();clearAutoAdvance();const q=state.questions[state.index];if(!q){finishRound();return}state.answered=false;const progress=ui('question',state.index+1,state.questions.length);livePush('say',`${progress}. ${q.displayQuestion} ${ui('options')}: ${q.displayAnswers.map((a,i)=>`${LETTERS[i]}, ${a}`).join('. ')}.`);const category=CATEGORY_LIST.find(c=>c.id===q.category);$('#phase-label').textContent=`${categoryLabel(state.roundLanguage,category||{id:'',name:q.category})} · ${ui(state.difficulty==='all'?q.difficulty:state.difficulty)}`;$('#round-progress').textContent=progress;$('#progress-meter').style.width=`${state.index/state.questions.length*100}%`;$('#game-title').textContent=`${progress}. ${q.displayQuestion}`;$('#game-title').className='question-text';$('#game-title').setAttribute('tabindex','-1');const stage=$('#game-stage');stage.querySelector('.game-copy')?.remove();stage.querySelector('.answer-list')?.remove();stage.querySelector('.feedback')?.remove();stage.querySelector('.next-question')?.remove();const list=DOC.createElement('div');list.className='answer-list';list.setAttribute('role','group');list.setAttribute('aria-label',ui('answerChoices'));q.displayAnswers.forEach((answer,i)=>{const btn=DOC.createElement('button');btn.type='button';btn.className='answer-button';btn.dataset.index=String(i);btn.dataset.answer=answer;btn.dataset.letter=LETTERS[i];const badge=DOC.createElement('span');badge.className='answer-letter';badge.setAttribute('aria-hidden','true');badge.textContent=LETTERS[i];const text=DOC.createElement('span');text.className='answer-text';text.textContent=answer;btn.append(badge,text);btn.setAttribute('aria-label',ui('option',LETTERS[i],answer));btn.addEventListener('click',()=>chooseAnswer(answer,btn));list.append(btn)});stage.append(list);const fb=DOC.createElement('div');fb.className='feedback';fb.id='answer-feedback';fb.tabIndex=-1;stage.append(fb);$('#game-start').hidden=true;$('#round-progress').textContent=progress;$('#game-title').focus();const spokenChoices=`${ui('answerChoices')}: ${q.displayAnswers.map((answer,i)=>ui('option',LETTERS[i],answer).replace(/[.]+$/,'')).join('. ')}.`;announceAccessibility(spokenChoices);updateHud();startTimer();}
+function showQuestion(){clearTimer();clearAutoAdvance();const q=state.questions[state.index];if(!q){finishRound();return}state.answered=false;const progress=ui('question',state.index+1,state.questions.length);livePush('say',`${progress}. ${q.displayQuestion} ${ui('options')}: ${q.displayAnswers.map((a,i)=>`${LETTERS[i]}, ${a}`).join('. ')}.`);const category=CATEGORY_LIST.find(c=>c.id===q.category);$('#phase-label').textContent=`${categoryLabel(state.roundLanguage,category||{id:'',name:q.category})} · ${ui(state.difficulty==='all'?q.difficulty:state.difficulty)}`;$('#round-progress').textContent=progress;$('#progress-meter').style.width=`${state.index/state.questions.length*100}%`;$('#game-title').textContent=`${progress}. ${q.displayQuestion}`;$('#game-title').className='question-text';$('#game-title').setAttribute('tabindex','-1');const stage=$('#game-stage');stage.querySelector('.game-copy')?.remove();stage.querySelector('.answer-list')?.remove();stage.querySelector('.choice-nav')?.remove();stage.querySelector('.gesture-hint')?.remove();stage.querySelector('.feedback')?.remove();stage.querySelector('.next-question')?.remove();const list=DOC.createElement('div');list.className='answer-list';list.setAttribute('role','group');list.setAttribute('aria-label',ui('answerChoices'));q.displayAnswers.forEach((answer,i)=>{const btn=DOC.createElement('button');btn.type='button';btn.className='answer-button';btn.dataset.index=String(i);btn.dataset.answer=answer;btn.dataset.letter=LETTERS[i];const badge=DOC.createElement('span');badge.className='answer-letter';badge.setAttribute('aria-hidden','true');badge.textContent=LETTERS[i];const text=DOC.createElement('span');text.className='answer-text';text.textContent=answer;btn.append(badge,text);btn.setAttribute('aria-label',ui('option',LETTERS[i],answer));btn.addEventListener('click',()=>chooseAnswer(answer,btn));list.append(btn)});stage.append(list);const nav=DOC.createElement('div');nav.className='choice-nav';nav.setAttribute('role','group');nav.setAttribute('aria-label',ui('moveBetweenChoices'));for(const [dir,label] of [['back',ui('previousChoice')],['forward',ui('nextChoice')]]){const b=DOC.createElement('button');b.type='button';b.className='button choice-nav-button';b.dataset.move=dir;b.textContent=label;b.setAttribute('aria-label',label);nav.append(b)}stage.append(nav);const hint=DOC.createElement('p');hint.className='gesture-hint';hint.id='gesture-hint';hint.textContent=gestureHintText();stage.append(hint);const fb=DOC.createElement('div');fb.className='feedback';fb.id='answer-feedback';fb.tabIndex=-1;stage.append(fb);$('#game-start').hidden=true;$('#round-progress').textContent=progress;$('#game-title').focus();const spokenChoices=`${ui('answerChoices')}: ${q.displayAnswers.map((answer,i)=>ui('option',LETTERS[i],answer).replace(/[.]+$/,'')).join('. ')}.`;announceAccessibility(spokenChoices);updateHud();startTimer();}
 function updateHud(){const s=$('#hud-score');if(s)s.textContent=`★ ${state.score}`;const t=$('#hud-timer');const seconds=Number(state.roundTimer??state.settings.timer);if(t){t.hidden=!seconds||state.view!=='game';if(seconds){const left=Math.max(0,state.timeLeft);t.style.setProperty('--left',String(left/seconds));t.classList.toggle('low',left<=5);$('#hud-seconds').textContent=`${left}s`}}}
 function startTimer(){const seconds=Number(state.roundTimer??state.settings.timer);if(!seconds){updateHud();return}state.timeLeft=seconds;updateHud();if(seconds<=15)playSfx('tick');const warnAt=[10,5,3,2,1];state.timer=setInterval(()=>{state.timeLeft--;updateHud();if(state.timeLeft>0&&state.timeLeft<=15)playSfx('tick');if(state.timeLeft===5)playSfx('hurry');if(state.timeLeft>0&&state.timeLeft<=4)playSfx('tick_last');if(warnAt.includes(state.timeLeft))announce(ui('timer',state.timeLeft));if(state.timeLeft<=0){clearTimer();timeExpired()}},1000)}function clearTimer(){if(state.timer)clearInterval(state.timer);state.timer=null}
 function offerNextQuestion(){const next=DOC.createElement('button');next.type='button';next.className='button button-hot next-question';next.textContent=state.index+1>=state.questions.length||endsAfterMiss(state.mode,state.lastAnswerCorrect)?ui('viewResults'):ui('answerAgain');next.addEventListener('click',advance,{once:true});$('#game-stage').append(next)}
@@ -232,7 +239,7 @@ function advance(){if(state.view!=='game')return;clearAutoAdvance();if(endsAfter
 // The profile level is 1 + XP/100 on the server, so it rises automatically; the player hears a bugle call and the announcement.
 function levelUpLine(before,after){return before&&after&&after>before?(state.roundLanguage==='te'?`స్థాయి పెరిగింది! ఇప్పుడు మీరు ${after}వ స్థాయిలో ఉన్నారు.`:`Level up! You are now Level ${after}.`):''}
 function finishRound(){
- clearTimer();clearAutoAdvance();$('#progress-meter').style.width='100%';go('results');playSequence([state.score===state.answeredCount?'cheer':'applause']);
+ clearTimer();clearAutoAdvance();$('#progress-meter').style.width='100%';go('results');playSequence([state.score===state.answeredCount?'cheer':'roundcomplete']);
  const answered=state.mode==='survival'?state.answeredCount:state.questions.length;
  $('#result-score').textContent=ui('resultScore',state.score,answered);
  {const r=state.score/Math.max(1,answered),stars=r===1?3:r>=.7?2:r>=.4?1:0,el=$('#result-stars');if(el){el.textContent='★'.repeat(stars)+'☆'.repeat(3-stars);el.dataset.stars=String(stars)}}
@@ -345,7 +352,27 @@ $('#swipe-on')?.addEventListener('change',e=>{state.settings.swipe=e.target.chec
 $('#sfx-volume')?.addEventListener('change',e=>{state.settings.sfxVolume=Number(e.target.value);configureAudio({sfxVolume:state.settings.sfxVolume});persistQuizSettings()});
 // Swipe left and right moves the focus between the choices on screen. The screen reader reads whatever
 // receives the focus, so the gesture never writes to a live region as well.
-initGestures({onMove:el=>{el?.focus();if(voiceMode()==='app')speakOnly(el.getAttribute('aria-label')||el.textContent||'')},enabled:()=>state.settings.swipe!==false});
+// A screen reader (Android TalkBack) keeps single-finger swipes for its own navigation, so the game
+// also listens for a two-finger swipe, for the left and right arrow keys, and for the Previous and
+// Next buttons on the game screen. A short recorded click marks every move.
+const moveWithSound=(direction,{sound=true}={})=>{
+  if(state.settings.swipe===false)return null;
+  const el=moveFocus(direction);
+  if(!el)return null;
+  if(sound)playSfx('swipe');
+  if(voiceMode()==='app')speakOnly(el.getAttribute('aria-label')||el.textContent||'');
+  return el;
+};
+initGestures({onMove:el=>{el?.focus();playSfx('swipe');if(voiceMode()==='app')speakOnly(el.getAttribute('aria-label')||el.textContent||'')},enabled:()=>state.settings.swipe!==false});
+DOC.addEventListener('keydown',e=>{
+  if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft')return;
+  if(e.altKey||e.ctrlKey||e.metaKey)return;
+  if(e.target?.closest?.('input,textarea,select,[contenteditable="true"]'))return;
+  if(moveWithSound(e.key==='ArrowRight'?'forward':'back'))e.preventDefault();
+});
+// The Previous and Next buttons on the game screen move the focus the same way. The shared click
+// handler already plays the short click for a button, so the move does not add a second sound.
+DOC.addEventListener('click',e=>{const b=e.target?.closest?.('[data-move]');if(!b)return;moveWithSound(b.dataset.move==='forward'?'forward':'back',{sound:false});});
  $('#language-choice').addEventListener('change',e=>{state.settings.language=e.target.value==='te'?'te':'en';state.settings.quizStage=Number(state.settings.quizStage)||0;persistQuizSettings();applyLanguage();announce(ui('ready'))});
  $('#quiz-stage').addEventListener('change',e=>selectQuizStage(e.target.value));
  $('#quiz-difficulty').addEventListener('change',selectCustomQuizSetting);$('#quiz-round-length').addEventListener('change',selectCustomQuizSetting);
@@ -355,7 +382,7 @@ initGestures({onMove:el=>{el?.focus();if(voiceMode()==='app')speakOnly(el.getAtt
 // One activation is one action. A double click is ignored, and a second activation that
 // arrives in the same tick (a control that has two handlers) never starts a second round.
 const isDoubleActivation=e=>!!e&&typeof e.detail==='number'&&e.detail>=2;
-const onceAction=(fn,e)=>{if(isDoubleActivation(e))return;fn()};
+const onceAction=(fn,e)=>{if(isDoubleActivation(e))return;fn();playSfx('notify')};
 $('#play-featured').addEventListener('click',e=>onceAction(()=>startRound('general','classic'),e));
 $('#category-list').addEventListener('click',e=>{const b=e.target.closest('[data-category]');if(b)onceAction(()=>startRound(b.dataset.category,'classic'),e)});
 $('#mode-list').addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(!b)return;onceAction(()=>{if(b.dataset.mode==='letters')openLetters();else startRound('general',b.dataset.mode)},e)});

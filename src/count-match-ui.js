@@ -222,7 +222,7 @@ export function createCountMatch({
     $('#cm-best-note').textContent = newBest ? 'New personal best — brilliant listening!' : `Personal best: ${oldBest.toLocaleString()} points.`;
     gameView.hidden = true;
     scorecard.hidden = false;
-    playSfx(state.correct === state.roundCount ? 'cheer' : 'applause');
+    playSfx(state.correct === state.roundCount ? 'cheer' : 'roundcomplete');
     say(`Game complete. ${state.score} points, ${formatTime(elapsed)}, ${accuracy} percent accuracy. ${newBest ? 'That is your new personal best!' : ''}`);
     setTimeout(() => $('#cm-share-whatsapp')?.focus(), 60);
   }

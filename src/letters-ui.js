@@ -184,7 +184,7 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     const res = applyLevelXp(level, game.stored.levelXp, gained);
     const coins = game.roundCoins ? ` You earned ${game.roundProfileXp} XP and ${game.roundCoins} ${game.roundCoins === 1 ? 'coin' : 'coins'} this round.` : '';
     let text = `${wordLine} Round complete! ${game.found.size} words found. ${gained} level XP earned, including a ${bonus} XP round bonus.${coins}`;
-    playSequence(res.levelledUp ? ['applause', 'levelup'] : ['applause']);
+    playSequence(res.levelledUp ? ['roundcomplete', 'levelup'] : ['roundcomplete']);
     game.stored.levelXp = res.levelXp;
     if (res.levelledUp) {
       game.stored.round = 1;

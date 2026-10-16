@@ -159,9 +159,12 @@ const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8')
 assert(audioSrc.includes('AudioContext')&&audioSrc.includes('resume()')&&audioSrc.includes('createMediaElementSource')&&audioSrc.includes('new Audio(')&&!/(createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc),'recorded files stay on HTML audio while the user gesture explicitly resumes mobile audio playback');
 const audioManifest=JSON.parse(await readFile(new URL('../assets/audio/manifest.json',import.meta.url),'utf8'));
 const stockSrc=JSON.parse(await readFile(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));
-const SFX_SLOTS=['correct','wrong','tick','tick_last','hurry','go','timeup','applause','cheer','click','levelup','coin','notify','streak'];
-assert.deepEqual(Object.keys(stockSrc.sfx).sort(),[...SFX_SLOTS].sort(),'every sound effect is pinned to a Mixkit asset');
-for(const [slot,pin] of Object.entries(stockSrc.sfx))assert(Number.isInteger(pin.mixkitId)&&pin.title&&pin.category&&pin.max>0&&pin.max<=8,`${slot}: Mixkit pin is complete`);
+const SFX_SLOTS=['correct','wrong','tick','tick_last','hurry','go','timeup','applause','cheer','click','levelup','coin','notify','streak','roundcomplete','swipe'];
+assert.deepEqual(Object.keys(stockSrc.sfx).sort(),[...SFX_SLOTS].sort(),'every sound effect has a recording');
+for(const [slot,pin] of Object.entries(stockSrc.sfx)){
+  if(Number.isInteger(pin.mixkitId))assert(pin.title&&pin.category&&pin.max>0&&pin.max<=8,`${slot}: Mixkit pin is complete`);
+  else assert(pin.fallback&&pin.title&&pin.use&&pin.max>0&&pin.max<=8,`${slot}: the owner's own recording slot keeps a fallback until the file arrives`);
+}
 for(const slot of ['tick_last','hurry','streak'])assert(stockSrc.sfx[slot].optional===true,`${slot}: optional timing effect`);
 assert.deepEqual(Object.keys(stockSrc.music).filter(k=>!/\d$/.test(k)||/^game\d$/.test(k)),['menu','game1','game2','game3','results'],'five music slots');assert(Object.keys(stockSrc.music).filter(k=>/^menu\d$/.test(k)).length>=2,'home music is a playlist of several tracks');
 for(const [slot,m] of Object.entries(stockSrc.music))assert(m.oga&&/^https:\/\/opengameart\.org\/content\/[a-z0-9-]+$/.test(m.oga.page)&&m.oga.file,`${slot}: pinned OpenGameArt track`);
@@ -439,7 +442,7 @@ assert(dart.includes("Reload failed. Check your internet connection, then try ag
   assert.deepEqual(applyLevelXp(1,0,9),{level:1,levelXp:9,levelledUp:false});
   assert.equal(applyLevelXp(MAX_LEVEL,10,5).level,MAX_LEVEL,'no level beyond the top');
   const ui=await readFile(new URL('../src/letters-ui.js',import.meta.url),'utf8');
-  assert(/playSequence\(res\.levelledUp \? \['applause', 'levelup'\] : \['applause'\]\)/.test(ui),'round sound, then the level-up sound');
+  assert(/playSequence\(res\.levelledUp \? \['roundcomplete', 'levelup'\] : \['roundcomplete'\]\)/.test(ui),'round sound, then the level-up sound');
   assert(!/profile level|Profile level|Letters level/i.test(ui)&&ui.includes('` Level up! You are now Level ${res.level}.`'),'level-up says only "Level up! You are now Level N."');
   assert(ui.includes('Level up! You are now Level')&&ui.includes('focusStatus(text)')&&!ui.includes('letters-next'),'level-up announced and focused; no manual level button');
   assert(stockSrc.sfx.levelup&&stockSrc.sfx.coin,'level-up and coin sounds are pinned recordings');
@@ -721,6 +724,10 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   const languageSrc = readFileSync(new URL('../src/language.js', import.meta.url), 'utf8');
   const gestures = readFileSync(new URL('../src/gestures.js', import.meta.url), 'utf8');
   const audio = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8');
+  const lettersUi = readFileSync(new URL('../src/letters-ui.js', import.meta.url), 'utf8');
+  const countUi = readFileSync(new URL('../src/count-match-ui.js', import.meta.url), 'utf8');
+  const soundUi = readFileSync(new URL('../src/sound-match-ui.js', import.meta.url), 'utf8');
+  const audioBuilder = readFileSync(new URL('../scripts/audio/stock-audio.mjs', import.meta.url), 'utf8');
 
   // The settings the player needs: who reads the game, and that voice's pitch, speed and volume.
   for (const id of ['voice-mode', 'voice-pitch', 'voice-rate', 'voice-volume', 'voice-name', 'voice-test', 'auto-start', 'swipe-on', 'sfx-volume'])
@@ -755,7 +762,7 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
 
   // The swipe moves the focus and never writes to a live region.
   assert(gestures.includes('MIN_TRAVEL') && gestures.includes('SIDE_RATIO') && gestures.includes('MAX_TIME'), 'the swipe needs a sideways, quick, long enough drag');
-  assert(gestures.includes('onMove(list[next]') && !/announce|aria-live|role=/.test(gestures), 'the swipe only moves the focus');
+  assert(gestures.includes('onMove(el,') && !/announce|aria-live|role=/.test(gestures), 'the swipe only moves the focus');
   assert(main.includes('initGestures({onMove:el=>') && main.includes('enabled:()=>state.settings.swipe!==false'), 'the swipe can be switched off');
 
   // The three new timing effects are recorded Mixkit audio with their licence.
@@ -774,5 +781,23 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   assert(swSrc.includes("self.addEventListener('message'") && swSrc.includes("data.type==='clear-cache'"), 'the page can ask the worker to drop the caches');
   const dartSrc = readFileSync(new URL('../android-app/lib/main.dart', import.meta.url), 'utf8');
   assert(dartSrc.includes('r.unregister()') && dartSrc.includes('caches.delete(k)') && dartSrc.includes('kAppVersion'), 'the Android Reload button drops the offline copy too, and the app version is visible');
+  // A screen reader keeps the one-finger swipe, so the game also takes a two-finger swipe, the arrow
+  // keys and the Previous / Next buttons, and it says so.
+  assert(gestures.includes('export function moveFocus') && gestures.includes('export function initGestures'), 'the focus can be moved by the gesture and by the buttons and keys');
+  assert(gestures.includes('if ((event.touches || []).length > 1) multi = true;') && gestures.includes('if (event.cancelable) event.preventDefault();'), 'a two-finger sideways swipe reaches the game and never turns into a pinch zoom');
+  assert(gestures.includes('touches.size > 0') && gestures.includes('A two-finger swipe counts once'), 'a two-finger swipe moves once, not once per finger');
+  assert(main.includes("e.key!=='ArrowRight'&&e.key!=='ArrowLeft'") && main.includes("e.key==='ArrowRight'?'forward':'back'") && main.includes('moveWithSound'), 'the left and right arrow keys move between the choices');
+  assert(main.includes("className='choice-nav'") && main.includes("b.dataset.move=dir") && main.includes("closest?.('[data-move]')"), 'the game screen has Previous and Next buttons');
+  assert(main.includes('WIN.bqSetScreenReader=') && main.includes('gestureHintScreenReader'), 'the page is told when a screen reader is running, and the hint then explains the two-finger swipe');
+  assert(html.includes('id="swipe-note"') && html.includes('two fingers'), 'Settings explains the two-finger swipe');
+  assert(languageSrc.includes('gestureHintScreenReader') && languageSrc.includes("gestureHintScreenReader: 'మీ స్క్రీన్ రీడర్"), 'the hint is written in English and Telugu');
+  // The recorded sounds: a move, an activation, the level up and the round complete.
+  assert(main.includes("playSfx('swipe')") && main.includes("playSfx('notify')"), 'a move and an activation each have their own recorded sound');
+  assert(audio.includes("'roundcomplete'") && audio.includes("'swipe'") && audio.includes('FALLBACK'), 'the new sound slots fall back to a recording that is already in the app');
+  assert(main.includes("'roundcomplete'") && lettersUi.includes("'roundcomplete'") && countUi.includes("'roundcomplete'") && soundUi.includes("'roundcomplete'"), 'the round-completion sound is used in every game');
+  assert(main.includes("playSequence(up?['coin','levelup']:['coin'])") && lettersUi.includes("'levelup'") && soundUi.includes("'levelup'"), 'the level-up sound is used wherever a player levels up');
+  // The owner's own recording replaces a sound effect everywhere it is used.
+  assert(audioBuilder.includes('ownerFileFor') && audioBuilder.includes("provider: 'Owner upload'") && audioBuilder.includes('pin.fallback'), 'a recording supplied by the owner replaces a sound effect, and a slot without one keeps a fallback');
+  assert(dartSrc.includes('accessibleNavigation') && dartSrc.includes('bqSetScreenReader'), 'the Android app tells the page when TalkBack is running');
   console.log('PASS: Task 20 accessible play (game voice with pitch, speed and volume; swipe gestures; one double tap per action; spoken timing effects).');
 }

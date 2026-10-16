@@ -87,6 +87,18 @@
       "use": "Level up",
       "max": 4.7
     },
+    "roundcomplete": {
+      "fallback": "applause",
+      "title": "Round complete",
+      "use": "Round complete",
+      "max": 6
+    },
+    "swipe": {
+      "fallback": "click",
+      "title": "Move between choices",
+      "use": "Swipe between choices",
+      "max": 0.6
+    },
     "coin": {
       "mixkitId": 1993,
       "title": "Clinking coins",

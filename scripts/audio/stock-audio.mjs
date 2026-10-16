@@ -6,10 +6,14 @@
 //    and uploaded to assets/audio/incoming/<slot>-<original pixabay file name>.mp3. Pixabay does not allow
 //    automated downloads, so this script never fetches from Pixabay; it only encodes uploaded files and
 //    then deletes the originals. Music slots without an upload keep their previous recording.
+//  - A recording supplied by the project owner replaces a sound effect: a file named
+//    assets/audio/incoming/<slot>.<ext> (for example levelup.mp3) is encoded into that slot and
+//    the original is deleted. A slot with no pinned recording and no owner file keeps the
+//    recording of another slot (the "fallback"), so the game never loses a sound.
 // Every file is trimmed, loudness-normalised and encoded to MP3 with ffmpeg; manifest.json and
 // AUDIO_LICENSES.md are regenerated from what was actually encoded.
 import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 const GH = !!process.env.GITHUB_ACTIONS;
@@ -76,9 +80,36 @@ function encode(src, slot, kind, max, start) {
 
 const assets = {};
 
+// Files the owner uploaded by hand: assets/audio/incoming/<slot>.<ext>.
+const incomingFiles = existsSync(incomingDir) ? (await readdir(incomingDir)).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f)) : [];
+const ownerFileFor = slot => incomingFiles.find(f => {
+  const name = f.toLowerCase();
+  return name === `${slot}.mp3` || name === `${slot}.m4a` || name === `${slot}.wav` || name === `${slot}.ogg`
+    || name.startsWith(`${slot}-`) || name.startsWith(`${slot}.`);
+});
+
 // ---------------------------------------------------------------- Mixkit sound effects
 for (const [slot, pin] of Object.entries(config.sfx)) {
-  if (!Number.isInteger(pin.mixkitId)) throw new Error(`${slot}: mixkitId must be an integer`);
+  // A recording supplied by the project owner wins over the pinned one.
+  const owner = ownerFileFor(slot);
+  if (owner) {
+    const enc = encode(new URL(owner, incomingDir).pathname, slot, 'sfx', pin.max || 8, pin.start);
+    assets[slot] = { ...enc, kind: 'sfx', use: pin.use, title: pin.ownerTitle || pin.title, source: 'Recording supplied by the project owner', creator: 'Project owner', provider: 'Owner upload', licence: 'Recording supplied by the project owner' };
+    await rm(new URL(owner, incomingDir));
+    note(`SFX ${slot}`, `owner upload "${owner}" | ${enc.duration}s | ${Math.round(enc.bytes / 1024)}KB`);
+    continue;
+  }
+  if (!Number.isInteger(pin.mixkitId)) {
+    // No pinned recording and no owner file: keep another slot's recording until one arrives.
+    const fallback = pin.fallback && (assets[pin.fallback] || previous.assets[pin.fallback]);
+    if (!fallback) throw new Error(`${slot}: no recording, no owner file and no fallback`);
+    const from = new URL(`${pin.fallback}.mp3`, outDir);
+    if (!existsSync(from)) throw new Error(`${slot}: the fallback file ${pin.fallback}.mp3 is missing`);
+    await copyFile(from, new URL(`${slot}.mp3`, outDir));
+    assets[slot] = { ...fallback, file: `assets/audio/${slot}.mp3`, use: pin.use, title: pin.title, fallbackOf: fallback.title };
+    note(`SFX ${slot}`, `kept ${fallback.provider} "${fallback.title}" until the owner's recording arrives`);
+    continue;
+  }
   // The full WAV is used; Mixkit's own preview MP3 is the fallback when the WAV is not published.
   // "optional" slots (extra timing effects) are skipped with an annotation when they cannot be
   // fetched, so one missing recording never breaks the whole audio build.
@@ -122,7 +153,7 @@ const matchCount = Object.keys(assets).filter(k => k.startsWith('match_')).lengt
 note('Sound Match', `${matchCount} of ${Object.keys(config.match || {}).length} Mixkit clips encoded`);
 if (config.match && matchCount < 20) throw new Error(`Sound Match needs at least 20 clips, got ${matchCount}`);
 // ---------------------------------------------------------------- Pixabay music (uploaded by hand)
-const uploads = existsSync(incomingDir) ? (await readdir(incomingDir)).filter(f => /\.(mp3|m4a|wav|ogg)$/i.test(f)) : [];
+const uploads = incomingFiles;
 for (const [slot, spec] of Object.entries(config.music)) {
   const key = `music_${slot}`;
   const file = uploads.find(f => f.toLowerCase().startsWith(`${slot}-`) || f.toLowerCase().startsWith(`${slot}.`) || f.toLowerCase().startsWith(`${slot}_`));
@@ -160,13 +191,13 @@ for (const old of Object.keys(previous.assets)) if (!assets[old]) await rm(new U
 
 const manifest = {
   generated: new Date().toISOString().slice(0, 10),
-  policy: 'Recorded stock audio only. Sound effects: Mixkit (Sound Effects Free License). Music: CC0 tracks by human composers from OpenGameArt.org (licence re-verified on every build) and Pixabay tracks by human artists (Pixabay Content License) downloaded by hand from pixabay.com, which take priority; slots not yet replaced keep their Wikimedia Commons CC0/Public domain recording. Mixkit music is not used (its licence excludes games).',
+  policy: 'Recorded stock audio only. A sound effect may also be a recording supplied by the project owner. Sound effects: Mixkit (Sound Effects Free License). Music: CC0 tracks by human composers from OpenGameArt.org (licence re-verified on every build) and Pixabay tracks by human artists (Pixabay Content License) downloaded by hand from pixabay.com, which take priority; slots not yet replaced keep their Wikimedia Commons CC0/Public domain recording. Mixkit music is not used (its licence excludes games).',
   assets,
 };
 await writeFile(manifestUrl, JSON.stringify(manifest, null, 2) + '\n');
 
 // ---------------------------------------------------------------- AUDIO_LICENSES.md
-const link = a => a.provider === 'OpenGameArt' ? `[OpenGameArt: ${a.title}](${a.source})` : a.provider === 'Mixkit' ? `[Mixkit #${a.assetId}: ${a.title}](${a.source})` : a.provider === 'Pixabay' ? `[Pixabay${a.assetId ? ' #' + a.assetId : ''}: ${a.title}](${a.source})` : `[${a.title}](${a.source})`;
+const link = a => a.provider === 'Owner upload' ? `${a.title} (recording supplied by the project owner)` : a.provider === 'OpenGameArt' ? `[OpenGameArt: ${a.title}](${a.source})` : a.provider === 'Mixkit' ? `[Mixkit #${a.assetId}: ${a.title}](${a.source})` : a.provider === 'Pixabay' ? `[Pixabay${a.assetId ? ' #' + a.assetId : ''}: ${a.title}](${a.source})` : `[${a.title}](${a.source})`;
 const lic = a => a.licenceUrl ? `[${a.licence}](${a.licenceUrl})` : a.licence;
 const rows = Object.values(assets).map(a => `| \`${a.file}\` | ${a.use} | ${link(a)} | ${a.creator} | ${lic(a)} | ${a.duration} s |`);
 const doc = `# Blind Quiz audio inventory
@@ -179,6 +210,7 @@ Generated by \`scripts/audio/stock-audio.mjs\` on ${manifest.generated}. All aud
 - **Music: [Pixabay](https://pixabay.com/music/)** under the [Pixabay Content License](https://pixabay.com/service/license-summary/). It allows commercial use, including apps and games, with no attribution required. Tracks may not be sold or redistributed on their own. Only tracks by human artists are used, preferring tracks that are *not* "Content ID Registered". Pixabay requires music to be downloaded from its own site, so the owner downloads each track there and uploads it to \`assets/audio/incoming/\`. The workflow then encodes it and deletes the original. A music slot that has not been replaced yet keeps its earlier Wikimedia Commons recording (CC0 / Public domain).
 - **Music: [OpenGameArt.org](https://opengameart.org/)**, **CC0 only** (public domain dedication: free for any use including commercial games, no attribution required; artists are credited anyway). Tracks are pinned by page and file name in \`scripts/audio/sources.json\`; the workflow reads the live page and refuses to build unless CC0 is listed. Only long-standing uploads by human composers are used. A Pixabay upload for the same slot takes priority.
 - **Mixkit music is not used**, because the Mixkit Stock Music Free License excludes video games.
+- **Recordings supplied by the project owner.** A sound effect can be replaced with the owner's own recording by uploading a file named after its slot (for example \`levelup.mp3\`) to \`assets/audio/incoming/\`. The workflow encodes it into that slot, keeps it everywhere the sound is used, and records it in the table below.
 
 How files are produced: workflow \`audio-assets.yml\` runs \`scripts/audio/stock-audio.mjs\`. The script trims silence, normalises loudness, encodes MP3 and records the source, licence and duration of every file in \`assets/audio/manifest.json\`.
 

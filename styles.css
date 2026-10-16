@@ -507,3 +507,10 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 #voice-settings .setting-row select{min-width:11rem}
 #voice-settings .setting-row .button{width:100%}
 #voice-status{margin:.75rem 0 0}
+
+/* Moving between the choices: the Previous and Next buttons, and the hint that explains the
+   two-finger swipe, the arrow keys and the double tap. */
+.choice-nav{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px;width:100%}
+.choice-nav-button{flex:1 1 150px;border-color:var(--blue);color:var(--blue);font-weight:750}
+.choice-nav-button:hover{border-color:var(--acid);color:var(--acid)}
+.gesture-hint{margin:14px 0 0;width:100%;color:var(--muted);font-size:.9rem;line-height:1.5}
