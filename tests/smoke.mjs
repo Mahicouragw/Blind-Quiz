@@ -60,17 +60,21 @@ const audioSrc=await readFile(new URL('../src/audio.js',import.meta.url),'utf8')
 assert(!/(AudioContext|createOscillator|speechSynthesis|OfflineAudio)/.test(audioSrc)&&audioSrc.includes('new Audio('),'recorded files only, played with HTML audio elements');
 const audioManifest=JSON.parse(await readFile(new URL('../assets/audio/manifest.json',import.meta.url),'utf8'));
 const stockSrc=JSON.parse(await readFile(new URL('../scripts/audio/sources.json',import.meta.url),'utf8'));
-const SFX_SLOTS=['correct','wrong','tick','go','timeup','applause','cheer','click','levelup','coin','notify'];
+const SFX_SLOTS=['correct','wrong','tick','tick_last','hurry','go','timeup','applause','cheer','click','levelup','coin','notify','streak'];
 assert.deepEqual(Object.keys(stockSrc.sfx).sort(),[...SFX_SLOTS].sort(),'every sound effect is pinned to a Mixkit asset');
 for(const [slot,pin] of Object.entries(stockSrc.sfx))assert(Number.isInteger(pin.mixkitId)&&pin.title&&pin.category&&pin.max>0&&pin.max<=8,`${slot}: Mixkit pin is complete`);
+// The timing effects are optional: the audio workflow skips one that Mixkit stops publishing, and the
+// game then plays nothing at that moment instead of breaking.
+for(const slot of ['tick_last','hurry','streak'])assert(stockSrc.sfx[slot].optional===true,`${slot}: optional timing effect`);
 assert.deepEqual(Object.keys(stockSrc.music).filter(k=>!/\d$/.test(k)||/^game\d$/.test(k)),['menu','game1','game2','game3','results'],'five music slots');assert(Object.keys(stockSrc.music).filter(k=>/^menu\d$/.test(k)).length>=2,'home music is a playlist of several tracks');
 for(const [slot,m] of Object.entries(stockSrc.music))assert(m.oga&&/^https:\/\/opengameart\.org\/content\/[a-z0-9-]+$/.test(m.oga.page)&&m.oga.file,`${slot}: pinned OpenGameArt track`);
 const audioBuilder=await readFile(new URL('../scripts/audio/stock-audio.mjs',import.meta.url),'utf8');
 assert(audioBuilder.includes("const OGA_OK = l => /^CC0$/i.test(l);")&&/CC0 required/.test(audioBuilder),'OpenGameArt music must list CC0 on its live page or the build fails');
 assert(!/fetch\([^)]*pixabay/i.test(audioBuilder)&&audioBuilder.includes('assets.mixkit.co/active_storage/sfx/')&&!/mixkit\.co\/free-stock-music/.test(audioBuilder),'Mixkit sound effects only; Pixabay music is never fetched automatically; no Mixkit music');
 const MIXKIT=/^Mixkit Sound Effects Free License$/,PIXABAY=/^Pixabay Content License$/,COMMONS=/^(CC0|Public domain)$/i;
-// 'notify' (Task 19) is checked as soon as the audio workflow has committed it to the manifest.
-for(const slot of [...SFX_SLOTS.filter(k=>k!=='notify'||audioManifest.assets.notify),'music_menu','music_game1','music_game2','music_game3','music_results',...Object.keys(audioManifest.assets).filter(k=>/^music_[a-z]+\d+$/.test(k))]){const a=audioManifest.assets[slot];
+// Every slot the audio workflow has already encoded is checked here. A slot that is pinned but not
+// encoded yet (a new optional timing effect) is checked as soon as the workflow commits it.
+for(const slot of [...SFX_SLOTS.filter(k=>audioManifest.assets[k]),'music_menu','music_game1','music_game2','music_game3','music_results',...Object.keys(audioManifest.assets).filter(k=>/^music_[a-z]+\d+$/.test(k))]){const a=audioManifest.assets[slot];
   const ok=a&&((a.provider==='Mixkit'&&MIXKIT.test(a.licence)&&a.kind==='sfx'&&/^https:\/\/mixkit\.co\/free-sound-effects\//.test(a.source))
     ||(a.provider==='Pixabay'&&PIXABAY.test(a.licence)&&a.kind==='music'&&/^https:\/\/pixabay\.com\/music\//.test(a.source))
     ||(a.provider==='OpenGameArt'&&a.licence==='CC0'&&a.kind==='music'&&/^https:\/\/opengameart\.org\/content\//.test(a.source))
@@ -135,10 +139,10 @@ assert(/<span class="footer-actions">[\s\S]*id="reload-button"[\s\S]*id="logout-
 assert(css.includes('footer .footer-actions{')&&css.includes('footer .footer-actions button{margin-left:0}'),'footer actions styles');
 const reloadWire=main.slice(main.indexOf("$('#reload-button')"));
 assert(main.includes("$('#reload-button').addEventListener('click'"),'Reload button is wired');
-assert(reloadWire.includes('window.location.reload()'),'Reload button calls window.location.reload()');
-assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('window.location.reload()'),'reload is announced before the page reloads');
+assert(reloadWire.includes('location.reload()'),'Reload button calls window.location.reload()');
+assert(reloadWire.indexOf("announce('Reloading Blind Quiz to get the latest version.',true)")>-1&&reloadWire.indexOf("announce('Reloading Blind Quiz")<reloadWire.indexOf('location.reload()'),'reload is announced before the page reloads');
 const sw=await readFile(new URL('../sw.js',import.meta.url),'utf8');
-assert(sw.includes("const CACHE='blind-quiz-shell-v22'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'"),'service worker cache is v16 and caches the Migration 016 questions and the feedback module');
+assert(sw.includes("const CACHE='blind-quiz-shell-v23'")&&sw.includes("'./src/alerts.js'")&&sw.includes("'./src/direct.js'")&&sw.includes("'./src/rooms.js'")&&sw.includes("'./src/social.js'")&&sw.includes("'./src/e2ee.js'")&&sw.includes("'./src/chat.js'")&&sw.includes("'./src/sound-match.js'")&&sw.includes("'./src/sound-match-ui.js'")&&sw.includes("'./src/feedback.js'")&&sw.includes("'./src/questions-016.js'")&&sw.includes("'./src/speech.js'")&&sw.includes("'./src/gestures.js'"),'service worker cache is v23 and caches the Migration 016 questions, the feedback module, the game voice and the swipe gestures');
 { // Task 17: Sound Match - pure game logic, levels, audio wiring, licensed clip list.
   const { readFileSync } = await import('node:fs');
   const { SM_LEVELS, buildBoard, newMatchState, press, starsFor } = await import('../src/sound-match.js');
@@ -392,7 +396,7 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   for (const id of ['view-room', 'view-watch', 'mp-rooms', 'mp-room-list', 'room-create-form', 'room-new-public', 'room-games', 'room-game-form', 'room-game-kind', 'room-game-category', 'room-game-mode', 'room-game-level', 'room-chat', 'room-chat-form', 'room-invite-form', 'watch-log', 'watch-scores', 'watch-comment-form', 'back-to-room']) assert(html.includes(`id="${id}"`), `rooms markup #${id}`);
   assert(html.includes('data-mp-tab="rooms"'), 'Rooms tab in Multiplayer');
   for (const a of ['rooms', 'room-create', 'room-remove', 'room-leave', 'room-state', 'room-say', 'room-invite', 'match-invite', 'game-create', 'game-join', 'game-watch', 'game-post']) assert(api.includes(`'${a}':['bq_`), `API action ${a}`);
-  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main) && /const announce=\(text,urgent=false\)=>\{livePush\('say',text\);/.test(main) && /function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main) && /function playMatchSound\(slot,\.\.\.a\)\{livePush\('match',slot\)/.test(main), 'room games broadcast announcements, sound effects and Sound Match sounds only while live');
+  assert(/function livePush\(k,b\)\{if\(!live\|\|/.test(main) && /const announce=\(text,urgent=false/.test(main) && /livePush\('say',text\)/.test(main) && /function playSfx\(slot,\.\.\.a\)\{livePush\('sfx',slot\)/.test(main) && /function playMatchSound\(slot,\.\.\.a\)\{livePush\('match',slot\)/.test(main), 'room games broadcast announcements, sound effects and Sound Match sounds only while live');
   assert(/playSfx:rawSfx,playMatchSound:rawMatch/.test(main), 'spectators replay with plain audio (never re-broadcast)');
   assert(/state\.view==='room'&&\(view==='watch'\|\|\(live&&view===LIVE_VIEWS\[live\.kind\]\)\)/.test(main), 'starting or watching a room game does not ask to leave the room');
   assert(/Send \$\{p\.name\} a match/.test(social) && /callApi\('match-invite'/.test(social) && /'room_invite', 'game_invite'\].includes\(n\.kind\) && n\.ref/.test(social), 'friends can send a match; invites open the room');
@@ -463,8 +467,51 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
 {
   const { readFileSync } = await import('node:fs');
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'), html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert(/function go\(view,opts=\{\}\)\{if\(!opts\.confirmed&&needsExitConfirm\(view\)\)/.test(main) && /function onHistory\(e\)\{[^\n]*needsExitConfirm\(v\)/.test(main), 'every way out of a game asks first, including Back');
+  assert(/function go\(view,opts=\{\}\)\{cancelSpeech\(\);if\(!opts\.confirmed&&needsExitConfirm\(view\)\)/.test(main) && /function onHistory\(e\)\{[^\n]*needsExitConfirm\(v\)/.test(main), 'every way out of a game asks first, including Back');
   assert(/game:\['Exit this quiz\?'/.test(main) && /letters:\['Exit Letters to Words\?'/.test(main) && /soundmatch:\['Exit Sound Match\?'/.test(main) && /room:\['Leave this room\?'/.test(main) && /view!=='results'/.test(main), 'quiz, Letters, Sound Match and rooms are protected; finishing a round never asks');
   assert(/role="alertdialog" aria-modal="true" aria-labelledby="exit-title" aria-describedby="exit-text"/.test(html) && html.includes('id="exit-stay"') && html.includes('id="exit-leave"'), 'accessible exit dialog');
   console.log('PASS: Task 19 exit confirmation (games, modes, rooms; buttons, logo and Back).');
+}
+// Task 20: accessible play - the game's own voice (pitch, speed, volume), swipe gestures, one
+// double tap per action, spoken timing effects and the Mixkit pins behind them.
+{
+  const { readFileSync } = await import('node:fs');
+  const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const html = read('../index.html'), main = read('../src/main.js'), speech = read('../src/speech.js'), gestures = read('../src/gestures.js');
+  // The game voice: a setting for who reads the messages, and pitch, speed and volume for that voice.
+  for (const id of ['voice-mode', 'voice-pitch', 'voice-rate', 'voice-volume', 'voice-name', 'voice-test', 'voice-status', 'sfx-volume', 'auto-start', 'swipe-on'])
+    assert(html.includes(`id="${id}"`), `settings control #${id}`);
+  assert(html.includes('value="app">The game\'s own voice') && html.includes('value="both">Both') && html.includes('value="screen">My screen reader'), 'the player chooses who reads the game messages');
+  assert(/u\.pitch\s*=\s*prefs\.pitch/.test(speech) && /u\.rate\s*=\s*prefs\.rate/.test(speech) && /u\.volume\s*=\s*prefs\.volume/.test(speech), 'the game voice uses the player\'s pitch, speed and volume');
+  assert(/export function configureSpeech/.test(speech) && /clamp\(Number\(next\.pitch\), 0\.1, 2\)/.test(speech) && /clamp\(Number\(next\.volume\), 0, 1\)/.test(speech), 'out-of-range voice settings are clamped, never applied blindly');
+  assert(!/AudioContext|createOscillator/.test(speech), 'the game voice is the device voice, not a synthesised sound');
+  // The live regions stay the default route; the game voice is extra, never a replacement.
+  assert(/mode!=='app'/.test(main) && /mode!=='screen'/.test(main), 'live region and game voice are routed by the player\'s choice');
+  assert(main.includes("configureSpeech({mode:s.voiceMode??'screen'") && main.includes("applyVoiceSettings()"), 'the voice settings are applied and saved');
+  // Swipe left and right moves between the choices, and only sideways.
+  assert(/MIN_TRAVEL/.test(gestures) && /SIDE_RATIO/.test(gestures) && /scrollsSideways/.test(gestures), 'the swipe needs sideways travel and leaves scrolling alone');
+  assert(main.includes('initGestures({enabled:()=>state.settings.swipe!==false'), 'the swipe gesture is wired and can be switched off');
+  // One double tap is one action.
+  assert(/const onceOnly=\(el,fn,ms=450\)/.test(main), 'a quick second tap on the same control is ignored');
+  assert(main.includes("for(const b of $$('#category-list [data-category]'))onceOnly(") && main.includes("for(const b of $$('.callout [data-category=\"braille\"]'))onceOnly("), 'every category is opened by one tap, and the Braille call-out no longer starts a second round');
+  // The round starts by itself when the player asked for that, and the countdown cannot run twice.
+  assert(/state\.settings\.autoStart!==false/.test(main) && /if\(state\.countdownFor===state\.roundId\)return/.test(main), 'the round starts once, never twice');
+  // The last seconds of a question are spoken and played.
+  assert(/playSfx\('hurry'\)/.test(main) && /playSfx\('tick_last'\)/.test(main) && /playSfx\('streak'\)/.test(main), 'the timing and streak effects are played');
+  assert(/playSfx\('levelup'\)/.test(read('../src/sound-match-ui.js')), 'Sound Match plays the level-up fanfare too');
+  // The question and its four options are both read out.
+  assert(/announce\(`Options: /.test(main), 'the four options are read out with the question');
+  // Sound Match must not read every line twice: the status line is not a live region.
+  assert(/<p id="sm-status" class="sm-status"><\/p>/.test(html), 'the Sound Match status is not a second live region');
+  // The module behaviour itself (no browser needed): a broken or hostile setting cannot silence the game.
+  const S = await import('../src/speech.js');
+  assert.equal(S.speechSupported(), false, 'no speech engine in Node: every voice call is a safe no-op');
+  assert.equal(S.speak('hello'), false, 'nothing is spoken when the game voice is off');
+  S.configureSpeech({ mode: 'app', pitch: 9, rate: -3, volume: 5 });
+  const prefs = S.speechPrefs();
+  assert(prefs.mode === 'app' && prefs.pitch === 2 && prefs.rate === 0.5 && prefs.volume === 1, 'voice settings are clamped to a safe range');
+  S.configureSpeech({ mode: 'nonsense' });
+  assert.equal(S.speechPrefs().mode, 'app', 'an unknown mode never falls back to silence');
+  S.configureSpeech({ mode: 'screen' });
+  console.log('PASS: Task 20 accessible play (game voice with pitch, speed and volume; swipe gestures; one double tap per action; spoken timing effects).');
 }

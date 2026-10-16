@@ -53,7 +53,9 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
     if (r.type === 'first') {
       grid.querySelectorAll('.sm-card.open').forEach(b => markOpen(Number(b.dataset.number), false));
       markOpen(number, true);
-      status.textContent = `Number ${number} is playing. Now find the number with the same sound.`;
+      // The status line is not a live region: every message goes through say(), so a screen reader
+      // reads each line once instead of twice.
+      say(`Number ${number} is playing. Now find the number with the same sound.`);
       const a = await playMatchSound(r.card.sound.slot);
       if (!a) say('The sound could not play. Check your volume and internet connection, then try again.', true);
       return;
@@ -94,6 +96,8 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
       if (!(r.xp > 0 || r.coins > 0)) return '';
       playSfx('coin');
       const up = before && r.profile?.level > before ? ` Level up! You are now Level ${r.profile.level}.` : '';
+      // The level-up fanfare is a recorded Mixkit effect, the same one the quiz and Letters to Words use.
+      if (up) playSfx('levelup');
       return ` You earned ${r.xp} XP and ${r.coins} coin${r.coins === 1 ? '' : 's'}.${up}`;
     } catch { return ''; }
   }

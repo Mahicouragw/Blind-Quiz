@@ -11,12 +11,15 @@ This repository contains a static progressive web app, its local question pack, 
 - Native buttons provide answer semantics and accessible names equal to the answer text.
 - Polite and assertive live regions announce relevant state changes; visual feedback also uses text, not color alone.
 - Large text, high contrast, reduced motion, configurable timer, keyboard focus styles, and screen-reader-announcement controls are persisted locally.
+- `src/speech.js` owns the optional game voice: the device's own speech engine, with the player's pitch, speed and volume. It is a no-op where no speech engine exists, so the live regions stay the default route and can never be silenced by a broken setting.
+- `src/gestures.js` owns the sideways swipe: it moves the focus between the choices of the list on screen and leaves vertical scrolling alone. The screen reader reads whatever receives the focus, so the gesture never writes to a live region as well.
+- One activation is one action: a second activation of the same control within 450 ms is ignored, and the countdown can only run once per round.
 - A service worker caches the static shell and all question modules for offline rounds.
 - Fisher–Yates shuffling independently randomizes question order and each four-choice answer list. Correctness remains tied to the canonical answer text.
 
 ## Content
 
-- 325 questions across 20 categories.
+- 1075 questions across 25 categories.
 - IDs `bq-en-0001`–`bq-en-0073` preserve the source snapshot’s starter pack.
 - The live database was verified to contain 114 rows with a highest ID of `bq-en-0414`; missing numeric IDs are not reused.
 - Migration 009 adds IDs `bq-en-0415`–`bq-en-0666`: 12 additions per category plus 12 additional Telugu/Bharati Braille vowel questions.
@@ -40,4 +43,4 @@ This repository contains a static progressive web app, its local question pack, 
 - GitHub Pages is deployed by `.github/workflows/deploy-pages.yml`; the Edge Function is deployed by `.github/workflows/deploy-function.yml`. Neither workflow runs a migration, and the Edge Function workflow asserts that against its own executable lines before deploying.
 - Achievements, combo rewards, quiz-completion persistence, daily-bank selection, and a complete profile UI are not implemented.
 - Automated checks do not replace manual TalkBack, VoiceOver, keyboard, zoom/reflow, and mobile-device testing.
-- No recorded audio has passed license and clue-matching review, so audio clues/music/effects remain absent.
+- Recorded effects and music are shipped and licensed (see `AUDIO_LICENSES.md`); the Sound Match clues use Mixkit recordings of the same kind as the question categories.

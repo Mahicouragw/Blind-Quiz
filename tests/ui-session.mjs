@@ -640,5 +640,112 @@ console.log('ok 11 signed-in player sees "Signed in as goldfish" and a profile w
   await wait(() => /Bob declined\./.test(A.text()));
   console.log('ok 23 direct file transfer and calls: sealed ring/accept/offer/answer, chunked file with confirmation and spoken progress, relay sees no file names, video call with mute and hang up, decline');
 }
+// 24. Task 20 accessible play: one double tap is one action, the round starts by itself, and the
+//     four options are read out with the question.
+{
+  const fast=globalThis.setTimeout;globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  t=await boot({fetchImpl:()=>{throw new Error('offline')}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
+  // Every announcement the game makes is collected, so "one double tap, one round" can be checked.
+  const said=[];
+  const collect=el=>{const o=new t.w.MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===3&&n.textContent)said.push(n.textContent)});o.observe(el,{childList:true,characterData:true,subtree:true});return o};
+  collect($('#announcer'));collect($('#assertive-announcer'));
+  // A double tap on a category opens one round, not two.
+  const cats=$('#category-list [data-category="animals"]');
+  cats.click();cats.click();
+  await wait(10);
+  assert.equal($('#view-game').hidden,false,'the category opened the round');
+  for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  assert(d.querySelector('.answer-button'),'the round started on its own after the category was chosen');
+  assert.equal(d.querySelectorAll('#view-game .answer-list').length,1,'only one question is on the screen');
+  assert.equal(said.filter(x=>/^Get ready!/.test(x)).length,1,'a double tap starts the countdown once: '+JSON.stringify(said.filter(x=>/Get ready/.test(x))));
+  assert.match($('#round-label').textContent,/ANIMALS/,'the Animals round is the one that started');
+  assert(said.some(x=>/round ready/.test(x)),'the round is announced when it opens: '+JSON.stringify(said));
+  // The four options are read out with the question.
+  await wait(20);
+  assert(said.some(x=>/^Options: A, .+\. B, .+\. C, .+\. D, .+\.$/.test(x)),'the four options are read out: '+JSON.stringify(said.slice(-3)));
+  // The Braille call-out used to start a second round as well: it is one action now, too.
+  said.length=0;
+  $('#view-game .back-link').click();await wait(10);$('#exit-leave').click();await wait(10);
+  const braille=d.querySelector('.callout [data-category="braille"]');
+  braille.click();braille.click();
+  for(let i=0;i<100&&!d.querySelector('.answer-button');i++)await wait(5);
+  assert.equal(said.filter(x=>/^Get ready!/.test(x)).length,1,'the Braille call-out starts one round only');
+  assert.match($('#round-label').textContent,/BRAILLE/,'the Braille round is the one that started');
+  globalThis.setTimeout=fast;
+  console.log('ok 24 one double tap opens one round; the round starts by itself; the options are read out');
+}
+// 25. The last seconds of a question are spoken (and the recorded pips are played when the audio
+//     workflow has encoded them), and the game voice settings are saved.
+{
+  const fast=globalThis.setTimeout,fastInterval=globalThis.setInterval;
+  globalThis.setTimeout=(f,ms)=>fast(f,Math.min(ms||0,2));
+  globalThis.setInterval=(f,ms)=>fastInterval(f,Math.min(ms||0,2));  // the clock runs fast in the test
+  t=await boot({fetchImpl:()=>{throw new Error('offline')}});
+  const d=t.d,wait=ms=>new Promise(r=>fast(r,ms)),$=q=>d.querySelector(q);
+  const said=[];
+  const o=new t.w.MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===3&&n.textContent)said.push(n.textContent)});
+  o.observe($('#announcer'),{childList:true,characterData:true,subtree:true});
+  // Rapid Fire has a 15 second clock, so the last seconds are reached inside the round.
+  $('#mode-list [data-mode="rapid"]').click();
+  for(let i=0;i<200&&!d.querySelector('.answer-button');i++)await wait(5);
+  assert(d.querySelector('.answer-button'),'the rapid round started');
+  for(let i=0;i<300&&!said.some(x=>/1 second remaining/.test(x));i++)await wait(5);
+  assert(said.some(x=>/5 seconds remaining/.test(x)),'the last seconds are spoken: '+JSON.stringify(said.filter(x=>/remaining/.test(x))));
+  assert(said.some(x=>/1 second remaining/.test(x)),'the last second is spoken: '+JSON.stringify(said.filter(x=>/remaining/.test(x))));
+  // The game voice settings are saved and applied at once.
+  $('#settings-open').click();await wait(20);
+  const mode=$('#voice-mode');mode.value='app';mode.dispatchEvent(new t.w.Event('change'));
+  const pitch=$('#voice-pitch');pitch.value='1.5';pitch.dispatchEvent(new t.w.Event('change'));
+  const vol=$('#voice-volume');vol.value='0.5';vol.dispatchEvent(new t.w.Event('change'));
+  await wait(20);
+  const saved=JSON.parse(t.w.localStorage.getItem('bq.settings'));
+  assert.equal(saved.voiceMode,'app','the voice mode is saved');
+  assert.equal(saved.voicePitch,1.5,'the pitch is saved');
+  assert.equal(saved.voiceVolume,0.5,'the volume is saved');
+  assert.equal(mode.value,'app','the control still shows the chosen mode');
+  assert.match($('#voice-status').textContent,/game's own voice/i,'the settings explain who is reading');
+  // The sound effect volume is saved as well.
+  const sfx=$('#sfx-volume');sfx.value='0.3';sfx.dispatchEvent(new t.w.Event('change'));
+  $('#save-settings').click();await wait(20);
+  const saved2=JSON.parse(t.w.localStorage.getItem('bq.settings'));
+  assert.equal(saved2.sfxVolume,0.3,'the sound effect volume is saved');
+  assert.equal(saved2.voiceMode,'app','saving keeps the voice settings');
+  globalThis.setTimeout=fast;globalThis.setInterval=fastInterval;
+  console.log('ok 25 the last seconds are spoken; the game voice (pitch, speed, volume) and the sound volume are saved');
+}
+// 26. A sideways swipe moves the focus to the next choice; a vertical drag does nothing.
+{
+  const { initGestures } = await import(ROOT+'src/gestures.js');
+  const dom=new JSDOM(readFileSync(ROOT+'index.html','utf8').replace(/<script[^>]*><\/script>/g,''));
+  const w=dom.window;
+  const list=w.document.createElement('div');list.id='category-list';
+  for(const name of ['One','Two','Three']){const b=w.document.createElement('button');b.textContent=name;b.setAttribute('aria-label',name);list.append(b)}
+  w.document.body.append(list);
+  const before=globalThis.document;
+  globalThis.document=w.document;   // the gesture module works on the page it was loaded with
+  let moved=null;
+  initGestures({onMove:el=>{moved=el;moved.focus()}});
+  const swipe=(dx,dy)=>{
+    const start=new w.Event('touchstart',{bubbles:true});
+    const t1={clientX:100,clientY:200};
+    start.touches=[t1];
+    w.document.dispatchEvent(Object.assign(start,{touches:[t1]}));
+    const end=new w.Event('touchend',{bubbles:true});
+    end.changedTouches=[{clientX:100+dx,clientY:200+dy}];
+    w.document.dispatchEvent(end);
+  };
+  list.querySelector('button').focus();
+  swipe(-120,10);            // swipe left: move forward
+  assert(moved&&moved.textContent==='Two','a sideways swipe moves to the next choice: '+(moved&&moved.textContent));
+  swipe(120,10);             // swipe right: move back
+  assert(moved&&moved.textContent==='One','a swipe the other way moves back');
+  swipe(-120,200);           // mostly vertical: that is a scroll
+  assert(moved&&moved.textContent==='One','a vertical drag does not move the focus');
+  swipe(-10,10);             // too small
+  assert(moved&&moved.textContent==='One','a tiny drag does not move the focus');
+  globalThis.document=before;
+  console.log('ok 26 a sideways swipe moves between the choices; scrolling is left alone');
+}
 for(const p of ['privacy-policy.html','terms-and-conditions.html']){const d=new JSDOM(readFileSync(ROOT+p,'utf8')).window.document;assert.equal(d.querySelectorAll('h1').length,1);assert(d.querySelector('main#main')&&d.documentElement.lang==='en');assert(d.querySelector('a[href="./"]'));for(const a of d.querySelectorAll('a'))assert(a.textContent.trim().length>2);console.log('ok legal',p,d.querySelectorAll('h2').length,'sections')}
 process.exit(0);

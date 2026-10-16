@@ -3,7 +3,9 @@
 // Web Audio oscillators or generated sounds are used. If a file is missing or the browser blocks
 // playback, the game simply continues silently; every sound also has a text/announcement equivalent.
 const BASE = './assets/audio/';
-const SFX = ['correct', 'wrong', 'tick', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify'];
+// Recorded effects. 'tick_last' and 'hurry' mark the last seconds of a question, 'streak' marks a
+// run of correct answers. A slot that is missing from the manifest is simply silent.
+const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak'];
 // Each category and mode gets its own music track from the available recordings.
 const TRACKS = ['music_menu', 'music_game1', 'music_game2', 'music_game3', 'music_results'];
 // A slot is a playlist: `music_menu`, then `music_menu2`, `music_menu3`… if the manifest has them.
@@ -50,7 +52,12 @@ function element(slot) {
 }
 
 export function configureAudio(next = {}) {
-  Object.assign(prefs, next);
+  // Only known keys are applied, and an unknown value never overwrites a working one.
+  for (const key of ['sfx', 'music']) if (typeof next[key] === 'boolean') prefs[key] = next[key];
+  for (const key of ['sfxVolume', 'musicVolume']) {
+    const value = Number(next[key]);
+    if (Number.isFinite(value)) prefs[key] = Math.min(1, Math.max(0, value));
+  }
   if (music) music.volume = prefs.musicVolume;
   if (!prefs.music) stopMusic();
   else if (wantedSlot && unlocked) playMusic(wantedSlot);

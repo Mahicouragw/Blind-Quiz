@@ -250,3 +250,8 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .sound-choices .muted{margin:.25rem 0 .75rem}
 #app-notify-box{margin-top:.75rem}
 #app-notify-box .muted{margin:.5rem 0}
+
+/* Game voice: who reads the messages, and that voice's pitch, speed and volume */
+#voice-settings .setting-row select{min-width:11rem}
+#voice-settings .setting-row .button{width:100%}
+#voice-status{margin:.75rem 0 0}
