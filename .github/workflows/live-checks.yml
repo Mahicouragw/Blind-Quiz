@@ -1,44 +1,43 @@
-name: Live checks (read-only)
+name: Staging live checks (creates synthetic test profiles)
 
-# Runs `npm run test:live` against the production blind-quiz-api and checks that
-# Migration 010 and 011 questions award XP and coins. Never deploys the function and never
-# touches migrations; uses only the public publishable key.
+# Manual only. Live API checks create synthetic verification profiles that are
+# not deleted, so they must never run against the production player project. The scripts independently
+# refuse the production URL and require explicit account-creation opt-in.
 
 on:
-  push:
-    branches: [main, 'arena/**']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: live-checks
+  group: staging-live-checks
   cancel-in-progress: false
 
 jobs:
   live:
-    name: npm run test:live and Migration 010/011 rewards
+    name: Staging API and rewards checks
+    if: ${{ vars.BQ_TEST_SUPABASE_URL != '' && vars.BQ_TEST_SUPABASE_PUBLISHABLE_KEY != '' }}
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ vars.BQ_TEST_SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ vars.BQ_TEST_SUPABASE_PUBLISHABLE_KEY }}
+      BQ_ALLOW_TEST_ACCOUNT_CREATION: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: npm run test:live
+      - name: Run staging API verification
         env:
-          BQ_VERIFY_ORIGIN: https://mahicouragw.github.io
+          BQ_VERIFY_ORIGIN: ${{ vars.BQ_TEST_ORIGIN || 'https://mahicouragw.github.io' }}
         run: |
           set -o pipefail
           npm run test:live 2>&1 | tee "$RUNNER_TEMP/live.log"
-          # Surface the verdict as an annotation (log archives are not always downloadable).
-          echo "::notice title=npm run test:live::$(grep -E '^(PASS|FAIL): [0-9]+/[0-9]+' "$RUNNER_TEMP/live.log" | tail -1)"
+          echo "::notice title=Staging live API::$(grep -E '^(PASS|FAIL): [0-9]+/[0-9]+' "$RUNNER_TEMP/live.log" | tail -1)"
       - name: Migration 010 questions award XP and coins
-        if: ${{ !cancelled() }}
         run: node --no-warnings scripts/check-migration-010-live.mjs
       - name: Migration 011 questions award XP and coins
-        if: ${{ !cancelled() }}
         run: node --no-warnings scripts/check-migration-011-live.mjs
       - name: Migration 015 questions award XP and coins
-        if: ${{ !cancelled() }}
         run: node --no-warnings scripts/check-migration-015-live.mjs

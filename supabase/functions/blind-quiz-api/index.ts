@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { BOARD_GAME_KINDS, createBoardState, reduceBoardGame } from '../_shared/board-games.js';
 
 const URL = Deno.env.get('SUPABASE_URL')!;
 const SECRET = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? (() => {
@@ -34,14 +35,53 @@ async function permitAccount(scope:string,identity:string,limit:number,window:nu
 // Own-profile fields only (never hashes or salts). Username cooldown after the 1st/2nd/3rd/4th+ change: 7/14/30/60 days, as in bq_name_cooldown_days.
 const PROFILE_COLS='id,display_name,login_id,secret_question,name_change_count,name_changed_at,xp,coins,level,current_streak,best_streak,questions_answered,questions_correct,quizzes_completed';
 const cooldownDays=(n:number)=>n<=0?0:n===1?7:n===2?14:n===3?30:60;
-async function session(req:Request){const token=(req.headers.get('authorization')??'').replace(/^Bearer\s+/i,'').trim();if(token.length<35)return null;const tokenHash=await digest(token);const {data,error}=await admin.from('bq_sessions').select(`id,profile_id,expires_at,revoked_at,bq_profiles(${PROFILE_COLS})`).eq('token_hash',tokenHash).gt('expires_at',new Date().toISOString()).is('revoked_at',null).maybeSingle();if(error||!data)return null;return {row:data,profile:Array.isArray(data.bq_profiles)?data.bq_profiles[0]:data.bq_profiles}}
+async function session(req:Request){const token=(req.headers.get('authorization')??'').replace(/^Bearer\s+/i,'').trim();if(token.length<35)return null;const tokenHash=await digest(token);const {data,error}=await admin.from('bq_sessions').select(`id,profile_id,expires_at,revoked_at,bq_profiles(${PROFILE_COLS})`).eq('token_hash',tokenHash).maybeSingle();if(error||!data)return null;const profile=Array.isArray(data.bq_profiles)?data.bq_profiles[0]:data.bq_profiles;const {data:restriction,error:restrictionError}=await admin.from('bq_account_restrictions').select('profile_id').eq('profile_id',profile.id).maybeSingle();if(restrictionError&&restrictionError.code!=='PGRST205')return null;if(data.revoked_at&&!restriction)return null;return {row:data,profile,restricted:!!restriction}}
 function publicProfile(p:any){const changes=p.name_change_count??0;return {name:p.display_name,loginId:p.login_id,secretQuestion:p.secret_question,nameChangeCount:changes,nextNameChangeAt:p.name_changed_at?new Date(Date.parse(p.name_changed_at)+cooldownDays(changes)*86400000).toISOString():null,xp:p.xp,coins:p.coins,level:p.level,currentStreak:p.current_streak,bestStreak:p.best_streak,questionsAnswered:p.questions_answered,questionsCorrect:p.questions_correct,quizzesCompleted:p.quizzes_completed}}
 // Admin = a row in bq_admins (Migration 017: the owner's Goldfish account). Missing table or row means not an admin.
 async function isAdmin(profileId:string){const {data,error}=await admin.from('bq_admins').select('profile_id').eq('profile_id',profileId).maybeSingle();return !error&&!!data}
+const MONITOR_GAME_LABELS:Record<string,string>={quiz:'Quiz',letters:'Letters to Words',soundmatch:'Sound Match',snakes:'Snakes and Ladders',ludo:'Ludo',carrom:'Carrom',blackjack:'Blackjack',chess:'Chess'};
+async function adminMonitorSnapshot(){
+ const now=Date.now(),onlineSince=new Date(now-2*60*1000).toISOString(),daySince=new Date(now-24*60*60*1000).toISOString(),weekSince=new Date(now-7*24*60*60*1000).toISOString();
+ const [registered,online,recent,created]=await Promise.all([
+  admin.from('bq_profiles').select('id',{count:'exact',head:true}),
+  admin.from('bq_profiles').select('id,display_name,last_seen_at',{count:'exact'}).gt('last_seen_at',onlineSince).order('last_seen_at',{ascending:false}).limit(50),
+  admin.from('bq_profiles').select('id',{count:'exact',head:true}).gt('last_seen_at',daySince),
+  admin.from('bq_profiles').select('id',{count:'exact',head:true}).gte('created_at',weekSince),
+ ]);
+ if(registered.error||online.error||recent.error||created.error){console.error('Admin monitor profile query failed',registered.error?.code||online.error?.code||recent.error?.code||created.error?.code);return null}
+ const profiles=online.data??[],profileIds=profiles.map((p:any)=>p.id);let members:any[]=[],gamePlayers:any[]=[],games:any[]=[];
+ if(profileIds.length){
+  const [roomResult,playerResult]=await Promise.all([
+   admin.from('bq_room_members').select('profile_id,last_seen_at').in('profile_id',profileIds).gt('last_seen_at',onlineSince).order('last_seen_at',{ascending:false}),
+   admin.from('bq_room_game_players').select('profile_id,game_id,last_seen_at').in('profile_id',profileIds).gt('last_seen_at',onlineSince).order('last_seen_at',{ascending:false}),
+  ]);
+  if(!roomResult.error)members=roomResult.data??[];
+  if(!playerResult.error)gamePlayers=playerResult.data??[];
+  const gameIds=[...new Set(gamePlayers.map((p:any)=>p.game_id).filter(Boolean))];
+  if(gameIds.length){const result=await admin.from('bq_room_games').select('id,kind,status,phase').in('id',gameIds).eq('status','playing');if(!result.error)games=result.data??[]}
+ }
+ const memberByProfile=new Set(members.map((m:any)=>m.profile_id));const activeGames=new Map<string,string>();const gameById=new Map(games.map((g:any)=>[g.id,g]));
+ for(const player of gamePlayers){const game=gameById.get(player.game_id);if(game&&!activeGames.has(player.profile_id)){const label=MONITOR_GAME_LABELS[game.kind]??'multiplayer game';activeGames.set(player.profile_id,game.phase==='playing'?`Playing ${label}`:game.phase==='lobby'?`In ${label} match lobby`:`In ${label} match`)}}
+ const onlinePlayers=profiles.map((p:any)=>({name:p.display_name,lastSeenAt:p.last_seen_at,activity:activeGames.get(p.id)??(memberByProfile.has(p.id)?'In a multiplayer room':'Online in Blind Quiz (screen not tracked)')}));
+ return {ok:true,generatedAt:new Date(now).toISOString(),registeredAccounts:registered.count??0,onlineNow:online.count??profiles.length,seenLast24Hours:recent.count??0,createdLast7Days:created.count??0,onlinePlayers};
+}
 const nameArg=(b:any)=>{const n=normalize(clean(b.name,40));return n.length>=2?{p_name_normalized:n}:null};
 const text=(v:unknown,min:number,max:number)=>{const t=typeof v==='string'?v.normalize('NFKC').trim():'';return t.length>=min&&t.length<=max?t:null};
-const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline'];
+const SOCIAL_CODES=['player_unavailable','too_many_requests','request_unavailable','forbidden','invalid_request','not_friends','device_unknown','keys_changed','room_unavailable','game_unavailable','game_full','game_finished','player_offline','seat_taken','game_started','players_not_ready','waiting_for_players','stale_question','stale_action','comment_unavailable','comments_disabled','not_your_turn','not_room_member','already_joined','color_taken','choose_color','invalid_word','illegal_chess_move','illegal_token_move','choose_token_first','invalid_action','invalid_move','player_blocked','duplicate_report','report_unavailable','replay_unavailable','account_restricted'];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Signup name suggestions send a fixed prompt only; no form fields or player data go to Gemini.
+const AI_NAME_WORD=/^\p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)*$/u;
+async function geminiSignupName(){
+ const key=Deno.env.get('GEMINI_API_KEY')?.trim()??'';if(!key)return null;
+ const model=clean(Deno.env.get('BQ_GEMINI_MODEL')??'gemini-2.5-flash',80);if(!/^gemini-[A-Za-z0-9._-]+$/.test(model))return null;
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),9000);let response:Response;
+ try{response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:'Invent a friendly, family-safe, anonymous nickname made from exactly two words: a playful adjective followed by an animal, nature, or object noun. Do not use a real person’s name, brand, location, contact information, profanity, slurs, or personal data. Return JSON only with one string field named name. No digits; no punctuation except an optional hyphen or apostrophe inside a word.'}]}],generationConfig:{temperature:.85,maxOutputTokens:48,responseMimeType:'application/json',responseSchema:{type:'OBJECT',properties:{name:{type:'STRING'}},required:['name']}},safetySettings:[{category:'HARM_CATEGORY_HARASSMENT',threshold:'BLOCK_MEDIUM_AND_ABOVE'},{category:'HARM_CATEGORY_HATE_SPEECH',threshold:'BLOCK_MEDIUM_AND_ABOVE'},{category:'HARM_CATEGORY_SEXUALLY_EXPLICIT',threshold:'BLOCK_MEDIUM_AND_ABOVE'},{category:'HARM_CATEGORY_DANGEROUS_CONTENT',threshold:'BLOCK_MEDIUM_AND_ABOVE'}]}),signal:controller.signal})}catch{return null}finally{clearTimeout(timeout)}
+ if(!response.ok){console.warn('Signup-name Gemini request failed with status',response.status);return null}
+ let result:any;try{result=await response.json()}catch{return null}
+ const output=(result?.candidates?.[0]?.content?.parts??[]).map((part:any)=>typeof part.text==='string'?part.text:'').join('').trim();let parsed:any;try{parsed=JSON.parse(output)}catch{return null}
+ const name=typeof parsed?.name==='string'?parsed.name.normalize('NFKC').trim().replace(/\s+/g,' '):'',words=name.split(' ');if(name.length<4||name.length>32||words.length!==2||words.some((word:string)=>!AI_NAME_WORD.test(word)))return null;
+ return `${name} ${10+(randomBytes(1)[0]%90)}`;
+}
 // Encrypted messages: the server only checks the shape and size of the sealed boxes; it cannot read them.
 const boxesArg=(b:any)=>{const n=nameArg(b),d=String(b.deviceId??''),x=b.boxes;if(!n||!UUID.test(d)||!x||typeof x!=='object'||Array.isArray(x))return null;const k=Object.keys(x);if(!k.length||k.length>8||JSON.stringify(x).length>24000||!k.every(id=>UUID.test(id)&&['s','iv','ct'].every(f=>typeof x[id]?.[f]==='string')))return null;return {...n,p_sender_device:d,p_boxes:x}};
 // Rooms (Migration 021): ids are uuids; game settings are a small flat object of short strings/numbers; events are [{k,b}] checked again in bq_game_post.
@@ -54,6 +94,12 @@ const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,b
  'set-notifications':['bq_set_notifications',b=>typeof b.enabled==='boolean'?{p_enabled:b.enabled}:null,60],
  'online-players':['bq_online_players',()=>({}),400],'friends':['bq_friends',()=>({}),400],'player-card':['bq_player_card',nameArg,400],
  'friend-request':['bq_friend_request',nameArg,60],'friend-remove':['bq_friend_remove',nameArg,60],
+ 'player-mute':['bq_player_mute',b=>{const n=nameArg(b);return n&&typeof b.muted==='boolean'?{...n,p_muted:b.muted}:null},120],
+ 'player-block':['bq_player_block',b=>{const n=nameArg(b);return n&&typeof b.blocked==='boolean'?{...n,p_blocked:b.blocked}:null},60],
+ 'player-report':['bq_player_report',b=>{const n=nameArg(b),reason=clean(b.reason,20),details=typeof b.details==='string'?b.details.normalize('NFKC').trim().slice(0,1000):null;return n&&['harassment','spam','inappropriate','cheating','other'].includes(reason)?{...n,p_reason:reason,p_details:details}:null},20],
+ 'replay-create':['bq_room_game_replay_create',gameArg,30],
+ 'admin-player-reports':['bq_admin_player_reports',b=>['open','reviewed','dismissed','restricted','all'].includes(b.status??'open')?{p_status:b.status??'open'}:null,240,true],
+ 'admin-player-report-action':['bq_admin_player_report_action',b=>{const reportId=Number(b.id),decision=clean(b.decision,10),note=typeof b.note==='string'?b.note.normalize('NFKC').trim().slice(0,500):null;return Number.isSafeInteger(reportId)&&reportId>0&&['review','dismiss','restrict','restore'].includes(decision)?{p_report_id:reportId,p_action:decision,p_note:note}:null},120,true],
  'friend-respond':['bq_friend_respond',b=>{const n=nameArg(b);return n&&typeof b.accept==='boolean'?{...n,p_accept:b.accept}:null},120],
  'admin-feedback-reply':['bq_feedback_reply',b=>{const r=text(b.reply,1,2000),id=Number(b.id);return r&&Number.isSafeInteger(id)&&id>0?{p_feedback_id:id,p_reply:r}:null},200,true],
  'register-device':['bq_register_device',b=>UUID.test(String(b.deviceId??''))&&/^[A-Za-z0-9+/]{87}=$/.test(String(b.publicKey??''))?{p_device_id:b.deviceId,p_public_key:b.publicKey}:null,60],
@@ -63,9 +109,20 @@ const SOCIAL:Record<string,[string,(b:any)=>Record<string,unknown>|null,number,b
  'room-remove':['bq_room_remove',roomArg,60],'room-leave':['bq_room_leave',roomArg,600],'match-invite':['bq_match_invite',nameArg,60],
  'room-state':['bq_room_state',b=>{const r=roomArg(b),a=after(b.afterId);return r&&a!==undefined?{...r,p_after:a}:null},3000],
  'room-say':['bq_room_say',b=>{const r=roomArg(b),t=text(b.text,1,300),g=b.gameId==null?null:id(b.gameId);return r&&t&&(b.gameId==null||g)?{...r,p_game_id:g,p_body:t}:null},600],
+ 'game-comment':['bq_room_comment',b=>{const r=roomArg(b),g=gameArg(b),t=text(b.text,1,300),reply=b.replyTo==null?null:Number(b.replyTo);return r&&g&&t&&(reply===null||(Number.isSafeInteger(reply)&&reply>0))?{...r,...g,p_reply_to:reply,p_body:t}:null},600],
  'room-invite':['bq_room_invite',b=>{const r=roomArg(b),n=nameArg(b);return r&&n?{...r,...n}:null},120],
- 'game-create':['bq_game_create',b=>{const r=roomArg(b),t=text(b.title,3,80);return r&&t&&['quiz','letters','soundmatch'].includes(b.kind)&&configOk(b.config)?{...r,p_kind:b.kind,p_title:t,p_config:b.config}:null},60],
- 'game-join':['bq_game_join',gameArg,300],'game-watch':['bq_game_watch',b=>{const g=gameArg(b),a=after(b.afterId);return g&&a!==undefined?{...g,p_after:a}:null},3000],
+ 'game-create':['bq_game_create',b=>{const r=roomArg(b),t=text(b.title,3,80);return r&&t&&['quiz','letters','soundmatch','snakes','ludo','carrom','blackjack','chess'].includes(b.kind)&&configOk(b.config)?{...r,p_kind:b.kind,p_title:t,p_config:b.config}:null},60],
+ 'game-join':['bq_game_join_seat_color',b=>{const g=gameArg(b),seat=Number(b.seat??0),color=b.color==null?null:clean(b.color,10).toLowerCase();return g&&Number.isSafeInteger(seat)&&seat>=0&&seat<=6&&(color===null||['red','yellow','green','blue','white','black'].includes(color))?{...g,p_seat:seat,p_color:color}:null},300],
+ 'game-assign':['bq_game_assign_member',b=>{const g=gameArg(b),n=nameArg(b),seat=Number(b.seat);return g&&n&&Number.isSafeInteger(seat)&&seat>=1&&seat<=6?{...g,...n,p_seat:seat}:null},300],
+ 'game-ready':['bq_game_ready',b=>{const g=gameArg(b);return g&&typeof b.ready==='boolean'?{...g,p_ready:b.ready}:null},600],
+ 'game-comments':['bq_game_set_comments',b=>{const g=gameArg(b);return g&&typeof b.enabled==='boolean'?{...g,p_enabled:b.enabled}:null},120],
+ 'game-answer':['bq_game_answer',b=>{const g=gameArg(b),i=Number(b.questionIndex),a=text(b.answer,1,200);return g&&Number.isSafeInteger(i)&&i>=0&&i<20&&a?{...g,p_question_index:i,p_answer:a}:null},600],
+ 'game-letter-word':['bq_game_letter_word',b=>{const g=gameArg(b),word=text(b.word,3,7)?.toLowerCase();return g&&word?{...g,p_word:word}:null},600],
+ 'game-sound-flip':['bq_game_sound_flip',b=>{const g=gameArg(b),number=Number(b.number);return g&&Number.isSafeInteger(number)&&number>=1&&number<=20?{...g,p_number:number}:null},1200],
+ 'game-invite':['bq_game_invite',b=>{const g=gameArg(b),n=nameArg(b);return g&&n?{...g,...n}:null},120],
+ 'game-invite-respond':['bq_game_invite_respond',b=>{const g=gameArg(b);return g&&typeof b.accept==='boolean'?{...g,p_accept:b.accept}:null},120],
+ 'game-state':['bq_game_state',b=>{const g=gameArg(b),a=after(b.afterId);return g&&a!==undefined?{...g,p_after:a}:null},3600],
+ 'game-watch':['bq_game_watch',b=>{const g=gameArg(b),a=after(b.afterId);return g&&a!==undefined?{...g,p_after:a}:null},3000],
  'game-post':['bq_game_post',b=>{const g=gameArg(b),e=b.events;return g&&Array.isArray(e)&&e.length>=1&&e.length<=40&&e.every((x:any)=>x&&typeof x.k==='string'&&(x.b==null||typeof x.b==='string'))&&JSON.stringify(e).length<=12000?{...g,p_events:e.map((x:any)=>({k:x.k,b:String(x.b??'').slice(0,400)}))}:null},3000],
  'room-voice-send':['bq_room_voice_send',b=>{const r=roomArg(b),a=typeof b.audio==='string'?b.audio:'',ms=Number(b.durationMs);return r&&a.length<=400000&&/^data:audio\/(webm|ogg|mp4|mpeg|aac|wav)(;codecs=[a-z0-9.]+)?;base64,[A-Za-z0-9+/]+=*$/.test(a)&&Number.isSafeInteger(ms)&&ms>=300&&ms<=60000?{...r,p_audio:a,p_duration_ms:ms}:null},60],
  'room-voice':['bq_room_voice_get',b=>{const v=Number(b.id);return Number.isSafeInteger(v)&&v>0?{p_voice_id:v}:null},600],
@@ -80,6 +137,10 @@ async function handler(req:Request){
  const key=req.headers.get('apikey')??'';if(!key.startsWith('sb_publishable_'))return json({ok:false,code:'unauthorized'},401,origin);
  let body:any;try{body=await req.json()}catch{return json({ok:false,code:'invalid_request'},400,origin)}
  try{
+  if(body.action==='suggest-name'){
+   if(!await permit(req,'signup-name-ai','',12,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const name=await geminiSignupName();return name?json({ok:true,name},200,origin):json({ok:false,code:'ai_unavailable'},503,origin);
+  }
   if(body.action==='signup'){
    const name=clean(body.name,40),question=clean(body.question,120),answer=clean(body.answer,120),normalized=normalize(name);
    if(name.length<2||normalized.length<2||question.length<8||answer.length<2)return json({ok:false,code:'invalid_request'},400,origin);
@@ -114,11 +175,61 @@ async function handler(req:Request){
    if(!await permit(req,'login',`${normalized}:${loginId}`,7,900)||!await permitAccount('login',`${normalized}:${loginId}`,20,3600))return json({ok:false,code:'rate_limited'},429,origin);
    const {data:p}=await admin.from('bq_profiles').select(`${PROFILE_COLS},last_login_at,answer_salt,answer_hash`).eq('name_normalized',normalized).eq('login_id',loginId).maybeSingle();
    const candidate=await answerHash(answer,p?.answer_salt??'00000000000000000000000000000000');if(!p||!constantTimeEqual(candidate,p.answer_hash))return json({ok:false,code:'invalid_credentials'},401,origin);
-   const firstLogin=!p.last_login_at,nowIso=new Date().toISOString();await admin.from('bq_sessions').delete().eq('profile_id',p.id).or(`expires_at.lt.${nowIso},revoked_at.not.is.null`);await admin.from('bq_profiles').update({last_login_at:new Date().toISOString()}).eq('id',p.id);const raw=tokenText(randomBytes(32)),tokenHash=await digest(raw),expiresAt=new Date(Date.now()+7*86400000).toISOString();const {error}=await admin.from('bq_sessions').insert({profile_id:p.id,token_hash:tokenHash,expires_at:expiresAt});if(error){console.error('Session create failed',error.code);return json({ok:false,code:'service_error'},500,origin)}return json({ok:true,firstLogin,token:raw,expiresAt,profile:{...publicProfile(p),isAdmin:await isAdmin(p.id)}},200,origin);
+   const {data:restriction,error:restrictionError}=await admin.from('bq_account_restrictions').select('profile_id').eq('profile_id',p.id).maybeSingle();if(restrictionError&&restrictionError.code!=='PGRST205'){console.error('Account restriction lookup failed',restrictionError.code);return json({ok:false,code:'service_error'},503,origin)}if(restriction)return json({ok:false,code:'account_restricted'},403,origin);
+   const firstLogin=!p.last_login_at;await admin.from('bq_sessions').delete().eq('profile_id',p.id).not('revoked_at','is',null);await admin.from('bq_profiles').update({last_login_at:new Date().toISOString()}).eq('id',p.id);const raw=tokenText(randomBytes(32)),tokenHash=await digest(raw),expiresAt='infinity';const {error}=await admin.from('bq_sessions').insert({profile_id:p.id,token_hash:tokenHash,expires_at:expiresAt});if(error){console.error('Session create failed',error.code);return json({ok:false,code:'service_error'},500,origin)}return json({ok:true,firstLogin,token:raw,expiresAt:null,profile:{...publicProfile(p),isAdmin:await isAdmin(p.id)}},200,origin);
   }
   // Android app background check (Migration 024): a per-phone key that can only read the player's own new notifications.
   if(body.action==='notify-check'){const t=clean(body.token,64),a=Number(body.afterId??0);if(t.length<35||!Number.isSafeInteger(a)||a<0)return json({ok:false,code:'invalid_request'},400,origin);const h=await digest(t);if(!await permitAccount('notify-check',h,30,3600))return json({ok:false,code:'rate_limited'},429,origin);const {data,error}=await admin.rpc('bq_notify_check',{p_token_hash:h,p_after:a,p_stop:body.stop===true});if(error)return json({ok:false,code:'service_error'},503,origin);return data?.ok===false?json({ok:false,code:'session_expired'},401,origin):json({...data,ok:true},200,origin)}
-  const auth=await session(req);if(!auth)return json({ok:false,code:'session_expired'},401,origin);const profileId=auth.profile.id;
+  // Anyone holding the random share id can read a sanitized public replay; this route intentionally precedes session enforcement.
+  if(body.action==='replay-read'){const shareId=id(body.shareId);if(!shareId)return json({ok:false,code:'replay_unavailable'},404,origin);if(!await permit(req,'replay-read-ip','all',300,3600)||!await permit(req,'replay-read',shareId,120,3600))return json({ok:false,code:'rate_limited'},429,origin);const {data,error}=await admin.rpc('bq_room_game_replay_read',{p_share_id:shareId});if(error){console.error('Public replay read failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return data?.ok===false?json({ok:false,code:'replay_unavailable'},404,origin):json({...data,ok:true},200,origin)}
+  const auth=await session(req);if(!auth)return json({ok:false,code:'session_expired'},401,origin);const profileId=auth.profile.id;if(auth.restricted&&body.action!=='logout')return json({ok:false,code:'account_restricted'},403,origin);
+  if(body.action==='admin-monitor'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount('admin-monitor',profileId,180,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const snapshot=await adminMonitorSnapshot();return snapshot?json(snapshot,200,origin):json({ok:false,code:'service_error'},503,origin);
+  }
+  // Players can erase only the account attached to this verified session; the current secret answer and exact name are required.
+  if(body.action==='delete-account'){
+   if(!await permit(req,'delete-account',profileId,5,3600)||!await permitAccount('delete-account',profileId,5,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);
+   if(!confirmName||confirmName!==auth.profile.display_name||answer.length<2)return json({ok:false,code:'confirmation_required'},400,origin);
+   const {data:p,error:readError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();
+   if(readError){console.error('Account deletion credential read failed',readError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
+   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:profileId});
+   if(error){console.error('Account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(result?.ok===false)return json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin);
+   return json({ok:true,deletedSelf:true},200,origin);
+  }
+  // The admin directory exposes only account id, display name, and registration date; all secrets and activity stay out.
+  if(body.action==='admin-account-directory'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount('admin-account-directory',profileId,240,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const page=Number(body.page??0),search=clean(body.search,40);
+   if(!Number.isSafeInteger(page)||page<0||page>100000)return json({ok:false,code:'invalid_request'},400,origin);
+   let query=admin.from('bq_profiles').select('id,display_name,created_at',{count:'exact'}).order('created_at',{ascending:false}).range(page*50,page*50+49);
+   if(search)query=query.ilike('display_name',`%${search.replace(/[\\%_]/g,'\\$&')}%`);
+   const {data,error,count}=await query;
+   if(error){console.error('Admin account directory failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   return json({ok:true,items:(data||[]).map((p:any)=>({id:p.id,name:p.display_name,createdAt:p.created_at})),totalAccounts:count??0,page,pageSize:50},200,origin);
+  }
+  // Admin deletion also requires the admin's own secret answer and an exact typed match for the target account name.
+  if(body.action==='admin-delete-account'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permit(req,'admin-delete-account',profileId,5,3600)||!await permitAccount('admin-delete-account',profileId,5,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const targetId=id(body.targetId),confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);
+   if(!targetId||!confirmName||answer.length<2)return json({ok:false,code:'invalid_request'},400,origin);
+   const {data:target,error:targetError}=await admin.from('bq_profiles').select('display_name').eq('id',targetId).maybeSingle();
+   if(targetError){console.error('Admin deletion target read failed',targetError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!target||confirmName!==target.display_name)return json({ok:false,code:'confirmation_required'},400,origin);
+   const {data:p,error:credentialError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();
+   if(credentialError){console.error('Admin deletion credential read failed',credentialError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
+   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:targetId});
+   if(error){console.error('Admin account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(result?.ok===false)return json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin);
+   return json({ok:true,deletedSelf:targetId===profileId},200,origin);
+  }
   if(body.action==='notify-register'){const t=tokenText(randomBytes(32));const {data,error}=await admin.rpc('bq_notify_register',{p_profile_id:profileId,p_token_hash:await digest(t)});return error||data?.ok===false?json({ok:false,code:'service_error'},503,origin):json({ok:true,token:t},200,origin)}
   if(body.action==='logout'){await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('id',auth.row.id);return json({ok:true},200,origin)}
   if(body.action==='profile')return json({ok:true,profile:{...publicProfile(auth.profile),isAdmin:await isAdmin(profileId)}},200,origin);
@@ -177,6 +288,61 @@ async function handler(req:Request){
    const {data,error}=await admin.rpc('bq_finish_sound_match',{p_profile_id:profileId,p_game_id:gameId,p_tries:tries});if(error){console.error('Sound Match finish failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!data?.ok)return json({ok:false,code:['too_fast','already_finished','invalid_tries','game_expired','game_unavailable'].includes(data?.code)?data.code:'invalid_request'},409,origin);
    return json({ok:true,stars:data.stars,xp:data.xp,coins:data.coins,dailyLimit:data.dailyLimit,profile:{...publicProfile(auth.profile),...data.profile}},200,origin);
+  }
+  // Board setup is server-created; only a quiz sends client-selected question ids to the database's private answer-key validator.
+  if(body.action==='game-start'){
+   const game=gameArg(body);if(!game)return json({ok:false,code:'invalid_request'},400,origin);
+   if(!await permitAccount('social-game-start',profileId,120,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data:match,error:matchError}=await admin.from('bq_room_games').select('kind,max_players,config').eq('id',game.p_game_id).maybeSingle();
+   if(matchError){console.error('Room-game setup read failed',matchError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!match)return json({ok:false,code:'game_unavailable'},409,origin);
+   let initialState:any;
+   if(match.kind==='quiz'){
+    initialState=body.initialState;if(!initialState||typeof initialState!=='object'||Array.isArray(initialState)||JSON.stringify(initialState).length>20000)return json({ok:false,code:'invalid_request'},400,origin);
+   }else if(match.kind==='letters')initialState={kind:'letters'};
+   else if(match.kind==='soundmatch'){
+    initialState=body.initialState;if(!initialState||typeof initialState!=='object'||Array.isArray(initialState)||initialState.kind!=='soundmatch'||JSON.stringify(initialState).length>12000)return json({ok:false,code:'invalid_request'},400,origin);
+   }else if(BOARD_GAME_KINDS.includes(match.kind)){
+    if(match.kind==='blackjack')initialState={kind:'blackjack'};
+    else{
+     const {data:seats,error:seatError}=await admin.from('bq_room_game_players').select('seat,color').eq('game_id',game.p_game_id);
+     if(seatError){console.error('Room-game seat colors read failed',seatError.code);return json({ok:false,code:'service_error'},503,origin)}
+     const colors=Object.fromEntries((seats||[]).filter((p:any)=>p.color).map((p:any)=>[Number(p.seat),p.color]));
+     initialState=createBoardState(match.kind,Number(match.max_players),Math.random,{colors});
+    }
+   }else return json({ok:false,code:'game_unavailable'},409,origin);
+   const {data:started,error:startError}=await admin.rpc('bq_game_start',{p_profile_id:profileId,p_game_id:game.p_game_id,p_initial_state:initialState});
+   if(startError){console.error('Room-game start failed',startError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(started?.ok===false)return json({ok:false,code:SOCIAL_CODES.includes(started.code)?started.code:'invalid_request'},409,origin);
+   return json({...started,ok:true},200,origin);
+  }
+  // Board moves are recomputed from the locked-in database snapshot. Never accept the browser's proposed next state, score, sound, or dice value as authoritative.
+  if(body.action==='game-action'){
+   const game=gameArg(body),requested=body.move;if(!game||!requested||typeof requested!=='object'||Array.isArray(requested)||!['roll','move','strike','hit','stand'].includes(requested.type))return json({ok:false,code:'invalid_request'},400,origin);
+   if(!await permitAccount('social-game-action',profileId,1200,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data:match,error:matchError}=await admin.from('bq_room_games').select('kind,state,phase,status').eq('id',game.p_game_id).maybeSingle();
+   if(matchError){console.error('Room-game state read failed',matchError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!match||match.status!=='playing'||match.phase!=='playing')return json({ok:false,code:match?.phase==='lobby'?'players_not_ready':'game_unavailable'},409,origin);
+   if(!BOARD_GAME_KINDS.includes(match.kind)||!match.state||typeof match.state!=='object'||Array.isArray(match.state))return json({ok:false,code:'game_unavailable'},409,origin);
+   const {data:player,error:playerError}=await admin.from('bq_room_game_players').select('seat').eq('game_id',game.p_game_id).eq('profile_id',profileId).maybeSingle();
+   if(playerError){console.error('Room-game player read failed',playerError.code);return json({ok:false,code:'service_error'},503,origin)}
+   if(!player)return json({ok:false,code:'game_unavailable'},409,origin);
+   const action:any={type:requested.type};
+   if(match.kind==='ludo'&&requested.type==='move'){const token=Number(requested.token);if(!Number.isSafeInteger(token)||token<0||token>3)return json({ok:false,code:'invalid_request'},400,origin);action.token=token;}
+   if(match.kind==='chess'&&requested.type==='move'){
+    const validSquare=(x:any)=>Array.isArray(x)&&x.length===2&&x.every((n:any)=>Number.isSafeInteger(n)&&n>=0&&n<8);
+    if(!validSquare(requested.from)||!validSquare(requested.to))return json({ok:false,code:'invalid_request'},400,origin);action.from=requested.from;action.to=requested.to;
+   }
+   if(match.kind==='carrom'&&requested.type==='strike'){const aim=Number(requested.aim),power=Number(requested.power);if(!Number.isFinite(aim)||aim<0||aim>359||!Number.isFinite(power)||power<.3||power>1)return json({ok:false,code:'invalid_request'},400,origin);action.aim=aim;action.power=power;}
+   try{
+    const result=reduceBoardGame(match.kind,match.state,Number(player.seat),action);
+    if(JSON.stringify(result.state).length>24000)return json({ok:false,code:'invalid_request'},400,origin);
+    const sounds=result.sounds||[result.sfx||'click'],p_action={type:action.type,expectedState:match.state,state:result.state,announcement:result.announcement,sfx:result.sfx||'click',sounds};
+    const {data:saved,error:saveError}=await admin.rpc('bq_game_action',{p_profile_id:profileId,p_game_id:game.p_game_id,p_action});
+    if(saveError){console.error('Room-game move failed',saveError.code);return json({ok:false,code:'service_error'},503,origin)}
+    if(saved?.ok===false)return json({ok:false,code:SOCIAL_CODES.includes(saved.code)?saved.code:'invalid_request'},409,origin);
+    return json({...saved,ok:true,announcement:result.announcement,sfx:result.sfx,sounds},200,origin);
+   }catch(err){const code=err instanceof Error?err.message:'invalid_action';return json({ok:false,code:SOCIAL_CODES.includes(code)?code:'invalid_action'},409,origin)}
   }
   // Social (Migration 019+): one row per action = [database function, argument check (null = invalid), hourly limit per account, admin-only].
   // The caller's profile id always comes from the session; other players are addressed by display name only.

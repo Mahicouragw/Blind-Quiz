@@ -1,0 +1,72 @@
+name: Apply Migration 030 (guarded)
+
+# Applies ONLY the additive player-safety and replay migration through the Supabase Management API.
+# No migration CLI, direct database client, seed file, or old migration is used.
+# Manual-only: workflow_dispatch after the workflow reaches the default branch, or the explicit
+# `apply-migration-030` label on its PR while it is still under review. Ordinary pushes never apply it.
+# Secret: SUPABASE_ACCESS_TOKEN (environment-only; never printed).
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+    paths:
+      - '.github/workflows/apply-migration-030.yml'
+      - 'scripts/apply-migration-030.mjs'
+      - 'scripts/lib/guarded-migration.mjs'
+      - 'supabase/migrations/202610120030_player_safety_and_game_replays.sql'
+      - 'tests/db-migrations.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-migration-030
+  cancel-in-progress: false
+
+env:
+  PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'zchircgdkyjnowqcdwvf' }}
+  MIGRATION_FILE: supabase/migrations/202610120030_player_safety_and_game_replays.sql
+
+jobs:
+  apply:
+    name: Apply Migration 030 only
+    if: ${{ github.event_name != 'pull_request' || (github.event.label.name == 'apply-migration-030' && contains(github.event.pull_request.labels.*.name, 'apply-migration-030')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Guard - this workflow never uses database or migration CLI tooling
+        run: |
+          set -euo pipefail
+          SELF=.github/workflows/apply-migration-030.yml
+          EXEC=$(grep -vE '^[[:space:]]*#' "$SELF")
+          if printf '%s\n' "$EXEC" | grep -nE 'supabase[[:space:]]+(d[b]|migratio[n]|lin[k])|p[s]ql|--d[b]-ur[l]|see[d]\.sq[l]|setup-cl[i]'; then
+            echo "::error::Only the guarded Management API query endpoint may be used."
+            exit 1
+          fi
+          if [ "$MIGRATION_FILE" != "supabase/migrations/202610120030_player_safety_and_game_replays.sql" ]; then
+            echo "::error::This workflow applies Migration 030 only."
+            exit 1
+          fi
+          echo "Confirmed: no CLI database tooling; target is Migration 030 only."
+
+      - name: Guard - run content, source, and Migration 030 checks
+        run: |
+          npm test
+          node --no-warnings scripts/apply-migration-030.mjs --check
+
+      - name: Dry run all migrations and player-safety/replay behaviour in PGlite
+        run: |
+          npm i --no-save --no-package-lock @electric-sql/pglite@0.2
+          node tests/db-migrations.mjs
+
+      - name: Apply Migration 030 and verify privileges and schema
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node --no-warnings scripts/apply-migration-030.mjs --apply

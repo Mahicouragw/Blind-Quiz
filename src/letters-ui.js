@@ -115,7 +115,6 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
       i = twin;
     }
     game.picked.push(i);
-    playSfx('click');
     const w = word();
     renderState();
     const { solutions } = game.puzzle;

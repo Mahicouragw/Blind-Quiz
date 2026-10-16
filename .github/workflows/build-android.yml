@@ -6,7 +6,7 @@ name: Build Android APK
 #
 # Signing: uses ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
 # ANDROID_KEY_PASSWORD when present (stable identity, in-place updates). Otherwise a
-# temporary key is generated for the run; it is never uploaded or printed.
+# temporary key cannot match the permanent certificate check and the APK is not published.
 
 on:
   push:
@@ -28,6 +28,7 @@ jobs:
   build:
     name: Build, sign, and publish release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: android-app
@@ -70,16 +71,53 @@ jobs:
           # Android 11+ package visibility: let the Contact us link open the user's email app.
           grep -q 'android.intent.action.SENDTO' "$MANIFEST" || \
             sed -i 's#<application#<queries><intent><action android:name="android.intent.action.SENDTO"/><data android:scheme="mailto"/></intent></queries>\n    <application#' "$MANIFEST"
-          # Calls between friends and room voice messages: microphone, camera (video calls only) and call audio routing.
-          # Asked at runtime only when the player starts or answers a call or records. No storage permissions:
+          # Calls between friends and private/room voice messages: microphone, camera (video calls only) and call audio routing.
+          # Asked at runtime only when the player starts or answers a call or records a voice message. No storage permissions:
           # files are picked with the system picker and received files are handed to the share sheet.
           grep -q 'xmlns:tools' "$MANIFEST" || sed -i 's#<manifest #<manifest xmlns:tools="http://schemas.android.com/tools" #' "$MANIFEST"
           grep -q 'android.permission.RECORD_AUDIO' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n    <uses-feature android:name="android.hardware.camera" android:required="false"/>\n    <uses-feature android:name="android.hardware.microphone" android:required="false"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>\n    <application#' "$MANIFEST"
           grep -n 'INTERNET\|RECORD_AUDIO\|CAMERA\|MODIFY_AUDIO\|tools:node\|android:label\|usesCleartextTraffic\|allowBackup\|SENDTO' "$MANIFEST"
-          # Native microphone/camera permission request for calls and voice messages (no extra plugin).
+          # Native microphone/camera and notification helpers, plus WorkManager's app configuration.
           ACT_DIR=android/app/src/main/kotlin/io/github/mahicouragw/blind_quiz
-          mkdir -p "$ACT_DIR" && cp native/MainActivity.kt native/NotifyWorker.kt "$ACT_DIR/"
+          mkdir -p "$ACT_DIR" && cp native/MainActivity.kt native/NotifyWorker.kt native/BlindQuizApplication.kt "$ACT_DIR/"
+          # R8 can remove constructors WorkManager loads reflectively from release builds.
+          # Flutter's Gradle plugin automatically adds this app-level file to release R8 rules.
+          cp native/proguard-rules.pro android/app/proguard-rules.pro
+          grep -n -- '-keep class \* extends androidx\.' android/app/proguard-rules.pro
+          APP_CLASS='io.github.mahicouragw.blind_quiz.BlindQuizApplication'
+          if grep -Fq 'android:name="${applicationName}"' "$MANIFEST"; then
+            sed -i 's#android:name="${applicationName}"#android:name="io.github.mahicouragw.blind_quiz.BlindQuizApplication"#' "$MANIFEST"
+          elif ! grep -Fq "android:name=\"$APP_CLASS\"" "$MANIFEST"; then
+            echo "::error::Generated manifest does not declare the expected application placeholder; refusing to build without BlindQuizApplication."
+            exit 1
+          fi
+          grep -n 'android:name=' "$MANIFEST"
+          # We initialize WorkManager in BlindQuizApplication. Remove only its AndroidX Startup
+          # metadata (not the provider), so Lint and runtime agree on on-demand initialization.
+          python3 - "$MANIFEST" <<'PY'
+          from pathlib import Path
+          import sys
+
+          manifest = Path(sys.argv[1])
+          text = manifest.read_text()
+          metadata = 'android:name="androidx.work.WorkManagerInitializer"'
+          if metadata not in text:
+              closing = '</application>'
+              snippet = '''
+                  <provider
+                      android:name="androidx.startup.InitializationProvider"
+                      android:authorities="${applicationId}.androidx-startup"
+                      android:exported="false"
+                      tools:node="merge">
+                      <meta-data android:name="androidx.work.WorkManagerInitializer" tools:node="remove" />
+                  </provider>
+              '''
+              if text.count(closing) != 1:
+                  raise SystemExit('Expected exactly one </application> in generated manifest')
+              manifest.write_text(text.replace(closing, snippet + '\n' + closing, 1))
+          PY
+          grep -n 'WorkManagerInitializer\|android:name=' "$MANIFEST"
           find android/app/src/main -name 'MainActivity.*' ! -path "$ACT_DIR/MainActivity.kt" -delete
           find android/app/src/main -name 'MainActivity.*'
           # Background notifications (android-app/native/NotifyWorker.kt): WorkManager and AndroidX notifications.
@@ -167,6 +205,73 @@ jobs:
           echo "SDK_INFO=$SDKS" >> "$GITHUB_ENV"
           echo "::notice title=APK audit::$SDKS Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
 
+      - name: Verify APK package name and permanent signing identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          EXPECTED_PACKAGE='io.github.mahicouragw.blind_quiz'
+          REF_DIR="$RUNNER_TEMP/signing-reference"
+          mkdir -p "$REF_DIR"
+          # This signed release is the permanent identity baseline; a different certificate blocks publication.
+          gh release download android-v1.0.29 --repo "$GITHUB_REPOSITORY" --pattern blind-quiz.apk --dir "$REF_DIR"
+          REF_APK="$REF_DIR/blind-quiz.apk"
+          for apk in "$APK_PATH" "$REF_APK"; do
+            BADGING=$("$BT/aapt2" dump badging "$apk")
+            if [[ "$BADGING" != *"package: name='$EXPECTED_PACKAGE' "* ]]; then
+              echo "::error title=APK package identity::Expected package $EXPECTED_PACKAGE in $(basename "$apk")."
+              exit 1
+            fi
+          done
+          fingerprint() {
+            local output digest_line digest
+            output=$("$BT/apksigner" verify --verbose --print-certs "$1" 2>&1)
+            digest_line=$(printf '%s\n' "$output" | grep -i 'SHA-256' | sed -n '1p' || true)
+            digest=$(printf '%s\n' "$digest_line" | sed -E 's/.*digest:[[:space:]]*//I' | tr -cd '[:xdigit:]' | tr '[:upper:]' '[:lower:]')
+            if [ "${#digest}" -ne 64 ]; then
+              echo "::error title=APK signing identity::Could not parse a SHA-256 certificate fingerprint for $(basename "$1"): $(printf '%s' "$digest_line" | cut -c1-240)"
+              return 1
+            fi
+            printf '%s' "$digest"
+          }
+          if ! OLD_FP=$(fingerprint "$REF_APK"); then exit 1; fi
+          if ! NEW_FP=$(fingerprint "$APK_PATH"); then exit 1; fi
+          echo "Reference signing certificate SHA-256: $OLD_FP"
+          echo "New signing certificate SHA-256: $NEW_FP"
+          if [ "$OLD_FP" != "$NEW_FP" ]; then
+            echo "::error title=APK signing identity::The new APK certificate does not match the permanent android-v1.0.29 identity; refusing to publish it."
+            exit 1
+          fi
+          echo "::notice title=APK identity::Package $EXPECTED_PACKAGE verified; public SHA-256 certificate fingerprint matches android-v1.0.29."
+
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Install, launch, and reboot-test the signed APK on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash "$GITHUB_WORKSPACE/android-app/scripts/emulator-smoke.sh" "$APK_PATH" "$RUNNER_TEMP/android-emulator-logs"
+
+      - name: Upload emulator crash logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blind-quiz-${{ env.VERSION_NAME }}-emulator-logs
+          path: ${{ runner.temp }}/android-emulator-logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -186,7 +291,7 @@ jobs:
           cp "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk"
           NOTES="Blind Quiz for Android $VERSION_NAME, built from ${GITHUB_SHA::7} on $GITHUB_REF_NAME.
 
-          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; notifications (friend requests, messages, feedback replies, game invites, announcements and game updates, each with its own sound you can change in Android settings; checked about every 15 minutes, no Firebase); microphone and camera, asked only when you start or answer a call between friends or record a room voice message. Works on Android phones and tablets ($SDK_INFO). No storage or contacts access: files you send are picked with the Android file picker, and files friends send are offered to save or open.
+          The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; notifications (friend requests, messages, feedback replies, game invites, announcements and game updates, each with its own sound you can change in Android settings; checked in the background when online, including after sign-out; Android may delay checks, no Firebase); microphone and camera, asked only when you start or answer a call between friends or record a private or room voice message. Works on Android phones and tablets ($SDK_INFO). No storage or contacts access: files you send are picked with the Android file picker, and temporary received copies expire after three hours (copies saved elsewhere are not deleted).
           Signing: $SIGNING_MODE.
           Install: download the APK on your Android phone and allow installing from this source when prompted."
           gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

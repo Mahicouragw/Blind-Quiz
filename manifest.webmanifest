@@ -1,7 +1,7 @@
 {
-  "name": "Blind Quiz — Listen. Think. Play.",
+  "name": "Blind Quiz — Accessible Quiz Game",
   "short_name": "Blind Quiz",
-  "description": "A quiz and word game built to be played by ear or by eye: blind and sighted players together.",
+  "description": "An accessible quiz game created by K M Sanjay. Play by listening or by eye.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
