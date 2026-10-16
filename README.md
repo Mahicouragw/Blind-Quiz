@@ -91,7 +91,7 @@ If the editor does not expose its full text to a screen reader, delete the funct
 - Achievements, combo rewards, daily question selection, complete quiz counters, and a full profile/progression UI are not implemented as playable features and are not presented as game modes.
 - Existing schema tracks XP, coins, level, answer streak, and answer counts. `npm run test:live` exercises the deployed function directly; it requires outbound network access to the project and cannot run in a sandbox that blocks `*.supabase.co`.
 - The 252 new questions received a structured editorial review against the category references in `CONTENT_SOURCES.md`; this is not an independent expert review of every item. Changeable facts should be periodically rechecked.
-- The three new timing effects (`tick_last`, `hurry`, `streak`) are pinned to Mixkit in `scripts/audio/sources.json` and are encoded by the `audio-assets.yml` workflow. They are optional: a slot Mixkit stops publishing is skipped, the game simply plays nothing at that moment, and the wording of the announcement never depends on the sound.
+- The three new timing effects (`tick_last`, `hurry`, `streak`) are pinned to Mixkit in `scripts/audio/sources.json`, encoded by the `audio-assets.yml` workflow and committed to `assets/audio` with their licence in `AUDIO_LICENSES.md`: `tick_last` is Mixkit #221 "Positive interface beep", `hurry` is #650 "Synth mechanical notification or alert" and `streak` is #269 "Quick win video game notification". They stay optional: a slot Mixkit stops publishing is skipped, the game simply plays nothing at that moment, and the wording of the announcement never depends on the sound.
 
 ## Deployment
 
