@@ -28,6 +28,10 @@ const Color kCream = Color(0xFFFFF8EC);
 /// Permanent download link for the newest APK (served from the website itself).
 const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-quiz.apk';
 
+/// The version of the app shell. The game itself is the live website, so this is the version of
+/// the wrapper, not of the questions or the sounds.
+const String kAppVersion = '1.2.0';
+
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
 
@@ -441,6 +445,18 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     });
     try {
       await _controller.clearCache();
+      // The site keeps an offline copy of the shell. An older copy of the build can survive
+      // there, so it is dropped as well: the player really gets the newest build.
+      try {
+        await _controller.runJavaScript(
+          "(async()=>{try{const regs=await navigator.serviceWorker.getRegistrations();"
+          "await Promise.all(regs.map(r=>r.unregister()));}catch(e){}"
+          "try{if(self.caches){const keys=await caches.keys();"
+          "await Promise.all(keys.map(k=>caches.delete(k)));}}catch(e){}return 1})()",
+        );
+      } catch (_) {
+        // An older Android WebView may not allow this; the reload below still works.
+      }
       final current = await _controller.currentUrl();
       if (current == null || classifyNavigation(current) != NavDecision.inApp || current == 'about:blank') {
         await _controller.loadRequest(Uri.parse(kLiveUrl));
@@ -627,6 +643,9 @@ class SharePanel extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const SelectableText(kLiveUrl, textAlign: TextAlign.center, style: TextStyle(color: kMint, fontSize: 15)),
+            const SizedBox(height: 8),
+            Text('App version $kAppVersion. The game is the live website, so it updates itself.',
+                textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14)),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
