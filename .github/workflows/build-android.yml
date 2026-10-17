@@ -206,7 +206,8 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           unzip -tq "$APK_PATH" >/dev/null || { echo "::error title=APK archive::Corrupt ZIP archive"; exit 1; }
           "$BT/zipalign" -c -P 16 4 "$APK_PATH" || { echo "::error title=APK alignment::APK failed 16 KB page alignment check"; exit 1; }
-          VERIFY_OUT=$("$BT/apksigner" verify --verbose "$APK_PATH")
+          VERIFY_OUT=$("$BT/apksigner" verify --min-sdk-version 21 --verbose "$APK_PATH")
+          echo "$VERIFY_OUT"
           echo "$VERIFY_OUT" | grep -q 'Verified using v1 scheme (JAR signing): true' || { echo "::error title=APK signature::v1 signature missing"; exit 1; }
           echo "$VERIFY_OUT" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' || { echo "::error title=APK signature::v2 signature missing"; exit 1; }
           echo "$VERIFY_OUT" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' || { echo "::error title=APK signature::v3 signature missing"; exit 1; }
