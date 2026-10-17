@@ -170,6 +170,14 @@ async function handler(req:Request){
    if(!await permit(req,'recover',name,5,3600)||!await permitAccount('recover',name,10,86400))return json({ok:false,code:'rate_limited'},429,origin);
    const {data:p}=await admin.from('bq_profiles').select('login_id,secret_question,answer_salt,answer_hash').eq('name_normalized',name).maybeSingle();const candidate=await answerHash(answer,p?.answer_salt??'00000000000000000000000000000000');if(!p||normalize(p.secret_question)!==normalize(question)||!constantTimeEqual(candidate,p.answer_hash))return json({ok:false,code:'invalid_recovery'},401,origin);return json({ok:true,loginId:p.login_id},200,origin);
   }
+  if(body.action==='recover-answer'){
+   const name=normalize(clean(body.name,40)),loginId=clean(body.loginId,8).toUpperCase(),question=clean(body.question,120),answer=clean(body.answer,120);if(name.length<2||loginId.length!==8||question.length<8||answer.length<2)return json({ok:false,code:'invalid_recovery'},400,origin);
+   if(!await permit(req,'recover',`${name}:${loginId}`,5,3600)||!await permitAccount('recover',name,10,86400))return json({ok:false,code:'rate_limited'},429,origin);
+   const {data:p}=await admin.from('bq_profiles').select('id,login_id,secret_question').eq('name_normalized',name).maybeSingle();if(!p||!constantTimeEqual(loginId,p.login_id)||normalize(p.secret_question)!==normalize(question))return json({ok:false,code:'invalid_recovery'},401,origin);
+   const {data:restriction,error:restrictionError}=await admin.from('bq_account_restrictions').select('profile_id').eq('profile_id',p.id).maybeSingle();if(restrictionError&&restrictionError.code!=='PGRST205')return json({ok:false,code:'service_error'},503,origin);if(restriction)return json({ok:false,code:'account_restricted'},403,origin);
+   const saltHex=hex(randomBytes(16)),hashed=await answerHash(answer,saltHex);const {error}=await admin.from('bq_profiles').update({answer_salt:saltHex,answer_hash:hashed,updated_at:new Date().toISOString()}).eq('id',p.id);if(error){console.error('Secret recovery update failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('profile_id',p.id).is('revoked_at',null);return json({ok:true},200,origin);
+  }
   if(body.action==='login'){
    const name=clean(body.name,40),normalized=normalize(name),loginId=clean(body.loginId,8).toUpperCase(),answer=clean(body.answer,120);if(normalized.length<2||loginId.length!==8||answer.length<2)return json({ok:false,code:'invalid_credentials'},401,origin);
    if(!await permit(req,'login',`${normalized}:${loginId}`,7,900)||!await permitAccount('login',`${normalized}:${loginId}`,20,3600))return json({ok:false,code:'rate_limited'},429,origin);

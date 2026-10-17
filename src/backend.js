@@ -111,7 +111,7 @@ export async function callApi(action, payload = {}) {
     const data = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
     // A rejected authenticated token is discarded so the player is asked to sign in again.
     if (response.status === 401 && session?.token
-      && !['login', 'signup', 'recover-id', 'secret-question', 'check-name', 'suggest-name'].includes(action)) {
+      && !['login', 'signup', 'recover-id', 'recover-answer', 'secret-question', 'check-name', 'suggest-name'].includes(action)) {
       setSession(null);
     }
     if (!response.ok || data.ok === false) throw new Error(data.code || 'request_failed');
