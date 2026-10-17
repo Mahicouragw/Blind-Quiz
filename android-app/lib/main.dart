@@ -30,7 +30,7 @@ const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-
 
 /// The version of the app shell. The game itself is the live website, so this is the version of
 /// the wrapper, not of the questions or the sounds.
-const String kAppVersion = '1.3.0';
+const String kAppVersion = '1.3.1';
 
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
@@ -107,6 +107,10 @@ NavDecision classifyNavigation(String url) {
   if (uri.host.isEmpty || uri.userInfo.isNotEmpty) return NavDecision.block;
   if (uri.host == kAppHost &&
       (uri.path == kAppPathPrefix || uri.path.startsWith('$kAppPathPrefix/'))) {
+    if (uri.path.startsWith('$kAppPathPrefix/download/') ||
+        uri.path.toLowerCase().endsWith('.apk')) {
+      return NavDecision.external;
+    }
     return NavDecision.inApp;
   }
   return NavDecision.external;

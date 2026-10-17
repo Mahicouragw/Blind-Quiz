@@ -65,9 +65,11 @@ jobs:
           grep -q 'android.permission.INTERNET' "$MANIFEST" || \
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
           sed -i 's#android:label="[^"]*"#android:label="Blind Quiz"#' "$MANIFEST"
-          # HTTPS only, and no cloud/device backups of WebView storage (remembered name/Login ID, session).
+          # HTTPS only, no cloud/device backups of WebView storage (remembered name/Login ID, session),
+          # and compressed native libraries extracted at install time so every Android phone (4 KB or
+          # 16 KB page size) installs the package cleanly without uncompressed .so mmap alignment errors.
           grep -q 'usesCleartextTraffic' "$MANIFEST" || \
-            sed -i 's#<application#<application android:usesCleartextTraffic="false" android:allowBackup="false" android:fullBackupContent="false"#' "$MANIFEST"
+            sed -i 's#<application#<application android:usesCleartextTraffic="false" android:allowBackup="false" android:extractNativeLibs="true"#' "$MANIFEST"
           # Android 11+ package visibility: let the Contact us link open the user's email app.
           grep -q 'android.intent.action.SENDTO' "$MANIFEST" || \
             sed -i 's#<application#<queries><intent><action android:name="android.intent.action.SENDTO"/><data android:scheme="mailto"/></intent></queries>\n    <application#' "$MANIFEST"
@@ -121,14 +123,18 @@ jobs:
           find android/app/src/main -name 'MainActivity.*' ! -path "$ACT_DIR/MainActivity.kt" -delete
           find android/app/src/main -name 'MainActivity.*'
           # Background notifications (android-app/native/NotifyWorker.kt): WorkManager and AndroidX notifications.
+          # Also set stable targetSdk 35 and compressed JNI library packaging (useLegacyPackaging = true) so the
+          # APK is half the size and never fails package verification on 4 KB / 16 KB page-size ARM64 phones.
           GRADLE=android/app/build.gradle.kts
           if [ -f "$GRADLE" ]; then
+            grep -q 'useLegacyPackaging' "$GRADLE" || printf '\nandroid {\n    defaultConfig {\n        targetSdk = 35\n    }\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n}\n' >> "$GRADLE"
             grep -q 'androidx.work:work-runtime' "$GRADLE" || printf '\ndependencies {\n    implementation("androidx.work:work-runtime:2.9.1")\n    implementation("androidx.core:core:1.13.1")\n}\n' >> "$GRADLE"
           else
             GRADLE=android/app/build.gradle
+            grep -q 'useLegacyPackaging' "$GRADLE" || printf "\nandroid {\n    defaultConfig {\n        targetSdkVersion 35\n    }\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging true\n        }\n    }\n}\n" >> "$GRADLE"
             grep -q 'androidx.work:work-runtime' "$GRADLE" || printf "\ndependencies {\n    implementation 'androidx.work:work-runtime:2.9.1'\n    implementation 'androidx.core:core:1.13.1'\n}\n" >> "$GRADLE"
           fi
-          tail -5 "$GRADLE"; grep -n 'minSdk' "$GRADLE" || true
+          tail -15 "$GRADLE"; grep -n 'minSdk\|targetSdk\|useLegacyPackaging' "$GRADLE" || true
           # Blind Quiz launcher icon (braille "?" cell with sound waves) instead of the Flutter default.
           for d in icons/mipmap-*; do cp "$d/ic_launcher.png" "android/app/src/main/res/$(basename "$d")/ic_launcher.png"; done
           ls -la android/app/src/main/res/mipmap-*/ic_launcher.png
@@ -166,8 +172,9 @@ jobs:
         run: |
           set -euo pipefail
           KS="$RUNNER_TEMP/release.jks"
-          if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PASSWORD:-}" ] && [ -n "${KEY_ALIAS:-}" ]; then
-            printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+          if [ -n "${KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PASSWORD:-}" ]; then
+            printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > "$KS"
+            KEY_ALIAS="${KEY_ALIAS:-blindquiz}"
             KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
             echo "SIGNING_MODE=repository keystore" >> "$GITHUB_ENV"
           else
@@ -180,19 +187,29 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           IN=build/app/outputs/flutter-apk/app-release.apk
           OUT="$GITHUB_WORKSPACE/blind-quiz-$VERSION_NAME.apk"
-          "$BT/zipalign" -f -p 4 "$IN" "$RUNNER_TEMP/aligned.apk"
-          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$KEY_ALIAS" \
+          # Strip the default debug signature files before zipalign so we never align an already-signed APK.
+          cp "$IN" "$RUNNER_TEMP/unsigned.apk"
+          zip -d "$RUNNER_TEMP/unsigned.apk" 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/*.EC' 'META-INF/MANIFEST.MF' >/dev/null 2>&1 || true
+          "$BT/zipalign" -f -P 16 4 "$RUNNER_TEMP/unsigned.apk" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --ks "$KS" --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
             --out "$OUT" "$RUNNER_TEMP/aligned.apk"
           "$BT/apksigner" verify --verbose --print-certs "$OUT" | grep -E 'Verified|Signer #1 certificate (DN|SHA-256)'
-          rm -f "$KS"
+          rm -f "$KS" "$RUNNER_TEMP/unsigned.apk" "$RUNNER_TEMP/aligned.apk"
           echo "APK_PATH=$OUT" >> "$GITHUB_ENV"
-          ls -l "$OUT"
+          ls -lh "$OUT"
 
       - name: Audit the signed APK (permissions, debuggable, cleartext, backup)
         run: |
           set -euo pipefail
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          unzip -tq "$APK_PATH" >/dev/null || { echo "::error title=APK archive::Corrupt ZIP archive"; exit 1; }
+          "$BT/zipalign" -c -P 16 4 "$APK_PATH" || { echo "::error title=APK alignment::APK failed 16 KB page alignment check"; exit 1; }
+          VERIFY_OUT=$("$BT/apksigner" verify --verbose "$APK_PATH")
+          echo "$VERIFY_OUT" | grep -q 'Verified using v1 scheme (JAR signing): true' || { echo "::error title=APK signature::v1 signature missing"; exit 1; }
+          echo "$VERIFY_OUT" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' || { echo "::error title=APK signature::v2 signature missing"; exit 1; }
+          echo "$VERIFY_OUT" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' || { echo "::error title=APK signature::v3 signature missing"; exit 1; }
           PERMS=$("$BT/aapt2" dump permissions "$APK_PATH" | grep -oE "name='[^']+'" | sed "s/name='//;s/'//" | sort -u)
           echo "Permissions:"; echo "$PERMS"
           EXTRA=$(echo "$PERMS" | grep -vE '^(android\.permission\.(INTERNET|RECORD_AUDIO|CAMERA|MODIFY_AUDIO_SETTINGS|POST_NOTIFICATIONS|WAKE_LOCK|RECEIVE_BOOT_COMPLETED|FOREGROUND_SERVICE|ACCESS_NETWORK_STATE)|io\.github\.mahicouragw\.blind_quiz\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)$' || true)
@@ -201,9 +218,11 @@ jobs:
           if echo "$MAN" | grep -qE 'debuggable\([^)]*\)=(true|\(type 0x12\)0xffffffff)'; then echo "::error title=APK::APK is debuggable"; exit 1; fi
           echo "$MAN" | grep -qE 'usesCleartextTraffic\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::usesCleartextTraffic=false missing"; exit 1; }
           echo "$MAN" | grep -qE 'allowBackup\([^)]*\)=(false|\(type 0x12\)0x0)' || { echo "::error title=APK::allowBackup=false missing"; exit 1; }
+          echo "$MAN" | grep -qE 'extractNativeLibs\([^)]*\)=(true|\(type 0x12\)0xffffffff)' || { echo "::error title=APK::extractNativeLibs=true missing"; exit 1; }
           SDKS=$("$BT/aapt2" dump badging "$APK_PATH" | grep -oiE "(minSdkVersion|sdkVersion|targetSdkVersion):'[0-9]+'" | sort -u | tr '\n' ' ')
+          APK_BYTES=$(wc -c < "$APK_PATH" | tr -d '[:space:]')
           echo "SDK_INFO=$SDKS" >> "$GITHUB_ENV"
-          echo "::notice title=APK audit::$SDKS Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; release-signed."
+          echo "::notice title=APK audit::$SDKS Size: ${APK_BYTES} bytes. Permissions: $(echo $PERMS). Not debuggable; cleartext traffic disabled; backups disabled; extractNativeLibs=true; 16 KB aligned; v1+v2+v3 release-signed."
 
       - name: Verify APK package name and permanent signing identity
         env:
@@ -243,6 +262,7 @@ jobs:
             echo "::error title=APK signing identity::The new APK certificate does not match the permanent android-v1.0.29 identity; refusing to publish it."
             exit 1
           fi
+          echo "REF_APK=$REF_APK" >> "$GITHUB_ENV"
           echo "::notice title=APK identity::Package $EXPECTED_PACKAGE verified; public SHA-256 certificate fingerprint matches android-v1.0.29."
 
       - name: Enable KVM for the Android emulator
@@ -261,7 +281,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash "$GITHUB_WORKSPACE/android-app/scripts/emulator-smoke.sh" "$APK_PATH" "$RUNNER_TEMP/android-emulator-logs"
+          script: bash "$GITHUB_WORKSPACE/android-app/scripts/emulator-smoke.sh" "$APK_PATH" "$RUNNER_TEMP/android-emulator-logs" "$REF_APK"
 
       - name: Upload emulator crash logs
         if: always()
@@ -293,9 +313,16 @@ jobs:
 
           The app opens the live site (https://mahicouragw.github.io/Blind-Quiz/) over HTTPS only, with an accessible Reload button that keeps a valid sign-in session. Other links open in your browser. Permissions: internet; notifications (friend requests, messages, feedback replies, game invites, announcements and game updates, each with its own sound you can change in Android settings; checked in the background when online, including after sign-out; Android may delay checks, no Firebase); microphone and camera, asked only when you start or answer a call between friends or record a private or room voice message. Works on Android phones and tablets ($SDK_INFO). No storage or contacts access: files you send are picked with the Android file picker, and temporary received copies expire after three hours (copies saved elsewhere are not deleted).
           Signing: $SIGNING_MODE.
-          Install: download the APK on your Android phone and allow installing from this source when prompted."
-          gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Blind Quiz for Android $VERSION_NAME" --notes "$NOTES" --latest
+          Install: download the APK on your Android phone and allow installing from this source when prompted. If an earlier test install conflicts, uninstall the old Blind Quiz app once and install this APK."
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 \
+            && gh release upload "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --clobber \
+            || gh release create "$TAG" "$APK_PATH" "$RUNNER_TEMP/blind-quiz.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Blind Quiz for Android $VERSION_NAME" --notes "$NOTES" --latest
+          # Also replace the broken android-v1.0.37 release assets so the direct android-v1.0.37 link installs cleanly too.
+          if gh release view android-v1.0.37 --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            cp "$APK_PATH" "$RUNNER_TEMP/blind-quiz-1.0.37.apk"
+            gh release upload android-v1.0.37 "$RUNNER_TEMP/blind-quiz.apk" "$RUNNER_TEMP/blind-quiz-1.0.37.apk" --repo "$GITHUB_REPOSITORY" --clobber || true
+          fi
           # Publish the new APK on the website download link too.
           gh workflow run deploy-pages.yml --ref "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" || echo "::warning::Could not trigger the Pages deploy"
           {

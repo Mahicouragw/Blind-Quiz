@@ -3,8 +3,9 @@
 # a cold start and an actual emulator reboot. On failure, print and save logcat.
 set -Eeuo pipefail
 
-apk_path="${1:?Usage: emulator-smoke.sh <signed-apk> <log-dir>}"
-log_dir="${2:?Usage: emulator-smoke.sh <signed-apk> <log-dir>}"
+apk_path="${1:?Usage: emulator-smoke.sh <signed-apk> <log-dir> [reference-apk]}"
+log_dir="${2:?Usage: emulator-smoke.sh <signed-apk> <log-dir> [reference-apk]}"
+ref_apk="${3:-}"
 package_name='io.github.mahicouragw.blind_quiz'
 activity_component="$package_name/.MainActivity"
 mkdir -p "$log_dir"
@@ -54,6 +55,22 @@ fail_with_logs() {
 
 if [[ ! -s "$apk_path" ]]; then
   fail_with_logs install "Signed APK is missing or empty: $apk_path"
+fi
+
+if [[ -n "$ref_apk" && -s "$ref_apk" ]]; then
+  printf 'Installing reference APK to verify in-place upgrade path: %s\n' "$ref_apk"
+  if ! ref_output="$(timeout 180 adb install --no-streaming -r "$ref_apk" 2>&1)"; then
+    printf '%s\n' "$ref_output"
+    fail_with_logs install-reference "adb install --no-streaming failed for reference APK: $ref_output"
+  fi
+  printf '%s\n' "$ref_output"
+  printf 'Upgrading in place to new signed APK: %s\n' "$apk_path"
+  if ! upgrade_output="$(timeout 180 adb install --no-streaming -r "$apk_path" 2>&1)"; then
+    printf '%s\n' "$upgrade_output"
+    fail_with_logs upgrade "In-place upgrade failed: $upgrade_output"
+  fi
+  printf '%s\n' "$upgrade_output"
+  timeout 60 adb uninstall "$package_name" >/dev/null 2>&1 || true
 fi
 
 printf 'Installing signed APK without ADB streaming: %s\n' "$apk_path"

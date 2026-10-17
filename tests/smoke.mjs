@@ -799,5 +799,9 @@ console.log('PASS: Task 17 legal links in Settings only, Contact us email.');
   // The owner's own recording replaces a sound effect everywhere it is used.
   assert(audioBuilder.includes('ownerFileFor') && audioBuilder.includes("provider: 'Owner upload'") && audioBuilder.includes('pin.fallback'), 'a recording supplied by the owner replaces a sound effect, and a slot without one keeps a fallback');
   assert(dartSrc.includes('accessibleNavigation') && dartSrc.includes('bqSetScreenReader'), 'the Android app tells the page when TalkBack is running');
+  const androidWf = readFileSync(new URL('../.github/workflows/build-android.yml', import.meta.url), 'utf8');
+  assert(androidWf.includes('extractNativeLibs="true"') && androidWf.includes('useLegacyPackaging = true') && androidWf.includes('targetSdk = 35'), 'Android APK compresses native libraries and extracts them on install for 4 KB and 16 KB page-size phones');
+  assert(androidWf.includes('zipalign" -f -P 16 4') && androidWf.includes('zipalign" -c -P 16 4') && androidWf.includes('--v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true'), 'Android APK strips debug signatures, aligns to 16 KB pages, and signs with v1, v2, and v3');
+  assert(dartSrc.includes("uri.path.startsWith('\$kAppPathPrefix/download/')") && dartSrc.includes("endsWith('.apk')"), 'APK download links open in the external browser instead of inside the WebView');
   console.log('PASS: Task 20 accessible play (game voice with pitch, speed and volume; swipe gestures; one double tap per action; spoken timing effects).');
 }
