@@ -19,7 +19,7 @@ name: Deploy blind-quiz-api Edge Function
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/**']
     paths:
       - 'supabase/functions/**'
       - 'supabase/config.toml'
