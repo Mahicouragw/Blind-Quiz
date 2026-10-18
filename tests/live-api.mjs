@@ -12,19 +12,21 @@
 //     in-memory and are never written to stdout, stderr, or the exit message.
 //   * Only HTTP status codes and non-sensitive response codes are reported.
 //
-// Run: node tests/live-api.mjs
-// Optional overrides (never required): SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
-// BQ_VERIFY_ORIGIN, BQ_VERIFY_NAME, BQ_VERIFY_QUESTION, BQ_VERIFY_ANSWER.
+// Run only against a dedicated non-production project with explicit opt-in:
+// SUPABASE_URL=... SUPABASE_PUBLISHABLE_KEY=... BQ_ALLOW_TEST_ACCOUNT_CREATION=true node tests/live-api.mjs
+// Never point this script at the production player database.
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '../src/config.js';
 import { QUESTION_BANK } from '../src/content.js';
+import { requireDedicatedTestProject } from '../scripts/lib/live-test-guard.mjs';
 
-const API = `${(process.env.SUPABASE_URL || SUPABASE_URL).replace(/\/$/, '')}/functions/v1/blind-quiz-api`;
-const APIKEY = process.env.SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY;
+const TEST_PROJECT_URL = requireDedicatedTestProject();
+const API = `${TEST_PROJECT_URL}/functions/v1/blind-quiz-api`;
+const APIKEY = process.env.SUPABASE_PUBLISHABLE_KEY;
 const ORIGIN = process.env.BQ_VERIFY_ORIGIN || 'https://mahicouragw.github.io';
 const LOGIN_ID_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/; // 8 chars from the server alphabet (no I, O, 0, 1)
+const AI_NAME_PATTERN = /^\p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \p{L}[\p{L}\p{M}]*(?:[-'][\p{L}][\p{L}\p{M}]*)* \d{2}$/u;
 const TIMEOUT_MS = 30_000;
 
 // Values that must never appear in anything this script prints.
@@ -48,8 +50,8 @@ function fail(label, detail) {
 const hex = n => randomBytes(n).toString('hex');
 const tokenish = () => `bq${hex(6)}`;
 
-// Test identity. Unique per run by default so no production row is reused or
-// overwritten; overridable for a stable dedicated verification account.
+// Synthetic identity. This script is hard-blocked from production and must use
+// a dedicated non-production project; the generated account is not deleted.
 const NAME = process.env.BQ_VERIFY_NAME || `BQ Verify ${tokenish()}`;
 const QUESTION = process.env.BQ_VERIFY_QUESTION || 'What was the name of your first school?';
 const ANSWER = guard(process.env.BQ_VERIFY_ANSWER || `verify-${hex(12)}`);
@@ -137,6 +139,22 @@ if (boot.status === 546 || boot.status === 503 || boot.status === 0) {
 }
 if (boot.body === null) fail('Function returns JSON', `non-JSON response ${sanitize(boot.text)}`);
 check('Function boots without BOOT_ERROR', true, `status ${boot.status}, code ${codeOf(boot)}`);
+
+// --- 1a. Gemini name suggestions: validate the output, or accept safe fail-closed modes. ---
+const aiSuggestion = await post({ action: 'suggest-name' });
+const aiSuggestionValid = aiSuggestion.status === 200 && aiSuggestion.body?.ok === true
+  && typeof aiSuggestion.body.name === 'string' && AI_NAME_PATTERN.test(aiSuggestion.body.name);
+const aiSuggestionFallback = aiSuggestion.status === 503 && aiSuggestion.body?.code === 'ai_unavailable';
+const aiSuggestionLimited = aiSuggestion.status === 429 && aiSuggestion.body?.code === 'rate_limited';
+// A separately configured staging project may briefly receive an older function during deployment.
+const aiSuggestionRequired = process.env.BQ_EXPECT_AI_NAME === 'true';
+const aiSuggestionAwaitingDeploy = !aiSuggestionRequired
+  && aiSuggestion.status === 400 && aiSuggestion.body?.code === 'unknown_action';
+check(aiSuggestionRequired
+  ? 'Signup AI suggestion is validated or safely unavailable/rate-limited after deployment'
+  : 'Signup AI suggestion is validated, safely unavailable, or awaiting deployment',
+  aiSuggestionValid || aiSuggestionFallback || aiSuggestionLimited || aiSuggestionAwaitingDeploy,
+  `status ${aiSuggestion.status}, code ${codeOf(aiSuggestion)}`);
 
 // --- 2. Signup with Name + Secret Question + Secret Answer. ------------------
 const signup = await post({ action: 'signup', name: NAME, question: QUESTION, answer: ANSWER });
@@ -353,9 +371,13 @@ const rList = await post({ action: 'rooms' }, { token: wtok });
 const pubRoom = (rList.body?.items || []).find(r => r.name === 'Blind Quiz' && r.isDefault);
 check('Rooms: three default public rooms with game and user counts', (rList.body?.items || []).filter(r => r.isDefault).length === 3 && !!pubRoom && typeof pubRoom.games === 'number' && typeof pubRoom.users === 'number', `${codeOf(rList)}, ${(rList.body?.items || []).length} rooms`);
 const rState = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: wtok });
-const rSay = await post({ action: 'room-say', roomId: pubRoom?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
-const rSeen = await post({ action: 'room-state', roomId: pubRoom?.id, afterId: null }, { token: otok });
-check('Rooms: entering shows the people there and room chat reaches others', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text), `${codeOf(rState)}/${codeOf(rSay)}/${codeOf(rSeen)}`);
+// Exercise public chat in a disposable room so live checks never leave test messages in a default room.
+const rTestRoom = await post({ action: 'room-create', name: `Live check ${tokenish()}`, isPublic: true }, { token: wtok });
+const rTestState = await post({ action: 'room-state', roomId: rTestRoom.body?.id, afterId: null }, { token: wtok });
+const rSay = await post({ action: 'room-say', roomId: rTestRoom.body?.id, text: `Live room hello ${tokenish()}` }, { token: wtok });
+const rSeen = await post({ action: 'room-state', roomId: rTestRoom.body?.id, afterId: null }, { token: otok });
+const rTestRemoved = await post({ action: 'room-remove', roomId: rTestRoom.body?.id }, { token: wtok });
+check('Rooms: public chat reaches another player and its temporary test room is removed', rState.body?.ok === true && (rState.body.people || []).some(p => p.name === NEW_NAME) && rTestState.body?.ok === true && rSay.body?.ok === true && (rSeen.body?.chat || []).some(c => c.name === NEW_NAME) && !/loginId|login_id/.test(rSeen.text) && rTestRemoved.body?.ok === true, `${codeOf(rState)}/${codeOf(rTestState)}/${codeOf(rSay)}/${codeOf(rSeen)}/${codeOf(rTestRemoved)}`);
 const rPriv = await post({ action: 'room-create', name: `Live ${tokenish()}`, isPublic: false }, { token: wtok });
 const rClosed = await post({ action: 'room-state', roomId: rPriv.body?.id, afterId: null }, { token: otok });
 const rInvite = await post({ action: 'room-invite', roomId: rPriv.body?.id, name: OTHER_NAME }, { token: wtok });
@@ -380,7 +402,7 @@ const vGet = await post({ action: 'room-voice', id: vSend.body?.id }, { token: o
 const vBad = await post({ action: 'room-voice-send', roomId: mInv.body?.roomId, audio: 'data:text/html;base64,PHNjcmlwdD4=', durationMs: 2500 }, { token: wtok });
 check('Room voice messages: others in the room can play them; only audio is accepted', vSend.body?.ok === true && (vState.body?.voices || []).some(v => v.id === vSend.body.id && v.name === NEW_NAME) && !vState.text.includes('base64') && vGet.body?.audio === VOICE && vBad.status === 400, `${codeOf(vSend)}/${codeOf(vState)}/${codeOf(vGet)}/${codeOf(vBad)} listed=${(vState.body?.voices || []).some(v => v.id === vSend.body?.id)} named=${(vState.body?.voices || []).some(v => v.name === NEW_NAME)} hidden=${!vState.text.includes('base64')} same=${vGet.body?.audio === VOICE} len=${String(vGet.body?.audio || '').length}/${VOICE.length} bad=${vBad.status}`);
 const rRemove = await post({ action: 'room-remove', roomId: rPriv.body?.id }, { token: wtok });
-const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'chess', title: 'Nope', config: {} }, { token: wtok });
+const rBad = await post({ action: 'game-create', roomId: pubRoom?.id, kind: 'not-a-game', title: 'Nope', config: {} }, { token: wtok });
 check('Rooms: owners remove their rooms; unknown game kinds are rejected', rRemove.body?.ok === true && rBad.status === 400, `${codeOf(rRemove)}/${codeOf(rBad)}`);
 const SESSION = randomUUID();
 const ringText = JSON.stringify({ t: 'file-offer', name: 'notes.pdf', size: 7000000 });
@@ -410,9 +432,10 @@ const nAfter = await post({ action: 'notify-check', token: nReg.body?.token, aft
 check('Android background notifications: a phone key reads only new notifications and can be removed', typeof nReg.body?.token === 'string' && nReg.body.token.length >= 40 && nChk.body?.ok === true && Array.isArray(nChk.body.items) && !/"(loginId|login_id|secret_question|answer_hash|answer_salt|token_hash|profile_id)"/.test(nChk.text) && nBad.status === 401 && nStop.body?.stopped === true && nAfter.status === 401, `${codeOf(nReg)}/${codeOf(nChk)}/${codeOf(nBad)}/${codeOf(nStop)}/${codeOf(nAfter)}`);
 const annNo = await post({ action: 'admin-announce', text: 'Live check announcement' }, { token: wtok });
 const replyNo = await post({ action: 'admin-feedback-reply', id: 1, reply: 'Live check reply' }, { token: wtok });
+const monitorNo = await post({ action: 'admin-monitor' }, { token: wtok });
 const socialNoAuth = await post({ action: 'friends' });
-check('Announcements and feedback replies are admin only; social actions need a session', annNo.status === 403 && annNo.body?.code === 'forbidden' && replyNo.status === 403 && socialNoAuth.status === 401, `${codeOf(annNo)}/${codeOf(replyNo)}/${codeOf(socialNoAuth)}`);
-const socialResponses = [vSend, vState, vGet, vBad, sRing, sBeat, sPoll, sSpy, rList, rState, rSay, rSeen, rPriv, rClosed, rInvite, rOpen, gNew, gPost, gSpy, gWatch, gComment, gEnd, gAfter, mInv, mNotes, rRemove, otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo];
+check('Announcements, feedback replies, and player monitoring are admin only; social actions need a session', annNo.status === 403 && annNo.body?.code === 'forbidden' && replyNo.status === 403 && replyNo.body?.code === 'forbidden' && monitorNo.status === 403 && monitorNo.body?.code === 'forbidden' && socialNoAuth.status === 401, `${codeOf(annNo)}/${codeOf(replyNo)}/${codeOf(monitorNo)}/${codeOf(socialNoAuth)}`);
+const socialResponses = [vSend, vState, vGet, vBad, sRing, sBeat, sPoll, sSpy, rList, rState, rSay, rSeen, rPriv, rClosed, rInvite, rOpen, gNew, gPost, gSpy, gWatch, gComment, gEnd, gAfter, mInv, mNotes, rRemove, otherLogin, beatA, beatB, online, card, ghostCard, fReq, oNotes, fAccept, fList, aNotes, regA, regB, regSteal, mKeys, mSend, mForged, mPlain, mInbox, fRemove, mAfter, cardAfter, readAll, notifOff, myFb, annNo, replyNo, monitorNo];
 for (const t of [tok, wtok, otok]) if (t) await post({ action: 'logout' }, { token: t });
 const profileResponses = [session2, noAuthChange, wrongCurrent, takenChange, renamed, tooSoon, secretChange, loginNew, word1, word2, wordFake, wordLetters, wordTwo, fbWrongName, fbBadShot, fbInbox, fbItem, smStart, smFast, smDone, smAgain, ...socialResponses.filter(r => r !== otherLogin)];
 check('Profile and word responses never contain hashes, salts, or the secret answers',

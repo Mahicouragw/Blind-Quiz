@@ -208,9 +208,17 @@ export function createFeedback({ $, announce, callApi, getSession, go, openSignI
     e.preventDefault();
     const area = $('#announce-text'), out = $('#announce-status'), text = area.value.trim();
     if (text.length < 3) { say(out, 'Write the announcement first.', true); area.focus(); return; }
+    const confirmation = 'Send this to every player profile? An inbox item will be queued for all registered profiles, including offline or inactive accounts. This does not confirm phone-notification delivery. Continue?';
+    if (typeof globalThis.confirm !== 'function' || !globalThis.confirm(confirmation)) {
+      say(out, 'Announcement cancelled.');
+      return;
+    }
     const btn = e.target.querySelector('button'); btn.disabled = true;
-    try { const d = await callApi('admin-announce', { text }); area.value = ''; say(out, `Announcement sent to ${d.sent} players.`); }
-    catch (err) { say(out, err.message === 'forbidden' ? 'Only the game admin can send announcements.' : 'The announcement could not be sent. Please try again.', true); }
+    try {
+      await callApi('admin-announce', { text });
+      area.value = '';
+      say(out, 'Announcement queued in player inboxes. Phone-notification delivery is not confirmed.');
+    } catch (err) { say(out, err.message === 'forbidden' ? 'Only the game admin can send announcements.' : 'The announcement could not be sent. Please try again.', true); }
     finally { btn.disabled = false; }
   });
 
