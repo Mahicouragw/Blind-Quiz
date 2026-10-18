@@ -19,8 +19,8 @@
 //  - a slow drag is a scroll, not a swipe;
 //  - a swipe that starts inside a horizontally scrolling area is left to that area;
 //  - the gesture can be switched off in Settings.
-const MIN_TRAVEL = 55; // px of sideways travel
-const MAX_TIME = 900; // ms; slower than this and the player was scrolling
+const MIN_TRAVEL = 36; // px of sideways travel (responsive on phones and Lenovo tablets)
+const MAX_TIME = 1200; // ms; slower than this and the player was scrolling
 const SIDE_RATIO = 0.9; // sideways travel must beat vertical travel by this factor
 
 // The lists a swipe moves through, in the order they are looked for.
@@ -34,7 +34,9 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
 
 const isVisible = el => {
   if (!el || !el.isConnected) return false;
-  if (el.hidden) return false;
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    if (n.hidden || n.hasAttribute?.('inert')) return false;
+  }
   const style = el.ownerDocument.defaultView?.getComputedStyle?.(el);
   if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
   return true;
@@ -62,7 +64,7 @@ function groupFor(el) {
   if (!el) return null;
   let node = el;
   while (node && node.nodeType === 1) {
-    for (const selector of GROUPS) if (node.matches?.(selector)) return node;
+    for (const selector of GROUPS) if (node.matches?.(selector) && isVisible(node)) return node;
     node = node.parentElement;
   }
   return null;
@@ -72,10 +74,18 @@ function groupFor(el) {
 // the arrow keys know which list to move through even when the focus is on the button itself.
 let lastGrouped = null;
 
-/** The list the focus is in, or the last one the player touched. */
+/** The list the focus is in, the last one the player touched, or the active visible list on screen. */
 function currentGroup() {
-  const active = typeof document !== 'undefined' ? document.activeElement : null;
-  return groupFor(active) || groupFor(lastGrouped);
+  if (typeof document === 'undefined') return null;
+  const active = document.activeElement;
+  const direct = groupFor(active) || groupFor(lastGrouped);
+  if (direct && items(direct).length >= 2) return direct;
+  for (const selector of GROUPS) {
+    for (const g of document.querySelectorAll(selector)) {
+      if (isVisible(g) && items(g).length >= 2) return g;
+    }
+  }
+  return direct;
 }
 
 /**
@@ -105,6 +115,7 @@ export function moveFocus(direction) {
   const el = step(direction, document.activeElement);
   if (!el) return null;
   el.focus();
+  try { el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); } catch { /* ignore */ }
   return el;
 }
 

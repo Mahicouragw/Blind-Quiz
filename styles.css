@@ -514,3 +514,7 @@ footer{border-top:3px solid var(--key-edge);background:#140b2bcc}footer span:fir
 .choice-nav-button{flex:1 1 150px;border-color:var(--blue);color:var(--blue);font-weight:750}
 .choice-nav-button:hover{border-color:var(--acid);color:var(--acid)}
 .gesture-hint{margin:14px 0 0;width:100%;color:var(--muted);font-size:.9rem;line-height:1.5}
+.view,#game-stage,.answer-list,#category-list,#mode-list,#sm-grid,#letters-tiles{touch-action:pan-y}
+#admin-audio-panel{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+#admin-audio-panel h3{margin:0 0 8px}
+

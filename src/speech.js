@@ -84,12 +84,13 @@ function speakWith(text) {
     u.rate = prefs.rate;
     u.volume = prefs.volume;
     const wanted = prefs.voice;
-    const voice = wanted && (voices.find(v => v.uri === wanted) || voices.find(v => v.name === wanted));
-    if (voice) { u.voice = voice; u.lang = voice.lang; }
-    else if (wanted && /^[a-z]{2}(-[A-Za-z0-9]+)?$/.test(wanted)) u.lang = wanted; // a plain language code
+    if (!voices.length) speechVoices();
+    const voice = wanted && (voices.find(v => v.voiceURI === wanted || v.uri === wanted) || voices.find(v => v.name === wanted));
+    if (voice) { u.voice = voice; u.lang = String(voice.lang || 'en-IN').replace(/_/g, '-'); }
+    else if (wanted && /^[a-z]{2}([-_][A-Za-z0-9]+)?$/.test(wanted)) u.lang = wanted.replace(/_/g, '-'); // a plain language code
     spoken = u;
     u.onend = u.onerror = () => { if (spoken === u) spoken = null; };
-    const start = () => { try { s.speak(u); } catch { /* the engine refused: stay silent */ } };
+    const start = () => { try { s.resume?.(); s.speak(u); } catch { /* the engine refused: stay silent */ } };
     if (s.speaking || s.pending) { try { s.cancel(); } catch { /* ignore */ } setTimeout(start, 60); }
     else start();
     return true;

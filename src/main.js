@@ -3,7 +3,7 @@ import { QUESTION_BANK, CATEGORY_LIST } from './content.js';
 import { callApi, getSession, setSession } from './backend.js';
 import { shuffled } from './random.js';
 import { GAME_MODES, presentQuestion, poolFor as poolForQuestions, selectRoundQuestions, timeLimitFor, endsAfterMiss } from './game-logic.js';
-import { playSfx as rawSfx, playSequence as rawSequence, playMusic, stopMusic, musicFor, configureAudio, preloadAudio, unlockAudio, matchSounds, playMatchSound as rawMatch, stopMatchSound } from './audio.js';
+import { playSfx as rawSfx, playSequence as rawSequence, playMusic, stopMusic, musicFor, configureAudio, preloadAudio, unlockAudio, matchSounds, playMatchSound as rawMatch, stopMatchSound, applyAudioOverrides, getAudioOverrides, hasAudioOverride } from './audio.js';
 import { createSoundMatch } from './sound-match-ui.js';
 import { createCountMatch as createCountMatchUI } from './count-match-ui.js';
 import { createLettersGame } from './letters-ui.js';
@@ -61,7 +61,7 @@ const liveRegionsMuted=()=>!talkBackEnabled||voiceMode()==='app';
 function syncLiveRegions(root=DOC){const elements=[];if(root?.nodeType===1&&isLiveRegion(root))elements.push(root);if(root?.querySelectorAll)elements.push(...root.querySelectorAll('[aria-live],[role="status"],[role="alert"]'));for(const element of elements){if(liveRegionsMuted())muteLiveRegion(element);else restoreLiveRegion(element)}}
 function watchLiveRegions(){if(liveRegionObserver||!WIN.MutationObserver||!DOC?.documentElement)return;liveRegionObserver=new WIN.MutationObserver(records=>{if(!liveRegionsMuted())return;for(const record of records){if(record.type==='childList'){for(const node of record.addedNodes)if(node.nodeType===1)syncLiveRegions(node);continue}const element=record.target;if(oneShotLiveRegions.has(element))continue;const saved=mutedLiveRegions.get(element);if(saved&&element.getAttribute('aria-live')==='off')continue;if(isLiveRegion(element)){if(saved){saved.had=element.hasAttribute('aria-live');saved.value=element.getAttribute('aria-live')}muteLiveRegion(element)}else restoreLiveRegion(element)}});liveRegionObserver.observe(DOC.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['aria-live','role']})}
 function writeAccessibilityLiveRegion(text,urgent=false,{allowWhenDisabled=false}={}){if(!talkBackEnabled&&!allowWhenDisabled)return false;const region=$(urgent?'#assertive-announcer':'#announcer');if(!region)return false;clearPendingAccessibilityUpdate();const oneShot=!talkBackEnabled&&allowWhenDisabled;if(oneShot){oneShotLiveRegions.add(region);region.setAttribute('aria-live',urgent?'assertive':'polite')}region.textContent='';pendingAccessibilityUpdate=setTimeout(()=>{pendingAccessibilityUpdate=null;if(!talkBackEnabled&&!oneShot)return;region.textContent=String(text)},30);if(oneShot)setTimeout(()=>{oneShotLiveRegions.delete(region);if(!talkBackEnabled&&mutedLiveRegions.has(region))region.setAttribute('aria-live','off')},2500);return true}
-function speakText(text,{language=['game','results'].includes(state.view)?state.roundLanguage:state.settings.language}={}){if(!talkBackEnabled)return false;const prefs=speechPrefs();if(prefs.volume<=0)return false;const synth=globalThis.speechSynthesis||WIN.speechSynthesis,Utterance=globalThis.SpeechSynthesisUtterance||WIN.SpeechSynthesisUtterance;if(!synth||!Utterance)return false;try{const lang=language==='te'?'te-IN':'en-IN',voices=synth.getVoices?.()||[],voice=lang==='te-IN'?voices.find(v=>/^te(-|$)/i.test(v.lang)):voices.find(v=>/^en(-IN|-GB|-US|$)/i.test(v.lang));if(lang==='te-IN'&&voices.length&&!voice)return false;const chosen=prefs.voice&&voices.find(v=>(v.voiceURI||v.name)===prefs.voice);synth.cancel();const utterance=new Utterance(String(text));utterance.lang=lang;if(chosen&&(lang!=='te-IN'||/^te(-|$)/i.test(chosen.lang||'')))utterance.voice=chosen;else if(voice)utterance.voice=voice;const base=language==='te'?0.86:0.96;utterance.rate=Math.min(2,Math.max(0.5,base*prefs.rate));utterance.pitch=prefs.pitch;utterance.volume=prefs.volume;synth.speak(utterance);return true}catch{return false}}
+function speakText(text,{language=['game','results'].includes(state.view)?state.roundLanguage:state.settings.language}={}){if(!talkBackEnabled)return false;const prefs=speechPrefs();if(prefs.volume<=0)return false;const synth=globalThis.speechSynthesis||WIN.speechSynthesis,Utterance=globalThis.SpeechSynthesisUtterance||WIN.SpeechSynthesisUtterance;if(!synth||!Utterance)return false;try{const lang=language==='te'?'te-IN':'en-IN',voices=synth.getVoices?.()||[],voice=lang==='te-IN'?voices.find(v=>/^te([-_]|$)/i.test(v.lang)):voices.find(v=>/^en([-_](IN|GB|US)|[-_]|$)/i.test(v.lang));if(lang==='te-IN'&&voices.length&&!voice)return false;const chosen=prefs.voice&&voices.find(v=>(v.voiceURI||v.name)===prefs.voice);synth.cancel();synth.resume?.();const utterance=new Utterance(String(text));utterance.lang=lang;if(chosen&&(lang!=='te-IN'||/^te([-_]|$)/i.test(chosen.lang||'')))utterance.voice=chosen;else if(voice)utterance.voice=voice;const base=language==='te'?0.86:0.96;utterance.rate=Math.min(2,Math.max(0.5,base*prefs.rate));utterance.pitch=prefs.pitch;utterance.volume=prefs.volume;synth.speak(utterance);return true}catch{return false}}
 function announceAccessibility(text,urgent=false,options={}){if(!talkBackEnabled&&!options.allowWhenDisabled)return false;return writeAccessibilityLiveRegion(text,urgent,options)}
 function stopDeviceSpeech(){try{(globalThis.speechSynthesis||WIN.speechSynthesis)?.cancel()}catch{}}
 function stopSpokenAnnouncements(){clearPendingAccessibilityUpdate();stopDeviceSpeech()}
@@ -205,10 +205,10 @@ function startRound(category='general',mode='classic',options={}){
  // 'get ready' signal. The countdown can only run once per round.
 if(state.settings.autoStart!==false)countdownAndBegin()
 }
-async function countdownAndBegin(){if(state.locked)return;unlockAudio();state.locked=true;const id=state.roundId,alive=()=>id===state.roundId&&state.view==='game';try{const b=$('#game-start');b.disabled=true;b.textContent=ui('starting');$('#phase-label').textContent=state.roundLanguage==='te'?'సిద్ధంగా ఉండండి':'GET READY';$('#game-title').textContent=ui('getReady');$('#game-copy').textContent=ui('getReadyCopy');announce(ui('getReady'));await sleep(1050);if(!alive())return;$('#game-title').className='countdown-num';for(const n of ['3','2','1']){$('#game-title').textContent=n;$('#game-title').classList.remove('pop');void $('#game-title').offsetWidth;$('#game-title').classList.add('pop');$('#game-copy').textContent='';playSfx('tick');announce(n,true);await sleep(1120);if(!alive())return}$('#game-title').textContent=ui('go');playSfx('go');announce(ui('go'),true);await sleep(950);if(!alive())return;$('#game-tools').hidden=false;showQuestion()}finally{if(id===state.roundId)state.locked=false}}
-function showQuestion(){clearTimer();clearAutoAdvance();const q=state.questions[state.index];if(!q){finishRound();return}state.answered=false;const progress=ui('question',state.index+1,state.questions.length);livePush('say',`${progress}. ${q.displayQuestion} ${ui('options')}: ${q.displayAnswers.map((a,i)=>`${LETTERS[i]}, ${a}`).join('. ')}.`);const category=CATEGORY_LIST.find(c=>c.id===q.category);$('#phase-label').textContent=`${categoryLabel(state.roundLanguage,category||{id:'',name:q.category})} · ${ui(state.difficulty==='all'?q.difficulty:state.difficulty)}`;$('#round-progress').textContent=progress;$('#progress-meter').style.width=`${state.index/state.questions.length*100}%`;$('#game-title').textContent=`${progress}. ${q.displayQuestion}`;$('#game-title').className='question-text';$('#game-title').setAttribute('tabindex','-1');const stage=$('#game-stage');stage.querySelector('.game-copy')?.remove();stage.querySelector('.answer-list')?.remove();stage.querySelector('.choice-nav')?.remove();stage.querySelector('.gesture-hint')?.remove();stage.querySelector('.feedback')?.remove();stage.querySelector('.next-question')?.remove();const list=DOC.createElement('div');list.className='answer-list';list.setAttribute('role','group');list.setAttribute('aria-label',ui('answerChoices'));q.displayAnswers.forEach((answer,i)=>{const btn=DOC.createElement('button');btn.type='button';btn.className='answer-button';btn.dataset.index=String(i);btn.dataset.answer=answer;btn.dataset.letter=LETTERS[i];const badge=DOC.createElement('span');badge.className='answer-letter';badge.setAttribute('aria-hidden','true');badge.textContent=LETTERS[i];const text=DOC.createElement('span');text.className='answer-text';text.textContent=answer;btn.append(badge,text);btn.setAttribute('aria-label',ui('option',LETTERS[i],answer));btn.addEventListener('click',()=>chooseAnswer(answer,btn));list.append(btn)});stage.append(list);const nav=DOC.createElement('div');nav.className='choice-nav';nav.setAttribute('role','group');nav.setAttribute('aria-label',ui('moveBetweenChoices'));for(const [dir,label] of [['back',ui('previousChoice')],['forward',ui('nextChoice')]]){const b=DOC.createElement('button');b.type='button';b.className='button choice-nav-button';b.dataset.move=dir;b.textContent=label;b.setAttribute('aria-label',label);nav.append(b)}stage.append(nav);const hint=DOC.createElement('p');hint.className='gesture-hint';hint.id='gesture-hint';hint.textContent=gestureHintText();stage.append(hint);const fb=DOC.createElement('div');fb.className='feedback';fb.id='answer-feedback';fb.tabIndex=-1;stage.append(fb);$('#game-start').hidden=true;$('#round-progress').textContent=progress;$('#game-title').focus();const spokenChoices=`${ui('answerChoices')}: ${q.displayAnswers.map((answer,i)=>ui('option',LETTERS[i],answer).replace(/[.]+$/,'')).join('. ')}.`;announceAccessibility(spokenChoices);updateHud();startTimer();}
+async function countdownAndBegin(){if(state.locked)return;unlockAudio();state.locked=true;const id=state.roundId,alive=()=>id===state.roundId&&state.view==='game';try{const b=$('#game-start');b.disabled=true;b.textContent=ui('starting');$('#phase-label').textContent=state.roundLanguage==='te'?'సిద్ధంగా ఉండండి':'GET READY';$('#game-title').textContent=ui('getReady');$('#game-copy').textContent=ui('getReadyCopy');announce(ui('getReady'));await sleep(1050);if(!alive())return;$('#game-title').className='countdown-num';for(const n of ['3','2','1']){$('#game-title').textContent=n;$('#game-title').classList.remove('pop');void $('#game-title').offsetWidth;$('#game-title').classList.add('pop');$('#game-copy').textContent='';playSfx('countdown');announce(n,true);await sleep(1120);if(!alive())return}$('#game-title').textContent=ui('go');playSfx('go');announce(ui('go'),true);await sleep(950);if(!alive())return;$('#game-tools').hidden=false;showQuestion()}finally{if(id===state.roundId)state.locked=false}}
+function showQuestion(){clearTimer();clearAutoAdvance();const q=state.questions[state.index];if(!q){finishRound();return}state.answered=false;const progress=ui('question',state.index+1,state.questions.length);livePush('say',`${progress}. ${q.displayQuestion} ${ui('options')}: ${q.displayAnswers.map((a,i)=>`${LETTERS[i]}, ${a}`).join('. ')}.`);const category=CATEGORY_LIST.find(c=>c.id===q.category);$('#phase-label').textContent=`${categoryLabel(state.roundLanguage,category||{id:'',name:q.category})} · ${ui(state.difficulty==='all'?q.difficulty:state.difficulty)}`;$('#round-progress').textContent=progress;$('#progress-meter').style.width=`${state.index/state.questions.length*100}%`;$('#game-title').textContent=`${progress}. ${q.displayQuestion}`;$('#game-title').className='question-text';$('#game-title').setAttribute('tabindex','-1');const stage=$('#game-stage');stage.querySelector('.game-copy')?.remove();stage.querySelector('.answer-list')?.remove();stage.querySelector('.choice-nav')?.remove();stage.querySelector('.gesture-hint')?.remove();stage.querySelector('.feedback')?.remove();stage.querySelector('.next-question')?.remove();const list=DOC.createElement('div');list.className='answer-list';list.setAttribute('role','group');list.setAttribute('aria-label',ui('answerChoices'));q.displayAnswers.forEach((answer,i)=>{const btn=DOC.createElement('button');btn.type='button';btn.className='answer-button';btn.dataset.index=String(i);btn.dataset.answer=answer;btn.dataset.letter=LETTERS[i];const badge=DOC.createElement('span');badge.className='answer-letter';badge.setAttribute('aria-hidden','true');badge.textContent=LETTERS[i];const text=DOC.createElement('span');text.className='answer-text';text.textContent=answer;btn.append(badge,text);btn.setAttribute('aria-label',ui('option',LETTERS[i],answer));btn.addEventListener('click',()=>chooseAnswer(answer,btn));list.append(btn)});stage.append(list);const nav=DOC.createElement('div');nav.className='choice-nav';nav.setAttribute('role','group');nav.setAttribute('aria-label',ui('moveBetweenChoices'));for(const [dir,label] of [['back',ui('previousChoice')],['forward',ui('nextChoice')]]){const b=DOC.createElement('button');b.type='button';b.className='button choice-nav-button';b.dataset.move=dir;b.textContent=label;b.setAttribute('aria-label',label);nav.append(b)}stage.append(nav);const hint=DOC.createElement('p');hint.className='gesture-hint';hint.id='gesture-hint';hint.textContent=gestureHintText();stage.append(hint);const fb=DOC.createElement('div');fb.className='feedback';fb.id='answer-feedback';fb.tabIndex=-1;stage.append(fb);$('#game-start').hidden=true;$('#round-progress').textContent=progress;$('#game-title').focus();const spokenChoices=`${ui('answerChoices')}: ${q.displayAnswers.map((answer,i)=>ui('option',LETTERS[i],answer).replace(/[.]+$/,'')).join('. ')}.`;speakMessage(`${progress}. ${q.displayQuestion} ${spokenChoices}`);announceAccessibility(spokenChoices);updateHud();startTimer();}
 function updateHud(){const s=$('#hud-score');if(s)s.textContent=`★ ${state.score}`;const t=$('#hud-timer');const seconds=Number(state.roundTimer??state.settings.timer);if(t){t.hidden=!seconds||state.view!=='game';if(seconds){const left=Math.max(0,state.timeLeft);t.style.setProperty('--left',String(left/seconds));t.classList.toggle('low',left<=5);$('#hud-seconds').textContent=`${left}s`}}}
-function startTimer(){const seconds=Number(state.roundTimer??state.settings.timer);if(!seconds){updateHud();return}state.timeLeft=seconds;updateHud();if(seconds<=15)playSfx('tick');const warnAt=[10,5,3,2,1];state.timer=setInterval(()=>{state.timeLeft--;updateHud();if(state.timeLeft>0&&state.timeLeft<=15)playSfx('tick');if(state.timeLeft===5)playSfx('hurry');if(state.timeLeft>0&&state.timeLeft<=4)playSfx('tick_last');if(warnAt.includes(state.timeLeft))announce(ui('timer',state.timeLeft));if(state.timeLeft<=0){clearTimer();timeExpired()}},1000)}function clearTimer(){if(state.timer)clearInterval(state.timer);state.timer=null}
+function startTimer(){const seconds=Number(state.roundTimer??state.settings.timer);if(!seconds){updateHud();return}state.timeLeft=seconds;updateHud();playSfx('tick');const warnAt=[10,5,3,2,1];state.timer=setInterval(()=>{state.timeLeft--;updateHud();if(state.timeLeft>5)playSfx('tick');else if(state.timeLeft===5)playSfx('hurry');else if(state.timeLeft>0)playSfx('tick_last');if(warnAt.includes(state.timeLeft))announce(ui('timer',state.timeLeft));if(state.timeLeft<=0){clearTimer();timeExpired()}},1000)}function clearTimer(){if(state.timer)clearInterval(state.timer);state.timer=null}
 function offerNextQuestion(){const next=DOC.createElement('button');next.type='button';next.className='button button-hot next-question';next.textContent=state.index+1>=state.questions.length||endsAfterMiss(state.mode,state.lastAnswerCorrect)?ui('viewResults'):ui('answerAgain');next.addEventListener('click',advance,{once:true});$('#game-stage').append(next)}
 const withTimeout=(promise,ms)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),ms))]);
 // Answer buttons are locked with aria-disabled (not the disabled attribute), so the focused button keeps
@@ -244,19 +244,21 @@ function advance(){if(state.view!=='game')return;clearAutoAdvance();if(endsAfter
 // The profile level is 1 + XP/100 on the server, so it rises automatically; the player hears a bugle call and the announcement.
 function levelUpLine(before,after){return before&&after&&after>before?(state.roundLanguage==='te'?`స్థాయి పెరిగింది! ఇప్పుడు మీరు ${after}వ స్థాయిలో ఉన్నారు.`:`Level up! You are now Level ${after}.`):''}
 function finishRound(){
- clearTimer();clearAutoAdvance();$('#progress-meter').style.width='100%';go('results');playSequence([state.score===state.answeredCount?'cheer':'roundcomplete']);
+ clearTimer();clearAutoAdvance();$('#progress-meter').style.width='100%';go('results');
  const answered=state.mode==='survival'?state.answeredCount:state.questions.length;
  $('#result-score').textContent=ui('resultScore',state.score,answered);
  {const r=state.score/Math.max(1,answered),stars=r===1?3:r>=.7?2:r>=.4?1:0,el=$('#result-stars');if(el){el.textContent='★'.repeat(stars)+'☆'.repeat(3-stars);el.dataset.stars=String(stars)}}
  const hud=$('#hud-timer');if(hud)hud.hidden=true;
  let message=state.mode==='survival'&&answered<state.questions.length?ui('survivalEnded'):state.score===answered?ui('resultPerfect'):state.score>=Math.ceil(answered*.7)?ui('resultStrong'):ui('resultTryAgain');
- let stageNotice='';if(state.activeStageId){
+ let stageNotice='',stageUnlocked=false;if(state.activeStageId){
   const passed=stagePasses(state.score,answered),available=unlockedStage();
-  if(passed&&state.activeStageId<QUIZ_STAGES.length&&state.activeStageId>=available){const next=state.activeStageId+1;saveUnlockedStage(next);stageNotice=ui('stagePassed',state.activeStageId,next)}
+  if(passed&&state.activeStageId<QUIZ_STAGES.length&&state.activeStageId>=available){const next=state.activeStageId+1;saveUnlockedStage(next);stageNotice=ui('stagePassed',state.activeStageId,next);stageUnlocked=true}
   else if(passed&&state.activeStageId===QUIZ_STAGES.length)stageNotice=ui('stageMastered');
   else if(!passed)stageNotice=ui('stageFailed',state.activeStageId);
   renderQuizSetup();if(stageNotice)message+=` ${stageNotice}`;
  }
+ const endSlot=hasAudioOverride('roundcomplete')?'roundcomplete':(state.score===state.answeredCount?'cheer':'roundcomplete');
+ playSequence(state.levelUps?.length||stageUnlocked?[endSlot,'levelup']:[endSlot]);
  const earned=state.roundXp?` ${ui('xpCoins',state.roundXp,state.roundCoins)}${state.roundLanguage==='te'?'':' this round.'}`:'';
  const level=state.levelUps?.at(-1),lv=level?(state.roundLanguage==='te'?` ఇప్పుడు మీరు ${level}వ స్థాయిలో ఉన్నారు.`:` Level up this round: you are now Level ${level}.`):'';
  $('#result-message').textContent=`${message}${earned}${lv}`;
@@ -339,7 +341,7 @@ function wire(){
    unlockAudio();
    if(audioReady)playMusic(musicFor(state.view,state.category,state.mode));
   }
-  playSfx('click');
+  if(!button.matches('.sm-card,.answer-button,#voice-test,#admin-audio-preview,#admin-audio-publish,#admin-audio-reset')&&!button.closest('#sound-choice-rows'))playSfx('click');
  },true);
  for(const eventName of ['pointerdown','keydown'])DOC.addEventListener(eventName,e=>{
   if(!audioReady||eventName==='keydown'&&(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target?.tagName||'')&&e.key===' '))return;
@@ -365,10 +367,12 @@ const moveWithSound=(direction,{sound=true}={})=>{
   const el=moveFocus(direction);
   if(!el)return null;
   if(sound)playSfx('swipe');
-  if(voiceMode()==='app')speakOnly(el.getAttribute('aria-label')||el.textContent||'');
+  const label=(el.getAttribute('aria-label')||el.textContent||'').replace(/\s+/g,' ').trim();
+  if(voiceMode()==='app')speakOnly(label);
+  else if(label)announceAccessibility(label);
   return el;
 };
-initGestures({onMove:el=>{el?.focus();playSfx('swipe');if(voiceMode()==='app')speakOnly(el.getAttribute('aria-label')||el.textContent||'')},enabled:()=>state.settings.swipe!==false});
+initGestures({onMove:el=>{el?.focus();playSfx('swipe');if(voiceMode()==='app')speakOnly(el.getAttribute('aria-label')||el.textContent||'');else{const label=(el?.getAttribute?.('aria-label')||el?.textContent||'').replace(/\s+/g,' ').trim();if(label)announceAccessibility(label)}},enabled:()=>state.settings.swipe!==false});
 DOC.addEventListener('keydown',e=>{
   if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft')return;
   if(e.altKey||e.ctrlKey||e.metaKey)return;
@@ -387,7 +391,7 @@ DOC.addEventListener('click',e=>{const b=e.target?.closest?.('[data-move]');if(!
 // One activation is one action. A double click is ignored, and a second activation that
 // arrives in the same tick (a control that has two handlers) never starts a second round.
 const isDoubleActivation=e=>!!e&&typeof e.detail==='number'&&e.detail>=2;
-const onceAction=(fn,e)=>{if(isDoubleActivation(e))return;fn();playSfx('notify')};
+const onceAction=(fn,e)=>{if(isDoubleActivation(e))return;fn();if(!e)playSfx('notify')};
 $('#play-featured').addEventListener('click',e=>onceAction(()=>startRound('general','classic'),e));
 $('#category-list').addEventListener('click',e=>{const b=e.target.closest('[data-category]');if(b)onceAction(()=>startRound(b.dataset.category,'classic'),e)});
 $('#mode-list').addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(!b)return;onceAction(()=>{if(b.dataset.mode==='letters')openLetters();else startRound('general',b.dataset.mode)},e)});
@@ -401,9 +405,58 @@ $('#cm-sound-open').addEventListener('click',openSoundMatch);soundMatch.wire();c
  $('#game-start').addEventListener('click',countdownAndBegin);$('#repeat-question').addEventListener('click',repeatQuestion);$('#read-status').addEventListener('click',()=>announce(`${ui('question',state.index+1,state.questions.length)}. ${state.roundLanguage==='te'?`స్కోరు ${state.score}.`:`Score ${state.score}.`}`));$('#play-again').addEventListener('click',()=>startRound(state.category,state.mode));$('#back-to-room').addEventListener('click',()=>{if(lastRoom)rooms.openRoom(lastRoom)});$('#direct-call-audio').addEventListener('click',()=>chat.friend&&direct.startCall(chat.friend,false));$('#direct-call-video').addEventListener('click',()=>chat.friend&&direct.startCall(chat.friend,true));$('#direct-send-file').addEventListener('click',()=>$('#direct-file-input').click());$('#direct-file-input').addEventListener('change',e=>{const f=e.target.files?.[0];e.target.value='';if(f&&chat.friend)direct.startFile(chat.friend,f)});$('#settings-open').addEventListener('click',()=>go('settings'));$('#reload-button').addEventListener('click',()=>{announce('Reloading Blind Quiz to get the latest version.',true);setTimeout(()=>purgeCachesAndReload(),500)});
  $('#check-update')?.addEventListener('click',async()=>{const status=$('#update-status');if(status)status.textContent='Checking…';await showBuildInfo();const newer=/newer build is available/i.test(status?.textContent||'');if(newer){if(status)status.textContent='A newer build is available. Loading it now…';announce('A newer build is available. Loading it now.',true);setTimeout(()=>purgeCachesAndReload(),400)}else if(status)status.textContent='This is the latest build.'});
  $('#build-info')?.addEventListener?.('click',()=>showBuildInfo());$('#save-settings').addEventListener('click',saveSettings);$('#welcome-continue').addEventListener('click',()=>go('home',{focus:'#play-featured'}));$('#profile-auth').addEventListener('click',()=>{ setAuthTab('login');go('auth',{focus:loginFocus()})});$('#logout-button').addEventListener('click',performLogout);$$('[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));$('#login-name').addEventListener('input',()=>$('#question-context').hidden=true);
+ wireAdminAudio();
 }
-// The build stamp tells the player which build is live, so "the app looks different on my
-// phone" can be answered by reading one line instead of guessing.
+function wireAdminAudio(){
+ const slotSel=$('#admin-audio-slot'),fileInput=$('#admin-audio-file'),previewBtn=$('#admin-audio-preview'),publishBtn=$('#admin-audio-publish'),resetBtn=$('#admin-audio-reset'),statusEl=$('#admin-audio-status');
+ if(!slotSel||!publishBtn)return;
+ let publishing=false,previewEl=null;
+ const slotLabel=()=>slotSel.selectedOptions?.[0]?.textContent?.trim()||slotSel.value;
+ const syncSlotStatus=()=>{if(!statusEl||publishing)return;const cur=getAudioOverrides()[slotSel.value];statusEl.textContent=cur?`Live custom audio active for ${slotLabel()}: ${cur.fileName||slotSel.value}.`:`Using default audio for ${slotLabel()}.`};
+ const toDataUrl=file=>new Promise((resolve,reject)=>{if(typeof file?.dataUrl==='string'){resolve(file.dataUrl);return}const R=globalThis.FileReader||WIN?.FileReader;if(!R){reject(new Error('FileReader unavailable'));return}const r=new R();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(new Error('Read failed'));r.readAsDataURL(file)});
+ slotSel.addEventListener('change',syncSlotStatus);
+ previewBtn?.addEventListener('click',async()=>{
+  unlockAudio();const slot=slotSel.value,file=fileInput?.files?.[0];
+  try{if(previewEl){previewEl.pause();previewEl=null}}catch{}
+  if(file){try{const url=await toDataUrl(file);previewEl=new Audio(url);await previewEl.play();if(statusEl)statusEl.textContent=`Previewing selected file for ${slotLabel()}.`;return}catch{}}
+  if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
+  if(statusEl)statusEl.textContent=`Previewing ${slotLabel()}.`;
+ });
+ publishBtn.addEventListener('click',async e=>{
+  if(publishing||isDoubleActivation(e))return;
+  const slot=slotSel.value,file=fileInput?.files?.[0];
+  if(!file){const msg='Please choose an audio file first.';if(statusEl)statusEl.textContent=msg;announce(msg,true);return}
+  publishing=true;publishBtn.disabled=true;if(resetBtn)resetBtn.disabled=true;
+  if(statusEl)statusEl.textContent=`Publishing ${slotLabel()} to all players…`;
+  try{
+   const dataUrl=await toDataUrl(file);
+   const res=await callApi('admin-audio',{op:'publish',slot,fileName:file.name||`${slot}.mp3`,dataUrl});
+   const next=res?.overrides||{...getAudioOverrides(),[slot]:res?.entry||{url:dataUrl,fileName:file.name||`${slot}.mp3`}};
+   applyAudioOverrides(next);
+   if(fileInput)fileInput.value='';
+   if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
+   const msg=`Published ${slotLabel()} live to all players.`;
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);
+  }catch(err){
+   const msg=friendlyError(err,'Something went wrong. Please try again.');
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);
+  }finally{publishing=false;publishBtn.disabled=false;if(resetBtn)resetBtn.disabled=false}
+ });
+ resetBtn?.addEventListener('click',async e=>{
+  if(publishing||isDoubleActivation(e))return;
+  const slot=slotSel.value;publishing=true;publishBtn.disabled=true;resetBtn.disabled=true;
+  try{
+   const res=await callApi('admin-audio',{op:'reset',slot});
+   applyAudioOverrides(res?.overrides||{});
+   const msg=`Reset ${slotLabel()} to the default sound.`;
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);
+  }catch(err){
+   const msg=friendlyError(err,'Something went wrong. Please try again.');
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);
+  }finally{publishing=false;publishBtn.disabled=false;resetBtn.disabled=false}
+ });
+ syncSlotStatus();
+}
 async function showBuildInfo(){
  const el=$('#build-info');if(!el)return;
  const here=DOC.querySelector('meta[name="bq-build"]')?.content||'local';

@@ -4,13 +4,14 @@
 // or the browser blocks playback, the game simply continues silently; every sound also has a
 // text/announcement equivalent.
 const BASE = './assets/audio/';
+const OVERRIDES_URL = 'https://zchircgdkyjnowqcdwvf.supabase.co/storage/v1/object/public/bq-audio/overrides.json';
 // Recorded effects. 'tick_last' and 'hurry' mark the last seconds of a question, 'streak' marks a
-// run of correct answers. A slot that is missing from the manifest is simply silent.
-const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak', 'roundcomplete', 'swipe'];
+// run of correct answers, and 'countdown' plays on Ready 3, 2, 1. A slot that is missing from the manifest is simply silent.
+const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'countdown', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak', 'roundcomplete', 'swipe'];
 // A slot that has no recording of its own yet falls back to another one, so a game never loses a
 // sound while a new recording is being prepared. 'roundcomplete' is the owner's round-completion
 // sound; until that file is in the app the small group applause is used.
-const FALLBACK = { roundcomplete: 'applause', swipe: 'click' };
+const FALLBACK = { roundcomplete: 'applause', swipe: 'click', countdown: 'tick' };
 // Each category and mode gets its own music track from the available recordings.
 const TRACKS = ['music_menu', 'music_game1', 'music_game2', 'music_game3', 'music_results'];
 // A slot is a playlist: `music_menu`, then `music_menu2`, `music_menu3`… if the manifest has them.
@@ -82,25 +83,83 @@ function connectMediaElement(audio) {
 let pending = null;
 let matchInfo = [];
 const versions = new Map(); // slot -> file size, appended to the URL so replaced recordings are never served stale
+const customOverrides = new Map(); // slot -> { url, fileName, updatedAt } published live by the admin
+
+export function applyAudioOverrides(slots = {}) {
+  customOverrides.clear();
+  if (slots && typeof slots === 'object') {
+    for (const [slot, meta] of Object.entries(slots)) {
+      const url = typeof meta === 'string' ? meta : meta?.url;
+      if (typeof url === 'string' && url) {
+        customOverrides.set(slot, {
+          url,
+          fileName: typeof meta?.fileName === 'string' ? meta.fileName : `${slot}.mp3`,
+          updatedAt: typeof meta?.updatedAt === 'string' ? meta.updatedAt : '',
+        });
+        if (available) available.add(slot);
+      }
+    }
+  }
+  cache.clear();
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('bq.audioOverrides.v1', JSON.stringify(Object.fromEntries(customOverrides)));
+    }
+  } catch { /* ignore storage errors */ }
+}
+
+export function getAudioOverrides() {
+  return Object.fromEntries(customOverrides);
+}
+
+export function hasAudioOverride(slot) {
+  return customOverrides.has(slot);
+}
+
+export async function fetchAudioOverrides() {
+  try {
+    const res = await fetch(`${OVERRIDES_URL}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res?.ok) return getAudioOverrides();
+    const data = await res.json();
+    if (data && typeof data.slots === 'object' && data.slots) applyAudioOverrides(data.slots);
+  } catch { /* offline or not configured */ }
+  return getAudioOverrides();
+}
+
+try {
+  if (typeof localStorage !== 'undefined') {
+    const raw = localStorage.getItem('bq.audioOverrides.v1');
+    if (raw) applyAudioOverrides(JSON.parse(raw));
+  }
+} catch { /* ignore */ }
+
 // The manifest is cached once it loads; a failed load (e.g. offline) is retried on the next sound.
 async function manifest() {
   if (available) return available;
   if (!pending) pending = (async () => {
     try {
       const res = await fetch(`${BASE}manifest.json`, { cache: 'no-cache' });
-      if (!res.ok) return new Set();
+      if (!res.ok) return new Set(customOverrides.keys());
       const data = await res.json();
       const found = new Set(Object.keys(data.assets || {}).filter(k => SFX.includes(k) || isTrack(k) || /^match_[a-z0-9_]+$/.test(k)));
       matchInfo = [...found].filter(k => k.startsWith('match_')).map(k => ({ slot: k, name: String(data.assets[k].name || k.slice(6).replace(/_/g, ' ')), mood: String(data.assets[k].mood || 'interesting') }));
       for (const k of found) versions.set(k, data.assets[k].bytes || 0);
+      for (const k of customOverrides.keys()) found.add(k);
       if (found.size) available = found;
+      fetchAudioOverrides().catch(() => {});
       return found;
-    } catch { return new Set(); } finally { pending = null; }
+    } catch { return new Set(customOverrides.keys()); } finally { pending = null; }
   })();
   return pending;
 }
 function element(slot) {
-  if (!cache.has(slot)) { const a = new Audio(`${BASE}${slot}.mp3${versions.get(slot) ? `?v=${versions.get(slot)}` : ''}`); a.preload = 'auto'; cache.set(slot, a); }
+  if (!cache.has(slot)) {
+    const custom = customOverrides.get(slot);
+    const src = custom?.url || `${BASE}${slot}.mp3${versions.get(slot) ? `?v=${versions.get(slot)}` : ''}`;
+    const a = new Audio(src);
+    a.preload = 'auto';
+    cache.set(slot, a);
+  }
   return cache.get(slot);
 }
 
@@ -128,10 +187,11 @@ let sequenceId = 0;
 export async function playSfx(slot) {
   if (!prefs.sfx) return null;
   unlocked = true;
+  if (slot === 'cheer' && customOverrides.has('roundcomplete') && !customOverrides.has('cheer')) slot = 'roundcomplete';
   const have = await manifest();
   let target = slot;
-  if (!have.has(slot) && FALLBACK[slot] && have.has(FALLBACK[slot])) target = FALLBACK[slot];
-  if (!have.has(target)) return null;
+  if (!customOverrides.has(slot) && !have.has(slot) && FALLBACK[slot] && (customOverrides.has(FALLBACK[slot]) || have.has(FALLBACK[slot]))) target = FALLBACK[slot];
+  if (!customOverrides.has(target) && !have.has(target)) return null;
   try {
     const a = element(target).cloneNode();
     connectMediaElement(a);
@@ -177,7 +237,7 @@ export async function playLevelUp() {
 
 /** The sound for a finished round: a cheer for a perfect round, the round-completion sound otherwise. */
 export async function playRoundComplete(perfect = false) {
-  return playSfx(perfect ? 'cheer' : 'roundcomplete');
+  return playSfx(perfect && (!customOverrides.has('roundcomplete') || customOverrides.has('cheer')) ? 'cheer' : 'roundcomplete');
 }
 
 function fadeTo(target, ms, done) {
@@ -206,10 +266,12 @@ export async function playMusic(slot) {
   wantedSlot = slot;
   if (!prefs.music || !unlocked) return;
   const have = await manifest();
-  if (!have.has(slot)) slot = have.has('music_menu') ? 'music_menu' : null;
+  if (!customOverrides.has(slot) && !have.has(slot)) slot = customOverrides.has('music_menu') || have.has('music_menu') ? 'music_menu' : null;
   if (!slot) return;
   if (musicGroup === slot && music && !music.paused) return;
-  const list = [slot, ...[...have].filter(k => new RegExp(`^${slot}\\d+$`).test(k)).sort((a, b) => parseInt(a.slice(slot.length), 10) - parseInt(b.slice(slot.length), 10))];
+  const list = customOverrides.has(slot)
+    ? [slot]
+    : [slot, ...[...have].filter(k => new RegExp(`^${slot}\\d+$`).test(k)).sort((a, b) => parseInt(a.slice(slot.length), 10) - parseInt(b.slice(slot.length), 10))];
   // A new visit moves to the next track; a retry of the same playlist (blocked autoplay) replays the current one.
   let index;
   if (musicGroup === slot && music) index = Math.max(0, list.indexOf(musicSlot));

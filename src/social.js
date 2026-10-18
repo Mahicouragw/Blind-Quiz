@@ -33,14 +33,14 @@ export function notificationText(n) {
     case 'feedback_reply': return `The Blind Quiz developer replied to your feedback: ${n.body}`;
     case 'announcement': return `Announcement: ${n.body}`;
     case 'room_invite': return `${who} invited you to a room.`;
-    case 'game_invite': return String(n.body||'').startsWith('host-request|') ? `${who} selected you to host a room game.` : `${who} invited you to a match.`;
+    case 'game_invite': return `${who} invited you to a match.`;
     default: return n.body || 'New notification.';
   }
 }
 
 export function createSocial({ $, announce, callApi, getSession, go, openSignIn, playSfx = () => {}, currentView = () => '', openChat = () => {}, openRoom = () => {}, loadRooms = () => {}, onRing = () => {} }) {
   const bell = $('#notif-open');
-  let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online', pendingNotificationId = null, appNotifyGeneration = 0;
+  let timer = null, unread = 0, enabled = true, lastUnread = null, cardName = '', mpTab = 'online';
   const signedIn = () => !!getSession()?.profile;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const button = (text, onClick, cls = 'button button-quiet') => { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', onClick); return b; };
@@ -49,18 +49,8 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   const errorText = code => code === 'rate_limited' ? 'Too many requests. Please wait a little and try again.'
     : code === 'network' ? 'No internet connection. Please check it and try again.'
     : code === 'player_unavailable' ? 'No player with that name was found.'
-    : code === 'player_blocked' ? 'Direct contact is blocked between these players.'
-    : code === 'account_restricted' ? 'This account is restricted after admin review. Contact the game administrator if you think this is a mistake.'
-    : code === 'duplicate_report' ? 'You already have an open report about this player.'
-    : code === 'report_unavailable' ? 'That report is no longer available. Refresh the inbox.'
-    : code === 'replay_unavailable' ? 'This match has no saved replay history, or its replay link has expired.'
     : code === 'too_many_requests' ? 'You have many friend requests waiting for an answer. Please wait until some are answered.'
-    : code === 'request_unavailable' ? 'That invitation is no longer waiting.'
-    : code === 'game_full' ? 'There is no player slot left in that match.'
-    : code === 'game_unavailable' ? 'That match is no longer available.'
-    : code === 'not_friends' ? 'This game invite is only available to friends.'
-    : code === 'not_room_member' ? 'That player is not currently in this room.'
-    : code === 'already_joined' ? 'That player has already joined the match.'
+    : code === 'request_unavailable' ? 'That friend request is no longer waiting.'
     : code === 'session_expired' ? 'Your session has ended. Please sign in again.'
     : code === 'unknown_action' ? 'Multiplayer is still being switched on for everyone. Please try again a little later.'
     : 'Something went wrong. Please try again.';
@@ -95,48 +85,27 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     } catch {}
   }
   function schedule() { clearTimeout(timer); if (!signedIn()) return; timer = setTimeout(async () => { await touch(); schedule(); }, document.hidden ? HIDDEN_HEARTBEAT_MS : HEARTBEAT_MS); }
-  function start() {
-    lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); appNotify();
-    if (pendingNotificationId !== null && signedIn()) {
-      const id = pendingNotificationId; pendingNotificationId = null;
-      setTimeout(() => openNotification(id), 0);
-    }
-  }
-  function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); }
-  // Only an explicit player sign-out removes the Android background-notification key.
-  // The page also calls stop() during its initial signed-out render, which must not cancel
-  // a key persisted by the native app while the WebView process was closed.
-  function stopAppNotifications() { appNotifyGeneration++; appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
+  function start() { lastUnread = null; renderBell(); if (signedIn()) touch(); schedule(); if (currentView() === 'settings') refreshSettings(); appNotify(); }
+  function stop() { clearTimeout(timer); unread = 0; lastUnread = null; renderBell(); appBridge()?.postMessage(JSON.stringify({ op: 'logout' })); }
 
   // ---- Android app: notifications while Blind Quiz is closed (checked about every 15 minutes, no Firebase) ----
   const appWanted = () => { try { return localStorage.getItem(APP_NOTIFY_KEY) !== 'off'; } catch { return true; } };
   async function appNotify() {
     const bridge = appBridge(); if (!bridge || !signedIn() || !appWanted()) return;
-    const generation = appNotifyGeneration;
-    try { const d = await callApi('notify-register'); if (generation !== appNotifyGeneration || !signedIn()) return; bridge.postMessage(JSON.stringify({ op: 'enable', token: d.token })); }
+    try { const d = await callApi('notify-register'); bridge.postMessage(JSON.stringify({ op: 'enable', token: d.token })); }
     catch {}
   }
   // The app answers with { op: 'enabled', granted } after Android's notification permission question.
   globalThis.bqAppNotify = msg => {
     const status = $('#notif-settings-status'); if (!status || !msg) return;
-    if (msg.op === 'enabled') say(status, msg.granted ? 'Phone notifications are on. Feature news is checked in the background even after you sign out; an offline phone checks again after reconnecting.' : 'Notifications are blocked for Blind Quiz. You can allow them in your phone settings.', !msg.granted);
+    if (msg.op === 'enabled') say(status, msg.granted ? 'Phone notifications are on. Blind Quiz checks about every 15 minutes, even when it is closed.' : 'Notifications are blocked for Blind Quiz. You can allow them in your phone settings.', !msg.granted);
   };
   document.addEventListener('visibilitychange', () => { if (!document.hidden && signedIn()) { touch(); schedule(); } });
 
   // ---- Notifications view ----------------------------------------------------------------------
   const list = $('#notif-list'), summary = $('#notif-summary');
-  async function respondGameInvite(n, accept, row) {
-    row?.querySelectorAll('button').forEach(b => { b.disabled = true; });
-    try {
-      const d = await callApi('game-invite-respond', { gameId: n.ref, accept });
-      if (accept && d.roomId && d.gameId) { announce(`Game invite accepted. Joining ${n.actor || 'your friend'} in the room.`); openRoom(d.roomId, d.gameId); }
-      else { announce(accept ? 'Game invite accepted.' : 'Game invite declined.'); }
-      if (row) row.replaceWith(el('p', 'muted', accept ? 'Accepted.' : 'Declined.'));
-    } catch (err) { row?.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
-  }
   function renderNotification(n) {
     const li = el('li', `notif-item${n.read ? '' : ' unread'}`);
-    li.dataset.notificationId = String(n.id ?? ''); li.tabIndex = -1;
     li.append(el('p', 'notif-text', notificationText(n)), el('p', 'inbox-meta', `${fmt(n.createdAt)}${n.read ? '' : ' · New'}`));
     if (n.kind === 'friend_request' && n.relation === 'incoming' && n.actor) {
       const row = el('div', 'notif-actions');
@@ -144,18 +113,11 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       li.append(row);
     } else if (n.kind === 'friend_request' && n.relation === 'friends') li.append(el('p', 'muted', 'Accepted.'));
     if (n.kind === 'message' && n.actor) li.append(button(`Open chat with ${n.actor}`, () => openChat(n.actor), 'button button-outline'));
-    if (n.kind === 'feedback_reply') li.append(button('Open My feedback', () => {
-      go('settings', { focus: '#my-feedback-title' });
-    }, 'button button-outline'));
-    if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('host-request|')) {
-      const [,roomId]=String(n.body).split('|');li.append(button(`Open the room game hosted by ${n.actor||'a player'}`,()=>openRoom(roomId,n.ref),'button button-hot'));
-    } else if (n.kind === 'game_invite' && n.ref && String(n.body||'').startsWith('game-invite|')) {
-      const row=el('div','notif-actions');row.append(button(`Accept ${n.actor||'player'}’s game invite`,()=>respondGameInvite(n,true,row),'button button-hot'),button('Decline',()=>respondGameInvite(n,false,row)));li.append(row);
-    } else if (['room_invite','game_invite'].includes(n.kind) && n.ref) li.append(button(n.kind === 'game_invite' ? `Open the match room with ${n.actor || 'your friend'}` : 'Enter the room', () => openRoom(n.ref), 'button button-hot'));
+    if (['room_invite', 'game_invite'].includes(n.kind) && n.ref) li.append(button(n.kind === 'game_invite' ? `Open the match room with ${n.actor || 'your friend'}` : 'Enter the room', () => openRoom(n.ref), 'button button-hot'));
     if (n.actor && ['friend_request', 'friend_accepted'].includes(n.kind)) li.append(button(`Open ${n.actor}'s player card`, () => openCard(n.actor), 'text-button'));
     return li;
   }
-  async function loadNotifications(focusId = null) {
+  async function loadNotifications() {
     summary.textContent = 'Loading notifications…'; list.innerHTML = '';
     try {
       const d = await callApi('notifications'); const items = d.items || [];
@@ -164,18 +126,6 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       summary.textContent = items.length ? `${items.length} notification${items.length === 1 ? '' : 's'}, ${fresh} new.` : 'No notifications yet.';
       announce(summary.textContent);
       if (fresh) { const r = await callApi('notifications-read', { ids: null }); unread = r.unread || 0; lastUnread = unread; renderBell(); }
-      if (focusId != null) {
-        const item = [...list.querySelectorAll('.notif-item')].find(row => row.dataset.notificationId === String(focusId));
-        if (item) {
-          item.scrollIntoView?.({ block: 'center' });
-          const text = item.querySelector('.notif-text')?.textContent || 'New notification.';
-          // Let go() finish its normal heading focus first, then leave focus on the tapped item.
-          setTimeout(() => {
-            if (!item.isConnected || $('#view-notifications').hidden) return;
-            item.focus(); announce(`Opened notification: ${text}`);
-          }, 80);
-        } else announce('That notification is no longer in your recent list.', true);
-      }
     } catch (err) { say(summary, errorText(err.message), true); }
   }
   async function respond(name, accept, row) {
@@ -191,12 +141,6 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
     } catch (err) { row?.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
   }
   function openNotifications() { if (!signedIn()) { openSignIn(); return; } go('notifications'); loadNotifications(); }
-  function openNotification(id) {
-    const n = Number(id);
-    if (!Number.isSafeInteger(n) || n <= 0) return;
-    if (!signedIn()) { pendingNotificationId = n; openSignIn(); return; }
-    go('notifications'); loadNotifications(n);
-  }
 
   // ---- Multiplayer: online players and friends -------------------------------------------------
   function playerItem(p, extra = []) {
@@ -274,66 +218,6 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
       try { const d = await callApi(action, { name: p.name }); announce(okText(d.relation)); await openCard(p.name, { keepFocus: true }); setTimeout(() => actions.querySelector('button')?.focus(), 80); }
       catch (err) { actions.querySelectorAll('button').forEach(b => { b.disabled = false; }); announce(errorText(err.message), true); }
     };
-    const refreshAfter = async (buttonEl, action, payload, success) => {
-      buttonEl.disabled = true;
-      try { await callApi(action, { name: p.name, ...payload }); announce(success); await openCard(p.name, { keepFocus: true }); setTimeout(() => actions.querySelector('button')?.focus(), 80); }
-      catch (err) { buttonEl.disabled = false; announce(errorText(err.message), true); }
-    };
-    const moderation = el('section', 'player-moderation-actions');
-    moderation.append(el('p', 'muted', 'Mute hides this player’s private and room messages and silences their incoming calls on your device. Your friendship stays intact.'));
-    const muteButton = button(p.isMuted ? `Unmute ${p.name}` : `Mute ${p.name}`,
-      e => refreshAfter(e.currentTarget, 'player-mute', { muted: !p.isMuted }, p.isMuted ? `${p.name} is unmuted.` : `${p.name} is muted for you.`), 'button button-quiet');
-    moderation.append(muteButton);
-    if (p.blockedByMe) {
-      moderation.append(el('p', 'muted', `You blocked ${p.name}. Direct messages, calls, friend requests and match invites are unavailable both ways. Unblocking will not restore the friendship.`));
-      moderation.append(button(`Unblock ${p.name}`, e => refreshAfter(e.currentTarget, 'player-block', { blocked: false }, `${p.name} is unblocked. You are not automatically friends again.`), 'button button-outline'));
-    } else if (p.blocked) {
-      moderation.append(el('p', 'muted', 'A block is active between these players. Direct contact is unavailable.'));
-    } else {
-      moderation.append(el('p', 'muted', 'Block removes the friendship and stops direct messages, calls, friend requests and match invites both ways.'));
-      moderation.append(button(`Block ${p.name}`, e => {
-        if (!globalThis.confirm?.(`Block ${p.name}? This removes the friendship and prevents direct contact both ways. You can unblock later, but the friendship will not return automatically.`)) return;
-        refreshAfter(e.currentTarget, 'player-block', { blocked: true }, `${p.name} is blocked and removed from your friends.`);
-      }, 'button button-outline'));
-    }
-    const reportToggle = button(`Report ${p.name}`, () => {
-      const prior = moderation.querySelector('.player-report-form');
-      if (prior) { prior.remove(); reportToggle.setAttribute('aria-expanded', 'false'); return; }
-      const form = el('form', 'player-report-form'); form.noValidate = true;
-      const reasonLabel = el('label', '', 'Why are you reporting this player?');
-      const reason = document.createElement('select'); reason.name = 'reason'; reason.required = true;
-      for (const [value, label] of [['harassment','Harassment or bullying'],['spam','Spam or unwanted promotion'],['inappropriate','Inappropriate behavior or content'],['cheating','Cheating or match manipulation'],['other','Other concern']]) {
-        const option = el('option', '', label); option.value = value; reason.append(option);
-      }
-      reasonLabel.append(reason);
-      const detailLabel = el('label', '', 'What happened? (optional)');
-      const detail = document.createElement('textarea'); detail.name = 'details'; detail.rows = 3; detail.maxLength = 1000; detail.autocomplete = 'off';
-      detailLabel.append(detail);
-      const status = el('p', 'muted'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-      const submit = button('Send report', null, 'button button-hot'); submit.type = 'submit';
-      const cancel = button('Cancel report', () => { form.remove(); reportToggle.setAttribute('aria-expanded', 'false'); reportToggle.focus(); });
-      form.append(reasonLabel, detailLabel, submit, cancel, status);
-      form.addEventListener('submit', async event => {
-        event.preventDefault();
-        const details = detail.value.normalize('NFKC').trim().slice(0, 1000);
-        submit.disabled = true; cancel.disabled = true; status.textContent = 'Sending your report for admin review…';
-        try {
-          await callApi('player-report', { name: p.name, reason: reason.value, details });
-          status.textContent = 'Your report was sent to the admin review inbox. Reports do not automatically restrict an account.';
-          announce(`Your report about ${p.name} was sent for admin review.`);
-          reason.disabled = true; detail.disabled = true; submit.hidden = true; cancel.textContent = 'Close'; cancel.disabled = false;
-        } catch (err) {
-          status.textContent = errorText(err.message); submit.disabled = false; cancel.disabled = false;
-          announce(status.textContent, true);
-        }
-      });
-      moderation.append(form); reportToggle.setAttribute('aria-expanded', 'true'); reason.focus();
-    }, 'button button-quiet');
-    reportToggle.setAttribute('aria-expanded', 'false');
-    moderation.append(reportToggle);
-    actions.append(moderation);
-
-    if (p.blocked) return;
     if (p.relation === 'friends') {
       actions.append(el('p', 'muted', `You and ${p.name} are friends.`));
       actions.append(button(`Send ${p.name} a match`, async e => {
@@ -421,5 +305,5 @@ export function createSocial({ $, announce, callApi, getSession, go, openSignIn,
   $('#mp-rooms-refresh')?.addEventListener('click', () => loadRooms());
   $('#mp-find-form')?.addEventListener('submit', e => { e.preventDefault(); const n = $('#mp-find-name').value.trim(); if (n.length < 2) { announce('Type a player name first.', true); return; } openCard(n); });
 
-  return { start, stop, stopAppNotifications, touch, openNotifications, openNotification, openMultiplayer, openCard, refreshSettings, loadNotifications };
+  return { start, stop, touch, openNotifications, openMultiplayer, openCard, refreshSettings, loadNotifications };
 }

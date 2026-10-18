@@ -110,6 +110,7 @@ export function createRoomPlay({$,announce,callApi,getSession,go,questionBank,ma
       else if(game.kind==='letters')renderLetters(d);
       else if(game.kind==='soundmatch')renderSoundMatch(d);
       else renderBoard(d);
+      playSfx('roundcomplete');
       say(`${game.title} has finished.`);
     }
     if(firstPoll){firstPoll=false;if(d.phase==='playing')say(`${game.title} has started. Good luck!`);}

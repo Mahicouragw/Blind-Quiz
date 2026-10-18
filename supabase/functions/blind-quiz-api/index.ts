@@ -191,52 +191,50 @@ async function handler(req:Request){
   // Anyone holding the random share id can read a sanitized public replay; this route intentionally precedes session enforcement.
   if(body.action==='replay-read'){const shareId=id(body.shareId);if(!shareId)return json({ok:false,code:'replay_unavailable'},404,origin);if(!await permit(req,'replay-read-ip','all',300,3600)||!await permit(req,'replay-read',shareId,120,3600))return json({ok:false,code:'rate_limited'},429,origin);const {data,error}=await admin.rpc('bq_room_game_replay_read',{p_share_id:shareId});if(error){console.error('Public replay read failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return data?.ok===false?json({ok:false,code:'replay_unavailable'},404,origin):json({...data,ok:true},200,origin)}
   const auth=await session(req);if(!auth)return json({ok:false,code:'session_expired'},401,origin);const profileId=auth.profile.id;if(auth.restricted&&body.action!=='logout')return json({ok:false,code:'account_restricted'},403,origin);
-  if(body.action==='admin-monitor'){
-   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
-   if(!await permitAccount('admin-monitor',profileId,180,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const snapshot=await adminMonitorSnapshot();return snapshot?json(snapshot,200,origin):json({ok:false,code:'service_error'},503,origin);
-  }
+  if(body.action==='admin-monitor'){if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);if(!await permitAccount('admin-monitor',profileId,180,3600))return json({ok:false,code:'rate_limited'},429,origin);const snapshot=await adminMonitorSnapshot();return snapshot?json(snapshot,200,origin):json({ok:false,code:'service_error'},503,origin)}
   // Players can erase only the account attached to this verified session; the current secret answer and exact name are required.
   if(body.action==='delete-account'){
    if(!await permit(req,'delete-account',profileId,5,3600)||!await permitAccount('delete-account',profileId,5,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);
-   if(!confirmName||confirmName!==auth.profile.display_name||answer.length<2)return json({ok:false,code:'confirmation_required'},400,origin);
-   const {data:p,error:readError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();
-   if(readError){console.error('Account deletion credential read failed',readError.code);return json({ok:false,code:'service_error'},503,origin)}
+   const confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);if(!confirmName||confirmName!==auth.profile.display_name||answer.length<2)return json({ok:false,code:'confirmation_required'},400,origin);
+   const {data:p,error:readError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();if(readError){console.error('Account deletion credential read failed',readError.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
-   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:profileId});
-   if(error){console.error('Account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
-   if(result?.ok===false)return json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin);
-   return json({ok:true,deletedSelf:true},200,origin);
+   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:profileId});if(error){console.error('Account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   return result?.ok===false?json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin):json({ok:true,deletedSelf:true},200,origin);
   }
   // The admin directory exposes only account id, display name, and registration date; all secrets and activity stay out.
   if(body.action==='admin-account-directory'){
    if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
    if(!await permitAccount('admin-account-directory',profileId,240,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const page=Number(body.page??0),search=clean(body.search,40);
-   if(!Number.isSafeInteger(page)||page<0||page>100000)return json({ok:false,code:'invalid_request'},400,origin);
-   let query=admin.from('bq_profiles').select('id,display_name,created_at',{count:'exact'}).order('created_at',{ascending:false}).range(page*50,page*50+49);
-   if(search)query=query.ilike('display_name',`%${search.replace(/[\\%_]/g,'\\$&')}%`);
-   const {data,error,count}=await query;
-   if(error){console.error('Admin account directory failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   const page=Number(body.page??0),search=clean(body.search,40);if(!Number.isSafeInteger(page)||page<0||page>100000)return json({ok:false,code:'invalid_request'},400,origin);
+   let query=admin.from('bq_profiles').select('id,display_name,created_at',{count:'exact'}).order('created_at',{ascending:false}).range(page*50,page*50+49);if(search)query=query.ilike('display_name',`%${search.replace(/[\\%_]/g,'\\$&')}%`);
+   const {data,error,count}=await query;if(error){console.error('Admin account directory failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
    return json({ok:true,items:(data||[]).map((p:any)=>({id:p.id,name:p.display_name,createdAt:p.created_at})),totalAccounts:count??0,page,pageSize:50},200,origin);
   }
   // Admin deletion also requires the admin's own secret answer and an exact typed match for the target account name.
   if(body.action==='admin-delete-account'){
    if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
    if(!await permit(req,'admin-delete-account',profileId,5,3600)||!await permitAccount('admin-delete-account',profileId,5,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const targetId=id(body.targetId),confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);
-   if(!targetId||!confirmName||answer.length<2)return json({ok:false,code:'invalid_request'},400,origin);
-   const {data:target,error:targetError}=await admin.from('bq_profiles').select('display_name').eq('id',targetId).maybeSingle();
-   if(targetError){console.error('Admin deletion target read failed',targetError.code);return json({ok:false,code:'service_error'},503,origin)}
+   const targetId=id(body.targetId),confirmName=clean(body.confirmName,40),answer=clean(body.currentAnswer,120);if(!targetId||!confirmName||answer.length<2)return json({ok:false,code:'invalid_request'},400,origin);
+   const {data:target,error:targetError}=await admin.from('bq_profiles').select('display_name').eq('id',targetId).maybeSingle();if(targetError){console.error('Admin deletion target read failed',targetError.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!target||confirmName!==target.display_name)return json({ok:false,code:'confirmation_required'},400,origin);
-   const {data:p,error:credentialError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();
-   if(credentialError){console.error('Admin deletion credential read failed',credentialError.code);return json({ok:false,code:'service_error'},503,origin)}
+   const {data:p,error:credentialError}=await admin.from('bq_profiles').select('answer_salt,answer_hash').eq('id',profileId).maybeSingle();if(credentialError){console.error('Admin deletion credential read failed',credentialError.code);return json({ok:false,code:'service_error'},503,origin)}
    if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
-   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:targetId});
-   if(error){console.error('Admin account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
-   if(result?.ok===false)return json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin);
-   return json({ok:true,deletedSelf:targetId===profileId},200,origin);
+   const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:targetId});if(error){console.error('Admin account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
+   return result?.ok===false?json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin):json({ok:true,deletedSelf:targetId===profileId},200,origin);
+  }
+  if(body.action==='admin-audio'){
+   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount('admin-audio',profileId,60,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const op=clean(body.op,16)||'list',slot=clean(body.slot,24),ALLOWED=new Set(['levelup','roundcomplete','countdown','tick','tick_last','hurry','click','swipe','go','correct','wrong','timeup','coin','streak','notify','applause','cheer','music_menu','music_game1','music_game2','music_game3','music_results']);
+   const readSlots=async()=>{try{const {data,error}=await admin.storage.from('bq-audio').download('overrides.json');if(error||!data)return {};const p=JSON.parse(await data.text());return p?.slots&&typeof p.slots==='object'?p.slots:{}}catch{return {}}};
+   const writeSlots=(s:any)=>admin.storage.from('bq-audio').upload('overrides.json',new TextEncoder().encode(JSON.stringify({updatedAt:new Date().toISOString(),slots:s})),{contentType:'application/json',upsert:true,cacheControl:'0'});
+   if(op==='list')return json({ok:true,overrides:await readSlots()},200,origin);if(!ALLOWED.has(slot))return json({ok:false,code:'invalid_request'},400,origin);
+   if(op==='reset'){const s=await readSlots();delete s[slot];const {error}=await writeSlots(s);return error?json({ok:false,code:'service_error'},503,origin):json({ok:true,slot,overrides:s},200,origin)}
+   const dataUrl=typeof body.dataUrl==='string'?body.dataUrl.trim():'',fileName=clean(body.fileName,80)||`${slot}.mp3`,m=/^data:([a-z0-9/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(dataUrl);if(op!=='publish'||!m||dataUrl.length>5600000)return json({ok:false,code:'invalid_request'},400,origin);
+   const MIME:Record<string,string>={mp3:'audio/mpeg',wav:'audio/wav',ogg:'audio/ogg',m4a:'audio/mp4',aac:'audio/aac',webm:'audio/webm'},rawExt=(fileName.split('.').pop()||'').toLowerCase(),ext=MIME[rawExt]?rawExt:(m[1].includes('wav')?'wav':m[1].includes('ogg')?'ogg':m[1].includes('mp4')||m[1].includes('m4a')?'m4a':'mp3'),bin=atob(m[2].replace(/\s+/g,''));
+   if(bin.length<64||bin.length>4200000)return json({ok:false,code:'invalid_request'},400,origin);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+   const {error:upErr}=await admin.storage.from('bq-audio').upload(`${slot}.${ext}`,bytes,{contentType:MIME[ext]||'audio/mpeg',upsert:true,cacheControl:'60'});if(upErr)return json({ok:false,code:'service_error'},503,origin);
+   const v=Date.now(),s=await readSlots();s[slot]={url:`${URL.replace(/\/$/,'')}/storage/v1/object/public/bq-audio/${slot}.${ext}?v=${v}`,fileName,updatedAt:new Date(v).toISOString()};const {error:metaErr}=await writeSlots(s);return metaErr?json({ok:false,code:'service_error'},503,origin):json({ok:true,slot,entry:s[slot],overrides:s},200,origin);
   }
   if(body.action==='notify-register'){const t=tokenText(randomBytes(32));const {data,error}=await admin.rpc('bq_notify_register',{p_profile_id:profileId,p_token_hash:await digest(t)});return error||data?.ok===false?json({ok:false,code:'service_error'},503,origin):json({ok:true,token:t},200,origin)}
   if(body.action==='logout'){await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('id',auth.row.id);return json({ok:true},200,origin)}

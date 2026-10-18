@@ -14,12 +14,12 @@ name: Deploy blind-quiz-api Edge Function
 #
 # Secrets: requires the SUPABASE_ACCESS_TOKEN repository secret (a Supabase
 # personal access token). It is only ever passed to the Supabase CLI as an
-# environment variable and is never echoed. Deployment verification is offline;
-# synthetic live-test accounts are never created in the production player project.
+# environment variable and is never echoed. Only the public publishable key —
+# which already ships to browsers — is used by the verification job.
 
 on:
   push:
-    branches: [main, 'arena/**']
+    branches: [main]
     paths:
       - 'supabase/functions/**'
       - 'supabase/config.toml'
@@ -37,6 +37,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: deploy-blind-quiz-api
@@ -164,7 +165,7 @@ jobs:
         run: exit 1
 
   verify:
-    name: Offline verification (no synthetic profiles)
+    name: Verify the deployed function
     runs-on: ubuntu-latest
     needs: deploy
     if: ${{ !cancelled() }}
@@ -177,5 +178,36 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run offline test suite
-        run: npm test
+      - name: Run live API verification
+        env:
+          BQ_VERIFY_ORIGIN: https://mahicouragw.github.io
+          BQ_REPORT_FILE: ${{ runner.temp }}/live-api-summary.md
+        run: |
+          set -o pipefail
+          node --no-warnings tests/live-api.mjs 2>&1 | tee "$RUNNER_TEMP/live-api.log"
+
+      # Runner log archives are not always retrievable, so post the outcome back
+      # to the pull request. Contains only status codes and check names.
+      - name: Report the outcome on the pull request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          SUMMARY="${{ runner.temp }}/live-api-summary.md"
+          {
+            echo "### blind-quiz-api deployment attempt"
+            echo
+            echo "- Workflow run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo "- Commit: \`${GITHUB_SHA::7}\`"
+            if [ "${{ needs.deploy.outputs.deployed }}" = "true" ]; then
+              echo "- Deployment: **complete replacement succeeded**"
+            else
+              echo "- Deployment: **did not run** - see the deploy job annotation"
+            fi
+            echo
+            if [ -s "$SUMMARY" ]; then cat "$SUMMARY"; else echo "_Live verification produced no summary; see the job annotation._"; fi
+          } > "${{ runner.temp }}/comment.md"
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file "${{ runner.temp }}/comment.md"
