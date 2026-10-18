@@ -3,22 +3,15 @@
 Permanent record of the October 2026 work session (branch `arena/01a10a16-blind-quiz`,
 one pull request). Future sessions should read this file instead of the original prompt.
 
-## Current operational overrides (2026-10-11)
-
-- The historical live API scripts create synthetic `BQ Verify` / `BQ Other` profiles and do not delete them. Earlier workflows ran those scripts against production; this may have inflated profile-row counts, but the number attributable to tests is unknown. Automated production live tests are disabled. Manual live checks require a dedicated non-production project and are blocked from the production host.
-- Admin announcement counts represent inbox rows, not active players or confirmed phone delivery. The UI now confirms the all-profile audience and describes the result as queued inbox items.
-- App sessions have no fixed seven-day expiry; explicit sign-out revokes the token. Device persistence remains opt-in; the default remains tab/app-session storage.
-- Android phone alerts are polled by WorkManager about every 15 minutes; Android battery and network conditions can delay background checks. The notification shade path already exists; no native-wrapper changes are required for ordinary website/backend updates.
-
 Ground rules that still apply:
 
-- Production `blind-quiz-api` changes must be intentional. Do not redeploy it as part of content work.
+- `blind-quiz-api` is fixed and deployed (`npm run test:live` passes against production). Do not edit or redeploy it as part of content work.
 - Migrations 001-009 are applied remotely and must never be recreated, rerun, or pushed. `supabase db push` must not be used (remote migration history does not match the repo).
 - Migration 010 is additive only and is applied by its own guarded workflow.
 
 ## Extra workflow added
 
-- `.github/workflows/live-checks.yml` - manual-only and staging-only: creates synthetic profiles in the explicitly configured test project, runs `npm run test:live` and migration reward checks, never deploys the function or touches migrations. The scripts refuse production.
+- `.github/workflows/live-checks.yml` - read-only: runs `npm run test:live` and `scripts/check-migration-010-live.mjs` (3 Migration 010 questions award XP/coins) on every push. Never deploys the function or touches migrations.
 
 ## Tasks
 
@@ -48,7 +41,7 @@ Ground rules that still apply:
 - [x] **Final** - Both workflows green on the pull request, live site confirmed updated, `npm run test:live` results reported, this file updated. Then wait for the owner to say "merge".
   - Pages: run 37267427010 green (build + deploy). Live checks: run 37267426982 green - `npm run test:live` **34/34 PASS**; Migration 010 rewards 3/3 PASS (bq-en-0667, 0766, 0866 each award 10 XP and 2 coins).
   - Apply Migration 010: run 37260209884 green (already applied, verified 566 total / 200 rows). Build Android APK: run 37261072243 green, release `android-v1.0.4`.
-  - Historical note: `npm run test:live` could not run from the sandbox (supabase.co connections were reset), so earlier runs used GitHub-hosted runners. Current live checks are manual, staging-only, and guarded against the production project.
+  - `npm run test:live` cannot run from the sandbox (supabase.co connections are reset), so it runs in the read-only Live checks workflow.
   - **Status: waiting for the owner to say "merge" on PR #5. Do not merge without that instruction.**
 
 ## Follow-up request (same session, same PR #5)
@@ -286,32 +279,3 @@ Built in stages, each pushed and verified live: **A** notifications and feedback
   - In-game ringtones and alert sounds: separate choices for calls, messages, and friend requests/alerts from real recordings. Incoming calls ring repeatedly until answered.
   - Permissions: internet, notifications, microphone and camera (asked only when needed). Storage permissions are stripped. Works on Android phones and tablets. On computers, iPhones and iPads the website says to play in the browser.
   - The APK is signed with the permanent repository key (ANDROID_KEYSTORE_* secrets), so later APKs install over it.
-
-- [x] **19.10 Account deletion (Migration 029).** The player Settings page lets a signed-in player delete only their own account after typing its exact display name and re-entering the current secret answer. The admin-only account directory is name-searchable and paginated; admins can delete any selected account after their own reauthentication and exact target-name confirmation. The separate player monitor remains read-only. A service_role-only transactional function removes linked progress, sessions, feedback, reports, notifications, encrypted-message records, device tokens, and rooms owned by the deleted account; it serializes admin deletions and protects the last admin. The current device clears account-scoped quiz-stage progress, E2EE key/pins, remembered sign-in, and the Android notification bridge. The UI explains that other devices/copies/backups cannot be immediately cleared and that shared-device game scores are device-wide. Migration 029 has its own guarded, manual-only workflow; while it exists only in an open PR, the explicit `apply-migration-029` label is the approval gate. It never applies or alters Migrations 025–028 in the remote database (the dry run uses only an in-memory database). Tests: UI flows, exact target confirmation, directory search/pagination, PGlite migration dry run and cascading/orphan cleanup, last-admin guard, static privilege checks, and production build.
-
-## Task 20 - Accessible play: game voice, swipe movement, and updates that reach the phone (branch `arena/cd6c05b6-blind-quiz`)
-
-- [x] **20.1 Game voice (TalkBack-style settings).** `src/speech.js` owns the device voice: `speechSupported`, `speechVoices`, `configureSpeech`, `speechPrefs`, `cancelSpeech`, `speak`, `speakOnly`, `speakPreview`. Settings has a voice picker plus pitch, speed and volume sliders. Nothing is recorded and nothing leaves the device; the web speech API is used for the live voice only.
-  - `state.settings.talkBackEnabled` is the master switch (it migrates from the legacy `speech` flag), `announceAccessibility` speaks a message, `writeAccessibilityLiveRegion` and `syncLiveRegions`/`watchLiveRegions` keep the polite live region in step with what is on screen.
-- [x] **20.2 Swipe and double tap.** `src/gestures.js` moves the focus sideways on a horizontal swipe (55 px, under 900 ms, sideways-dominant; a vertical swipe is left to the scroll), and it can be switched off. A double tap on a category, mode or choice activates it once and opens one round; one activation is one action, and the same letter can still be tapped twice in Letters to Words.
-  - The category and mode lists are re-rendered, so their handlers are delegated on `#category-list` and `#mode-list` instead of being attached per row.
-- [x] **20.3 Sound effects and music.** `src/audio.js` holds the effects (coin, applause, cheer, level up, streak, correct, wrong, time up, and the spoken last-seconds timing effects) and never uses `speechSynthesis`. The level up plays the coin and then the recorded fanfare `assets/audio/levelup.mp3` (Mixkit #226, 4.7 s, free licence). The Effects volume slider is in Settings.
-- [x] **20.4 A new deploy now reaches a phone that already has the app.** The Android app is only a WebView on the live website, so the reason an installed app kept an old build was in the update path, and it is fixed:
-  - The service worker installed the new shell with `caches.addAll()`, so one missing or slow file failed the whole install and the new worker never took over. Each file is now cached on its own (`Promise.allSettled`), so one bad file cannot block the update.
-  - A page that was already open kept running the old JavaScript. The page now watches for the new worker taking over (`controllerchange`) and reloads itself; the very first install (no controller yet) does not reload.
-  - The site's Reload button and the Android Reload button now unregister the service worker and delete its caches before loading the page again, instead of only clearing the HTTP cache.
-  - The cache name carries the build id, so an old offline copy is removed as soon as the new one is installed.
-- [x] **20.5 Seeing which build is live.** `scripts/build.mjs` stamps `index.html`, the service worker and a new `version.json` (`{build,built}`) with the commit id. The page shows the live build in Settings (About and legal) next to the build it is running, and "Check for the latest version" loads the newer build when one is waiting. The Android share panel shows the app version and says the game itself is the live website.
-  - Tests: the smoke suite checks the build stamp, the update helpers and the resilient service-worker install; the jsdom suite (47 checks) covers the double tap, the spoken last seconds, the voice settings and the swipe.
-- [x] **20.6 Moving between the choices while a screen reader is on.** Android TalkBack keeps the one-finger swipe for its own navigation, so a swipe never reached the game on a phone with TalkBack running. The game now offers three ways to move:
-  - a **two-finger sideways swipe**, which TalkBack does not use; the browser's pinch zoom is cancelled while the two fingers are down, so the gesture never turns into a zoom, and a two-finger swipe moves once, not once per finger;
-  - the **left and right arrow keys** (a Bluetooth keyboard, a switch device, or a laptop);
-  - the **Previous and Next buttons** on the game screen.
-  - The one-finger swipe still works when the screen reader is off. Settings explains all of this, and the hint on the game screen changes when the Android app reports that a screen reader is running (`bqSetScreenReader`).
-  - Every move and every double-tap activation has its own recorded sound: the move plays the `swipe` effect and an activation plays the `notify` effect. A move never writes to a live region, so a screen reader does not say the same thing twice.
-- [x] **20.7 The owner's own recordings.** A sound effect can be replaced with a recording supplied by the project owner: the file is uploaded to `assets/audio/incoming/<slot>.<ext>` (for example `levelup.mp3`), and the audio workflow encodes it into that slot, records it in `assets/audio/manifest.json` and `AUDIO_LICENSES.md`, and deletes the original. A slot that has no file yet keeps another slot's recording as its fallback, so the game never loses a sound.
-  - `levelup` is the level-up sound and `roundcomplete` is the round-completion sound. The level-up sound plays everywhere a player levels up (the quiz, Letters to Words, Sound Match) and the round-completion sound plays at the end of every round (the quiz, Letters to Words, Count Match, Sound Match).
-  - Until the owner's file is in the app, the level up uses the Mixkit fanfare (Mixkit #226) and the round completion uses the Mixkit small group applause (Mixkit #518).
-- [x] **20.8 Fix Android "App not installed as package appears to be invalid" (`android-v1.0.37` and later).**
-  - `flutter build apk --release` defaulted to `targetSdk = 36` and `extractNativeLibs = false` (storing `arm64-v8a` `.so` libraries uncompressed in a 49.4 MB APK), and the workflow then ran `zipalign -f -p 4` (4 KB alignment) on an APK already signed by Gradle's debug key without v1 JAR signing (`minSdk = 24`). On real ARM64 phones, Android's `PackageInstaller` rejected the package as invalid (`INSTALL_PARSE_FAILED_BAD_MANIFEST` / `INSTALL_FAILED_INVALID_APK`).
-  - Fixed in `.github/workflows/build-android.yml`: `android:extractNativeLibs="true"` + `useLegacyPackaging = true` (compresses native `.so` libraries and extracts them at install time, cutting the APK size in half and avoiding uncompressed `.so` mmap alignment failures on 4 KB and 16 KB page-size devices); `targetSdk = 35`; invalid `android:fullBackupContent="false"` attribute removed (keeping `android:allowBackup="false"`); debug `META-INF` signature entries stripped before `zipalign -f -P 16 4`; `apksigner sign` explicitly enables v1, v2, and v3 signatures; the audit verifies ZIP integrity, `zipalign -c -P 16 4`, `extractNativeLibs=true`, and v1+v2+v3 signatures; `emulator-smoke.sh` verifies both an in-place upgrade from `android-v1.0.29` and a clean install; and both the new latest release and the `android-v1.0.37` release assets are updated.

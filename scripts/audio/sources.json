@@ -21,30 +21,6 @@
       "use": "Countdown 3-2-1",
       "max": 0.4
     },
-    "tick_last": {
-      "mixkitId": 221,
-      "title": "Positive interface beep",
-      "category": "video-game",
-      "use": "Last seconds of a question (pip)",
-      "max": 0.35,
-      "optional": true
-    },
-    "hurry": {
-      "mixkitId": 650,
-      "title": "Synth mechanical notification or alert",
-      "category": "sci-fi",
-      "use": "Five seconds left in a question",
-      "max": 1.2,
-      "optional": true
-    },
-    "streak": {
-      "mixkitId": 269,
-      "title": "Quick win video game notification",
-      "category": "video-game",
-      "use": "Three correct answers in a row",
-      "max": 0.8,
-      "optional": true
-    },
     "go": {
       "mixkitId": 615,
       "title": "Police short whistle",
@@ -86,18 +62,6 @@
       "category": "win",
       "use": "Level up",
       "max": 4.7
-    },
-    "roundcomplete": {
-      "fallback": "applause",
-      "title": "Round complete",
-      "use": "Round complete",
-      "max": 6
-    },
-    "swipe": {
-      "fallback": "click",
-      "title": "Move between choices",
-      "use": "Swipe between choices",
-      "max": 0.6
     },
     "coin": {
       "mixkitId": 1993,

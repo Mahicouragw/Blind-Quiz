@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,44 +27,8 @@ const Color kCream = Color(0xFFFFF8EC);
 /// Permanent download link for the newest APK (served from the website itself).
 const String kApkUrl = 'https://mahicouragw.github.io/Blind-Quiz/download/blind-quiz.apk';
 
-/// The version of the app shell. The game itself is the live website, so this is the version of
-/// the wrapper, not of the questions or the sounds.
-const String kAppVersion = '1.3.1';
-
 /// What the WebView may do with a navigation.
 enum NavDecision { inApp, external, block }
-
-/// Largest integer JavaScript can compare exactly; notification IDs are opened by the web app.
-const int kMaxSafeNotificationId = 9007199254740991;
-
-/// Validates the small, native-only route payload before it reaches the WebView.
-Map<String, dynamic>? normalizeNotificationRoute(Object? payload) {
-  if (payload is! Map<dynamic, dynamic>) return null;
-  final target = (payload['target'] ?? '').toString();
-  if (target == 'home') return <String, dynamic>{'target': 'home'};
-  if (target != 'notification') return null;
-  final id = int.tryParse((payload['id'] ?? '').toString());
-  if (id == null || id <= 0 || id > kMaxSafeNotificationId) return null;
-  return <String, dynamic>{'target': 'notification', 'id': id.toString()};
-}
-
-/// JavaScript entry point readiness check for a normalized notification route.
-String? notificationRouteAvailabilityCheck(Object? payload) {
-  final route = normalizeNotificationRoute(payload);
-  if (route == null) return null;
-  return route['target'] == 'notification'
-      ? 'typeof globalThis.bqOpenNotificationById === "function"'
-      : 'typeof globalThis.bqOpenHomeFromNotification === "function"';
-}
-
-/// JavaScript invocation for a normalized notification route; JSON encoding prevents injection.
-String? notificationRouteOpenScript(Object? payload) {
-  final route = normalizeNotificationRoute(payload);
-  if (route == null) return null;
-  return route['target'] == 'notification'
-      ? 'globalThis.bqOpenNotificationById(${jsonEncode(route['id'])});'
-      : 'globalThis.bqOpenHomeFromNotification();';
-}
 
 /// The developer's contact address: the only mailto: link the app opens (in the user's email app).
 const String kContactEmail = 'numbersareplaying@gmail.com';
@@ -93,9 +56,6 @@ const Set<String> kNotifyOps = <String>{'enable', 'disable', 'logout', 'sounds'}
 /// Largest file a friend can send directly (matches src/direct.js).
 const int kMaxReceivedBytes = 2 * 1024 * 1024 * 1024;
 
-/// Temporary received copies are removed after three hours (matches src/direct.js).
-const Duration kReceivedFileTtl = Duration(hours: 3);
-
 NavDecision classifyNavigation(String url) {
   final uri = Uri.tryParse(url);
   if (uri == null) return NavDecision.block;
@@ -107,10 +67,6 @@ NavDecision classifyNavigation(String url) {
   if (uri.host.isEmpty || uri.userInfo.isNotEmpty) return NavDecision.block;
   if (uri.host == kAppHost &&
       (uri.path == kAppPathPrefix || uri.path.startsWith('$kAppPathPrefix/'))) {
-    if (uri.path.startsWith('$kAppPathPrefix/download/') ||
-        uri.path.toLowerCase().endsWith('.apk')) {
-      return NavDecision.external;
-    }
     return NavDecision.inApp;
   }
   return NavDecision.external;
@@ -150,23 +106,16 @@ class QuizWebView extends StatefulWidget {
   State<QuizWebView> createState() => _QuizWebViewState();
 }
 
-class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
+class _QuizWebViewState extends State<QuizWebView> {
   late final WebViewController _controller;
   int _progress = 0;
   bool _failed = false;
   bool _reloading = false;
   final Map<String, _Incoming> _incoming = <String, _Incoming>{};
-  final Map<String, Timer> _receivedTimers = <String, Timer>{};
-  Map<String, dynamic>? _pendingNotificationRoute;
-  bool _webViewReady = false;
-  bool _openingNotificationRoute = false;
-  bool? _screenReader;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    kNotify.setMethodCallHandler(_onNativeNotificationCall);
     // Calls and voice messages: the page asks for the microphone (and camera for video calls); Android asks the player.
     _controller = WebViewController(onPermissionRequest: _onPermissionRequest)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -178,14 +127,9 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
             if (mounted) setState(() => _progress = p);
           },
           onPageStarted: (_) {
-            _webViewReady = false;
             if (mounted) setState(() => _failed = false);
           },
           onPageFinished: (_) {
-            _webViewReady = true;
-            unawaited(_openPendingNotificationRoute());
-            final reader = _screenReader;
-            if (reader != null) unawaited(_sendScreenReader(reader));
             if (!mounted || !_reloading || _failed) return;
             _reloading = false;
             _say('Blind Quiz reloaded.');
@@ -193,7 +137,6 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
           onWebResourceError: (error) {
             // Only a failed main page counts; a missing image should not hide the game.
             if (!(error.isForMainFrame ?? true) || !mounted) return;
-            _webViewReady = false;
             setState(() => _failed = true);
             if (_reloading) {
               _reloading = false;
@@ -221,72 +164,6 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     _controller.addJavaScriptChannel('BQNotify', onMessageReceived: (m) => _onNotifyMessage(m.message));
     _cleanReceived();
     _controller.loadRequest(Uri.parse(kLiveUrl));
-    unawaited(_consumeNativeNotificationClick());
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _cleanReceived();
-      unawaited(_consumeNativeNotificationClick());
-    }
-  }
-
-  /// A screen reader (Android TalkBack) keeps the one-finger swipe for itself, so the page is told
-  /// that a screen reader is running. The page then explains the two-finger swipe, the arrow keys
-  /// and the Previous / Next buttons.
-  Future<void> _sendScreenReader(bool on) async {
-    try {
-      await _controller.runJavaScript(
-        'globalThis.bqSetScreenReader && globalThis.bqSetScreenReader(${on ? 'true' : 'false'});',
-      );
-    } catch (_) {
-      // The page may not be ready yet; the next page load sends it again.
-    }
-  }
-
-  Future<void> _onNativeNotificationCall(MethodCall call) async {
-    if (call.method == 'notificationClick') await _consumeNativeNotificationClick();
-  }
-
-  Future<void> _consumeNativeNotificationClick() async {
-    try {
-      final payload = await kNotify.invokeMapMethod<String, dynamic>('consumeLaunchNotification');
-      if (payload != null) _queueNotificationRoute(payload);
-    } catch (_) {}
-  }
-
-  void _queueNotificationRoute(Map<String, dynamic> payload) {
-    final route = normalizeNotificationRoute(payload);
-    if (route == null) return;
-    _pendingNotificationRoute = route;
-    if (_webViewReady) unawaited(_openPendingNotificationRoute());
-  }
-
-  Future<void> _openPendingNotificationRoute() async {
-    final route = _pendingNotificationRoute;
-    if (!mounted || !_webViewReady || route == null || _openingNotificationRoute) return;
-    final availabilityCheck = notificationRouteAvailabilityCheck(route);
-    final openScript = notificationRouteOpenScript(route);
-    if (availabilityCheck == null || openScript == null) return;
-    _openingNotificationRoute = true;
-    try {
-      final available = await _controller.runJavaScriptReturningResult(availabilityCheck);
-      if (available.toString() != 'true') return;
-      if (identical(_pendingNotificationRoute, route)) _pendingNotificationRoute = null;
-      await _controller.runJavaScript(openScript);
-    } catch (_) {
-      // Keep the route queued so the next successful page load can try again.
-      _pendingNotificationRoute ??= route;
-    } finally {
-      _openingNotificationRoute = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
   }
 
   Future<void> _onPermissionRequest(WebViewPermissionRequest request) async {
@@ -347,30 +224,15 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     return dir;
   }
 
-  /// The in-app hand-off copy expires after three hours; copies saved elsewhere belong to the recipient.
+  /// Received files are only a hand-over to the share sheet; anything older than a day is removed.
   Future<void> _cleanReceived() async {
     try {
       final dir = await _receivedDir();
-      final cutoff = DateTime.now().subtract(kReceivedFileTtl);
-      final activePaths = _incoming.values.map((inc) => inc.file.path).toSet();
+      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
       await for (final f in dir.list()) {
-        if (f is File && !activePaths.contains(f.path) && (await f.lastModified()).isBefore(cutoff)) {
-          await f.delete();
-        }
+        if (f is File && (await f.lastModified()).isBefore(cutoff)) await f.delete();
       }
     } catch (_) {}
-  }
-
-  void _scheduleReceivedExpiry(String id, File file) {
-    _receivedTimers.remove(id)?.cancel();
-    _receivedTimers[id] = Timer(kReceivedFileTtl, () {
-      _receivedTimers.remove(id);
-      unawaited(_deleteReceived(file));
-    });
-  }
-
-  Future<void> _deleteReceived(File file) async {
-    try { if (await file.exists()) await file.delete(); } catch (_) {}
   }
 
   Future<void> _onFileMessage(String raw) async {
@@ -406,7 +268,6 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
             _say('The file did not arrive completely.');
             return;
           }
-          _scheduleReceivedExpiry(id, inc.file);
           await SharePlus.instance.share(ShareParams(files: <XFile>[XFile(inc.file.path, mimeType: inc.mime, name: inc.name)], subject: inc.name));
       }
     } catch (_) {
@@ -465,18 +326,6 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     });
     try {
       await _controller.clearCache();
-      // The site keeps an offline copy of the shell. An older copy of the build can survive
-      // there, so it is dropped as well: the player really gets the newest build.
-      try {
-        await _controller.runJavaScript(
-          "(async()=>{try{const regs=await navigator.serviceWorker.getRegistrations();"
-          "await Promise.all(regs.map(r=>r.unregister()));}catch(e){}"
-          "try{if(self.caches){const keys=await caches.keys();"
-          "await Promise.all(keys.map(k=>caches.delete(k)));}}catch(e){}return 1})()",
-        );
-      } catch (_) {
-        // An older Android WebView may not allow this; the reload below still works.
-      }
       final current = await _controller.currentUrl();
       if (current == null || classifyNavigation(current) != NavDecision.inApp || current == 'about:blank') {
         await _controller.loadRequest(Uri.parse(kLiveUrl));
@@ -508,12 +357,6 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // accessibleNavigation is true while TalkBack (or another screen reader) is reading the screen.
-    final reader = MediaQuery.of(context).accessibleNavigation;
-    if (reader != _screenReader) {
-      _screenReader = reader;
-      WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_sendScreenReader(reader)));
-    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -669,9 +512,6 @@ class SharePanel extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             const SelectableText(kLiveUrl, textAlign: TextAlign.center, style: TextStyle(color: kMint, fontSize: 15)),
-            const SizedBox(height: 8),
-            Text('App version $kAppVersion. The game is the live website, so it updates itself.',
-                textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontSize: 14)),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,

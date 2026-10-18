@@ -115,6 +115,7 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
       i = twin;
     }
     game.picked.push(i);
+    playSfx('click');
     const w = word();
     renderState();
     const { solutions } = game.puzzle;
@@ -162,14 +163,11 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
       let reward = '';
       if (session) {
         try {
-          const prevLevel = session.profile?.level;
           const r = await withTimeout(callApi('record-word', { letters, word: w }), 6000);
           if (r.profile) { setSession({ ...getSession(), profile: r.profile }); onProfile(r.profile); }
           if (r.xp) { game.roundProfileXp += r.xp; game.roundCoins += r.coins || 0; }
-          const profileUp = Boolean(prevLevel && r.profile?.level > prevLevel);
-          if (profileUp) game.profileLevelledUp = true;
-          reward = r.alreadyFound ? '' : r.xp ? ` You earned ${r.xp} XP and ${r.coins} ${r.coins === 1 ? 'coin' : 'coins'}. Streak: ${r.profile?.currentStreak ?? game.streak}.${profileUp ? ` Level up! You are now Level ${r.profile.level}.` : ''}` : '';
-          if (!roundDone && r.xp) playSequence(profileUp ? ['coin', 'levelup'] : ['coin']);
+          reward = r.alreadyFound ? '' : r.xp ? ` You earned ${r.xp} XP and ${r.coins} ${r.coins === 1 ? 'coin' : 'coins'}. Streak: ${r.profile?.currentStreak ?? game.streak}.` : '';
+          if (!roundDone && r.xp) playSfx('coin');
         } catch { reward = getSession() ? ' This word could not be saved to your profile right now.' : ' Your session has ended. Sign in again to keep earning XP.'; }
       } else reward = ` Streak: ${game.streak}.`;
       const m = await meaning.catch(() => null);
@@ -187,9 +185,7 @@ export function createLettersGame({ $, announce, callApi, getSession, setSession
     const res = applyLevelXp(level, game.stored.levelXp, gained);
     const coins = game.roundCoins ? ` You earned ${game.roundProfileXp} XP and ${game.roundCoins} ${game.roundCoins === 1 ? 'coin' : 'coins'} this round.` : '';
     let text = `${wordLine} Round complete! ${game.found.size} words found. ${gained} level XP earned, including a ${bonus} XP round bonus.${coins}`;
-    playSequence(res.levelledUp ? ['roundcomplete', 'levelup'] : ['roundcomplete']);
-    if (!res.levelledUp && game.profileLevelledUp) playSfx('levelup');
-    game.profileLevelledUp = false;
+    playSequence(res.levelledUp ? ['applause', 'levelup'] : ['applause']);
     game.stored.levelXp = res.levelXp;
     if (res.levelledUp) {
       game.stored.round = 1;

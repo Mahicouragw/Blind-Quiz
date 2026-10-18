@@ -7,7 +7,7 @@ import { appendFileSync } from 'node:fs';
 
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export async function runGuardedMigration({ number, file, newTables = [], alterTables = [], functions = [], deletableInBodies = [], triggers = [], triggerTables = [], requires, verify, describe }) {
+export async function runGuardedMigration({ number, file, newTables = [], alterTables = [], functions = [], deletableInBodies = [], requires, verify, describe }) {
   const mode = process.argv[2];
   const title = `Migration ${number}`;
   if (!['--check', '--apply'].includes(mode)) { console.error(`Usage: apply-migration-${number}.mjs --check | --apply`); process.exit(2); }
@@ -25,8 +25,6 @@ export async function runGuardedMigration({ number, file, newTables = [], alterT
   const T = `public\\.(${[...newTables, ...alterTables].map(esc).join('|')})`;
   const NT = `public\\.(${newTables.map(esc).join('|') || '(?!)'})`;
   const F = `public\\.(${functions.map(esc).join('|')})`;
-  const TR = `(${triggers.map(esc).join('|') || '(?!)'})`;
-  const TT = `public\\.(${triggerTables.map(esc).join('|') || '(?!)'})`;
   const tableList = `${NT}(, ${NT})*`;
   const fnSig = `${F}\\([a-z\\[\\], ]*\\)`;
   const fnList = `${fnSig}(, ${fnSig})*`;
@@ -40,8 +38,7 @@ export async function runGuardedMigration({ number, file, newTables = [], alterT
     new RegExp(`^insert into ${NT} \\([a-z_, ]+\\) values (\\(('',? ?|true,? ?|false,? ?)+\\),? ?)+ on conflict \\([a-z_]+\\) do nothing$`, 'i'),
     new RegExp(`^revoke all on ${tableList} from public, anon, authenticated$`, 'i'),
     new RegExp(`^grant select, insert, update, delete on ${tableList} to service_role$`, 'i'),
-    new RegExp(`^create or replace function ${F}\\([a-z_ ,\\[\\]]*\\) returns (jsonb|text|boolean|trigger) language (plpgsql|sql)( stable| immutable)? security definer set search_path = public, pg_temp as \\$\\$$`, 'i'),
-    new RegExp(`^create or replace trigger ${TR} after update of [a-z_, ]+ on ${TT} for each row execute function ${F}\\(\\)$`, 'i'),
+    new RegExp(`^create or replace function ${F}\\([a-z_ ,\\[\\]]*\\) returns (jsonb|text|boolean) language (plpgsql|sql)( stable)? security definer set search_path = public, pg_temp as \\$\\$$`, 'i'),
     new RegExp(`^revoke all on function ${fnList} from public, anon, authenticated$`, 'i'),
     new RegExp(`^grant execute on function ${fnList} to service_role$`, 'i'),
   ];
@@ -49,8 +46,6 @@ export async function runGuardedMigration({ number, file, newTables = [], alterT
   if (/\b(drop|truncate)\b/i.test(outside)) refuse('DROP and TRUNCATE are never allowed.');
   const declared = [...code.matchAll(/create or replace function public\.([a-z_]+)\(/gi)].map(m => m[1]);
   if (declared.length !== functions.length || functions.some(f => !declared.includes(f))) refuse(`Declared functions (${declared.join(', ')}) do not match the reviewed list.`);
-  const declaredTriggers = [...code.matchAll(/create or replace trigger ([a-z_]+)/gi)].map(m => m[1]);
-  if (declaredTriggers.length !== triggers.length || triggers.some(t => !declaredTriggers.includes(t))) refuse(`Declared triggers (${declaredTriggers.join(', ')}) do not match the reviewed list.`);
   for (const b of bodies) {
     if (/\b(drop|truncate|alter|create|grant|revoke|execute|copy)\b/i.test(b)) refuse('A function body contains DDL, privilege changes, or dynamic SQL.');
     for (const m of b.matchAll(/\bdelete\s+from\s+public\.([a-z_]+)/gi)) if (!deletableInBodies.includes(m[1])) refuse(`Function bodies may not delete from ${m[1]}.`);

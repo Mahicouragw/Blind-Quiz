@@ -50,16 +50,12 @@
       <li><strong>Game progress</strong>: XP, coins, level, current and best streak, number of questions answered and answered correctly, and quizzes completed.</li>
       <li><strong>Letters to Words records</strong>: each word you find while signed in, with the XP and coins it awarded and when, so each word rewards you only once.</li>
       <li><strong>Answer records</strong>: which question you answered, whether it was correct, the XP and coins awarded, and when. Your chosen answer text is checked and then discarded; it is not stored.</li>
-      <li><strong>Sign-in sessions</strong>: when you sign in, a random session token is created. The server keeps only a one-way hash and does not set a fixed expiry; the session stays valid until you sign out or a security change revokes it. By default, your device keeps the token only for the current tab or app session. If you opt in to “Stay signed in on this device”, the token is kept in that device’s local browser storage across app or browser restarts; use this only on a device you trust. Logging out removes the saved token and revokes the server session. Changing your secret answer revokes your other active sessions.</li>
+      <li><strong>Sign-in sessions</strong>: when you sign in, a random session token is created. The server keeps only a hash of it, with its expiry time (7 days) and whether you signed out. Expired and signed-out sessions are deleted the next time you sign in.</li>
       <li><strong>Last sign-in time</strong> and the date your account was created.</li>
       <li><strong>Question reports</strong>, if you report a problem with a question: the question, the reason, any details you type, and your account.</li>
-      <li><strong>Multiplayer</strong>, if you use it: when you were last online (shown to others as online or offline), your friends and friend requests, notifications, and your player card (activity and achievements only, never your Login ID or secret question). <strong>Private messages</strong> are end-to-end encrypted on your device; the server stores only the locked text and cannot read it. Private voice messages and files (including PDFs) go directly between friends while both are online and are not stored on our server. Temporary received copies inside Blind Quiz are removed after three hours. If you save or share a copy elsewhere, it is under your control and is not remotely deleted. <strong>Rooms</strong>: room names, who is in a room, room chat and comments, and the game events players share with spectators (sounds played, text announced, scores). <strong>Room voice messages</strong> are stored as recorded and deleted automatically after 24 hours. Room and private voice recordings stop at 60 seconds and are sent only after the sender confirms. Voice-style and speed options affect playback on the listener's device; they do not alter the recording.</li>
-      <li><strong>Player safety controls</strong>: your mute and block choices are stored with your account. Mute filters that player's messages and incoming calls only for you; block removes the friendship and prevents direct contact both ways. If you report a player, we store the reporter and reported account, your selected reason, optional details you enter, and the admin's review decision and note. This inbox is visible only to the game administrator. Reports do not automatically restrict an account; after review, the admin may explicitly restrict access (which revokes active sessions) and may later restore it.</li>
-      <li><strong>Room-game replays</strong>: for synchronized multiplayer room matches, the server captures up to 500 game-state snapshots per match so a participant can create an interactive link. Anyone with the link can view the sanitized public names, moves, scores, and match results without signing in, and can download the same replay data. Links expire after 90 days. Replays exclude private messages, room chat, match comments, answer keys, private answer text, and session/device identifiers. Sound Match reveals matched sound names only; Blackjack's hidden dealer card stays hidden until the game is finished. A downloaded or separately shared copy cannot be recalled.</li>
-      <li><strong>Admin-only player monitor</strong>: the game administrator can view total registered-account counts, account creation counts for the last seven days, online and account-seen-within-24-hours counts (both based on profile heartbeats, not proof of gameplay), and the names and relative last-seen times of up to 50 of the most recently seen online profiles. Where available, the monitor shows coarse multiplayer status such as being in a room or playing a multiplayer game. Online means a profile heartbeat was received in the last two minutes. It does not show Login IDs, secret answers, quiz answers, private chat content, or which solo screen a player is viewing.</li>
-      <li><strong>Admin-only account directory</strong>: the game administrator can search account records by display name, view each matching account's display name and registration date, and permanently delete any account after re-entering the admin's secret answer and typing the target's exact name. The directory does not show Login IDs, secret answers, progress details, or activity. Account-record totals are not counts of verified or active people.</li>
-      <li><strong>Private calls, voice messages and file transfers between friends</strong> go directly between the two devices, encrypted, and are never stored on our server. Only small end-to-end locked setup messages pass through it, and they are deleted within 10 minutes. The microphone and camera are used only during a call or voice recording you start or answer. Temporary in-app file copies are removed after three hours; copies saved elsewhere are not remotely deleted.</li>
-      <li><strong>Phone notifications in the Android app</strong>, if you allow them: the app gets a random key that can only read your own new notifications (who sent a friend request, a message, a reply, an invite or an announcement; never message text). We store only a one-way hash of the key. The app checks about every 15 minutes (Android may delay background work), and checks the website's public news file for game updates when the phone is online. Signing out removes the account key but keeps public feature-news checks running; turning phone notifications off in Settings stops all notices. Unused account keys are deleted after 60 days.</li>
+      <li><strong>Multiplayer</strong>, if you use it: when you were last online (shown to others as online or offline), your friends and friend requests, notifications, and your player card (activity and achievements only, never your Login ID or secret question). <strong>Private messages</strong> are end-to-end encrypted on your device; the server stores only the locked text and cannot read it. <strong>Rooms</strong>: room names, who is in a room, room chat and comments, and the game events players share with spectators (sounds played, text announced, scores). <strong>Room voice messages</strong> are stored as recorded and deleted automatically after 24 hours.</li>
+      <li><strong>Calls and file transfers between friends</strong> go directly between the two devices, encrypted, and are never stored on our server. Only small end-to-end locked setup messages pass through it, and they are deleted within 10 minutes. The microphone and camera are used only during a call or voice recording you start or answer.</li>
+      <li><strong>Phone notifications in the Android app</strong>, if you allow them: the app gets a random key that can only read your own new notifications (who sent a friend request, a message, a reply, an invite or an announcement; never message text). We store only a one-way hash of the key. The app checks about every 15 minutes, and checks the website's public news file for game updates. Signing out, or turning phone notifications off in Settings, removes the key. Unused keys are deleted after 60 days.</li>
       <li>Earlier versions of Blind Quiz may also have stored quiz-run, daily-challenge, power-up, and achievement records linked to an account.</li>
     </ul>
     <h3>Abuse protection</h3>
@@ -67,11 +63,9 @@
     <h3>Stored on your device only</h3>
     <ul>
       <li><strong>Settings</strong> (large text, high contrast, reduced motion, announcements, sound effects, music and music volume, timer) in your browser&rsquo;s local storage.</li>
-      <li><strong>Letters to Words level</strong>, recently played letter sets, and standalone Count Match / Sound Match best scores are stored in local storage. They are device-wide, not linked to a particular account; clearing them could erase another player's records on a shared device.</li>
-      <li><strong>Quiz-stage progress</strong> is stored on this device under the signed-in Login ID (or a guest slot if you are not signed in).</li>
-      <li><strong>Private-message device keys and trust pins</strong> are kept locally. The private key is non-extractable and is not sent to our server; each device has its own key.</li>
+      <li><strong>Letters to Words level</strong> and recently played letter sets, in local storage, so the game continues at your level and does not repeat puzzles.</li>
       <li><strong>Remembered name and Login ID</strong> after you sign in, so the sign-in form can be filled in for you. Your secret answer is never saved on the device. Use <em>&ldquo;Not you? Forget this device&rdquo;</em> on the sign-in screen to remove them.</li>
-      <li><strong>Session token</strong> in session storage by default, so it is available only in the current tab or app session. If you choose “Stay signed in on this device”, it is instead stored in local storage and restored across restarts. In either case, the server keeps the session valid until you sign out or a security change revokes it.</li>
+      <li><strong>Session token</strong> in session storage. It lasts until you sign out or close the browser tab or the app, and is cleared automatically if the server reports it has expired.</li>
       <li><strong>Offline copy of the app</strong>: a service worker caches the game&rsquo;s own files and question pack so it loads quickly and works offline. It does not cache your account data.</li>
     </ul>
 
@@ -80,8 +74,7 @@
       <li>To create your account, sign you in, and keep you signed in securely.</li>
       <li>To check answers on the server and award XP, coins, and levels fairly (each question rewards you only once).</li>
       <li>To help you recover your Login ID when you verify your name, secret question, and secret answer.</li>
-      <li>To fix incorrect or confusing questions you report and review player-safety reports. An administrator, not an automated rule, decides whether a reported account is restricted or restored.</li>
-      <li>To save and display an interactive multiplayer replay when a participant creates a share link.</li>
+      <li>To fix incorrect or confusing questions you report.</li>
       <li>To protect the service from abuse, guessing attacks, and spam.</li>
     </ul>
     <p>We do not use your information for advertising, profiling, or automated decisions about you, and we do not sell it.</p>
@@ -102,19 +95,17 @@
     <ul>
       <li>All connections use HTTPS. The Android app only loads the Blind Quiz website over HTTPS and opens other links in your own browser.</li>
       <li>The database cannot be read or changed directly from the app or by the public. All access goes through our server code, which checks your session and rate limits every request.</li>
-      <li>Secret answers are hashed with a unique salt; the server stores session tokens only as hashes. An optional device sign-in token is kept locally only if the player chooses “Stay signed in on this device”.</li>
+      <li>Secret answers are hashed with a unique salt; session tokens are stored only as hashes.</li>
       <li>Answers, XP, and coins are calculated on the server, not trusted from the device.</li>
     </ul>
     <p>No online service can promise perfect security. Choose a secret answer that others cannot guess, and never reuse an answer that protects something important.</p>
 
     <h2 id="retention">How long we keep information</h2>
     <ul>
-      <li>Account, progress, answer records, friends, notifications, mute/block choices, encrypted-message server records, and rooms owned by an account: until that account is deleted. Self-deletion or admin deletion removes them from the active app database, including player-linked feedback, question reports, player reports, and replay shares owned by that account.</li>
-      <li>Session records have no automatic time-based expiry while an account remains active. Deleting the account removes all of its server sessions; signing out revokes the current session.</li>
+      <li>Account, progress, and answer records: until the account is deleted.</li>
+      <li>Session records: up to 7 days, and removed after they expire or you sign out (cleared at your next sign-in).</li>
       <li>Abuse-protection counters: short-lived, from 15 minutes to 24 hours of relevance, and reused or replaced afterwards.</li>
-      <li>Question reports: until the report has been reviewed and the question fixed, or the linked account is deleted.</li>
-      <li>Player reports and review notes: until either the reporter's or reported account is deleted. An explicit account restriction remains until an admin restores access or the restricted account is deleted. A replay link expires after 90 days; viewers may download a copy while the link is available.</li>
-      <li>Disaster-recovery backups may retain deleted database records until the provider's normal backup expiry. We cannot remotely erase another device's local data or copies that someone has already saved, downloaded, or screenshotted.</li>
+      <li>Question reports: until the report has been reviewed and the question fixed.</li>
       <li>Provider logs: according to Supabase&rsquo;s and GitHub&rsquo;s own retention periods.</li>
     </ul>
 
@@ -123,14 +114,12 @@
       <li><strong>Play without an account</strong>: no account data is collected.</li>
       <li><strong>Sign out</strong> at any time with <em>Log out</em> at the bottom of the page. This revokes your session on the server.</li>
       <li><strong>Forget this device</strong> removes your remembered name and Login ID.</li>
-      <li><strong>Delete your account</strong> in Settings to permanently delete your own account. You must type its exact display name and re-enter its current secret answer. The deletion cannot be undone. This device also clears account-linked quiz-stage progress and its local private-message key and trust pins. Device-wide mini-game scores are not account-linked and are left in place to avoid erasing another player's records on a shared device.</li>
-      <li><strong>Admin deletion</strong>: the game administrator can delete any account after reauthenticating and confirming its exact display name. Other devices cannot be cleared remotely.</li>
       <li><strong>Clear site data</strong> in your browser or app settings removes everything stored on your device.</li>
-      <li><strong>Access or correction</strong>: depending on where you live you may have rights to access or correct your data. Ask us using the contact details below. Never send us your secret answer or Login ID in a public message; we will arrange a private way to confirm you own the account.</li>
+      <li><strong>Access, correction, or deletion</strong>: depending on where you live you may have rights to access, correct, or delete your data. Ask us using the contact details below. Never send us your secret answer or Login ID in a public message; we will arrange a private way to confirm you own the account.</li>
     </ul>
 
     <h2 id="children">Children</h2>
-    <p>Blind Quiz is a general-audience educational game. It does not ask for age, contact details, or real names. Signed-in players can choose to use friend lists, player cards, multiplayer rooms and chat, and end-to-end encrypted private messages. If you are a parent or guardian and need help deleting a child's account, contact us.</p>
+    <p>Blind Quiz is a general-audience educational game. It does not ask for age, contact details, or real names, and has no chat or public profiles. If you are a parent or guardian and believe a child has created an account you want removed, contact us.</p>
 
     <h2 id="changes">Changes to this policy</h2>
     <p>If our practices change we will update this page and its &ldquo;Last updated&rdquo; date. Significant changes will also be noted in the app.</p>

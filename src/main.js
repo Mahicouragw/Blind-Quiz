@@ -3,7 +3,7 @@ import { QUESTION_BANK, CATEGORY_LIST } from './content.js';
 import { callApi, getSession, setSession } from './backend.js';
 import { shuffled } from './random.js';
 import { GAME_MODES, presentQuestion, poolFor as poolForQuestions, selectRoundQuestions, timeLimitFor, endsAfterMiss } from './game-logic.js';
-import { playSfx as rawSfx, playSequence as rawSequence, playMusic, stopMusic, musicFor, configureAudio, preloadAudio, unlockAudio, matchSounds, playMatchSound as rawMatch, stopMatchSound, applyAudioOverrides, getAudioOverrides, hasAudioOverride } from './audio.js';
+import { playSfx as rawSfx, playSequence as rawSequence, playMusic, stopMusic, musicFor, configureAudio, preloadAudio, unlockAudio, matchSounds, playMatchSound as rawMatch, stopMatchSound, applyAudioOverrides, getAudioOverrides, hasAudioOverride, fetchAudioOverrides } from './audio.js';
 import { createSoundMatch } from './sound-match-ui.js';
 import { createCountMatch as createCountMatchUI } from './count-match-ui.js';
 import { createLettersGame } from './letters-ui.js';
@@ -410,11 +410,17 @@ $('#cm-sound-open').addEventListener('click',openSoundMatch);soundMatch.wire();c
 function wireAdminAudio(){
  const slotSel=$('#admin-audio-slot'),fileInput=$('#admin-audio-file'),previewBtn=$('#admin-audio-preview'),publishBtn=$('#admin-audio-publish'),resetBtn=$('#admin-audio-reset'),statusEl=$('#admin-audio-status');
  if(!slotSel||!publishBtn)return;
+ if(!WIN?.navigator?.userAgent?.includes?.('jsdom'))fetchAudioOverrides().then(()=>syncSlotStatus()).catch(()=>{});
  let publishing=false,previewEl=null;
  const slotLabel=()=>slotSel.selectedOptions?.[0]?.textContent?.trim()||slotSel.value;
- const syncSlotStatus=()=>{if(!statusEl||publishing)return;const cur=getAudioOverrides()[slotSel.value];statusEl.textContent=cur?`Live custom audio active for ${slotLabel()}: ${cur.fileName||slotSel.value}.`:`Using default audio for ${slotLabel()}.`};
+ const syncSlotStatus=()=>{if(!statusEl||publishing)return;const cur=getAudioOverrides()[slotSel.value];statusEl.textContent=cur?`LIVE FOR ALL PLAYERS: ${slotLabel()} (${cur.fileName||slotSel.value}).`:`Using default audio for ${slotLabel()}.`};
  const toDataUrl=file=>new Promise((resolve,reject)=>{if(typeof file?.dataUrl==='string'){resolve(file.dataUrl);return}const R=globalThis.FileReader||WIN?.FileReader;if(!R){reject(new Error('FileReader unavailable'));return}const r=new R();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(new Error('Read failed'));r.readAsDataURL(file)});
  slotSel.addEventListener('change',syncSlotStatus);
+ fileInput?.addEventListener('change',async()=>{
+  const file=fileInput.files?.[0];if(!file)return;
+  if(statusEl)statusEl.textContent=`Selected: ${file.name} (${Math.max(1,Math.round((file.size||0)/1024))} KB) — tap Publish to all players.`;
+  try{if(previewEl){previewEl.pause();previewEl=null}const url=await toDataUrl(file);previewEl=new Audio(url);await previewEl.play()}catch{}
+ });
  previewBtn?.addEventListener('click',async()=>{
   unlockAudio();const slot=slotSel.value,file=fileInput?.files?.[0];
   try{if(previewEl){previewEl.pause();previewEl=null}}catch{}
@@ -426,18 +432,22 @@ function wireAdminAudio(){
   if(publishing||isDoubleActivation(e))return;
   const slot=slotSel.value,file=fileInput?.files?.[0];
   if(!file){const msg='Please choose an audio file first.';if(statusEl)statusEl.textContent=msg;announce(msg,true);return}
-  publishing=true;publishBtn.disabled=true;if(resetBtn)resetBtn.disabled=true;
+  publishing=true;publishBtn.disabled=true;publishBtn.textContent='Publishing…';if(resetBtn)resetBtn.disabled=true;
   if(statusEl)statusEl.textContent=`Publishing ${slotLabel()} to all players…`;
   try{
-   const dataUrl=await toDataUrl(file);
-   const res=await callApi('admin-audio',{op:'publish',slot,fileName:file.name||`${slot}.mp3`,dataUrl});
-   const next=res?.overrides||{...getAudioOverrides(),[slot]:res?.entry||{url:dataUrl,fileName:file.name||`${slot}.mp3`}};
+   const dataUrl=await toDataUrl(file),fileName=file.name||`${slot}.mp3`;
+   const res=await callApi('admin-audio',{op:'publish',slot,fileName,dataUrl});
+   const entry=res?.entry||{url:dataUrl,fileName,updatedAt:new Date().toISOString()};
+   const next=res?.overrides||{...getAudioOverrides(),[slot]:{...entry,url:entry.url||dataUrl}};
    applyAudioOverrides(next);
    if(fileInput)fileInput.value='';
    if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
-   const msg=`Published ${slotLabel()} live to all players.`;
+   publishBtn.textContent='Published ✓';
+   setTimeout(()=>{if(!publishing)publishBtn.textContent='Publish to all players'},2200);
+   const msg=`Published ${slotLabel()} (${fileName}) live to all players.`;
    if(statusEl)statusEl.textContent=msg;announce(msg,true);
   }catch(err){
+   publishBtn.textContent='Publish to all players';
    const msg=friendlyError(err,'Something went wrong. Please try again.');
    if(statusEl)statusEl.textContent=msg;announce(msg,true);
   }finally{publishing=false;publishBtn.disabled=false;if(resetBtn)resetBtn.disabled=false}
@@ -447,7 +457,8 @@ function wireAdminAudio(){
   const slot=slotSel.value;publishing=true;publishBtn.disabled=true;resetBtn.disabled=true;
   try{
    const res=await callApi('admin-audio',{op:'reset',slot});
-   applyAudioOverrides(res?.overrides||{});
+   const next=res?.overrides||{...getAudioOverrides()};delete next[slot];
+   applyAudioOverrides(next);
    const msg=`Reset ${slotLabel()} to the default sound.`;
    if(statusEl)statusEl.textContent=msg;announce(msg,true);
   }catch(err){

@@ -3,8 +3,9 @@
 // synthesized. Voice-message processing is handled separately in voice-dsp.js. If a file is missing
 // or the browser blocks playback, the game simply continues silently; every sound also has a
 // text/announcement equivalent.
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 const BASE = './assets/audio/';
-const OVERRIDES_URL = 'https://zchircgdkyjnowqcdwvf.supabase.co/storage/v1/object/public/bq-audio/overrides.json';
+const OVERRIDES_URL = `${SUPABASE_URL}/rest/v1/bq_audio_overrides?select=slot,file_name,audio,updated_at`;
 // Recorded effects. 'tick_last' and 'hurry' mark the last seconds of a question, 'streak' marks a
 // run of correct answers, and 'countdown' plays on Ready 3, 2, 1. A slot that is missing from the manifest is simply silent.
 const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'countdown', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak', 'roundcomplete', 'swipe'];
@@ -118,10 +119,23 @@ export function hasAudioOverride(slot) {
 
 export async function fetchAudioOverrides() {
   try {
-    const res = await fetch(`${OVERRIDES_URL}?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(OVERRIDES_URL, {
+      cache: 'no-store',
+      headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+    });
     if (!res?.ok) return getAudioOverrides();
     const data = await res.json();
-    if (data && typeof data.slots === 'object' && data.slots) applyAudioOverrides(data.slots);
+    if (Array.isArray(data)) {
+      const next = {};
+      for (const row of data) {
+        if (row?.slot && typeof row.audio === 'string' && row.audio) {
+          next[row.slot] = { url: row.audio, fileName: row.file_name || `${row.slot}.mp3`, updatedAt: row.updated_at || '' };
+        }
+      }
+      applyAudioOverrides(next);
+    } else if (data && typeof data.slots === 'object' && data.slots) {
+      applyAudioOverrides(data.slots);
+    }
   } catch { /* offline or not configured */ }
   return getAudioOverrides();
 }

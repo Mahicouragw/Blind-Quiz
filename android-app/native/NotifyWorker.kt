@@ -13,18 +13,17 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 // Background notifications without Firebase or any paid service: Android runs this check about every
@@ -33,8 +32,6 @@ import java.util.concurrent.TimeUnit
 object BQNotify {
     private const val API = "https://zchircgdkyjnowqcdwvf.supabase.co/functions/v1/blind-quiz-api"
     private const val KEY = "sb_publishable_raQlRdkDriEGoGj0iZ3ZhQ_e6CofOfM"
-    const val EXTRA_OPEN_TARGET = "io.github.mahicouragw.blind_quiz.notification.target"
-    const val EXTRA_NOTIFICATION_ID = "io.github.mahicouragw.blind_quiz.notification.id"
     const val NEWS = "https://mahicouragw.github.io/Blind-Quiz/news.json"
     const val PREFS = "bq_notify"
 
@@ -64,26 +61,17 @@ object BQNotify {
         val request = PeriodicWorkRequest.Builder(NotifyWorker::class.java, 15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
-        val work = WorkManager.getInstance(ctx)
-        work.enqueueUniquePeriodicWork("bq-notify", ExistingPeriodicWorkPolicy.KEEP, request)
-        // Catch up promptly after app startup; the periodic worker then keeps checking while the app is closed.
-        val immediate = OneTimeWorkRequest.Builder(NotifyWorker::class.java)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .build()
-        work.enqueueUniqueWork("bq-notify-now", ExistingWorkPolicy.KEEP, immediate)
-        // Cleanup does not require internet or an account; it still runs if the recipient is signed out.
-        val cleanup = PeriodicWorkRequest.Builder(ReceivedFileCleanupWorker::class.java, 15, TimeUnit.MINUTES).build()
-        work.enqueueUniquePeriodicWork("bq-received-cleanup", ExistingPeriodicWorkPolicy.KEEP, cleanup)
+        WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("bq-notify", ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
     fun enable(ctx: Context, token: String) {
         if (token.length < 35 || token.length > 64) return
-        prefs(ctx).edit().putString("token", token).putBoolean("enabled", true).apply()
+        prefs(ctx).edit().putString("token", token).apply()
         createChannels(ctx)
         schedule(ctx)
     }
 
-    // Signing out removes account notifications but deliberately keeps public news updates enabled.
+    // Sign out or turn off: forget the key here and remove it on the server.
     fun stop(ctx: Context) {
         val p = prefs(ctx)
         val token = p.getString("token", null)
@@ -91,12 +79,6 @@ object BQNotify {
         if (token != null) Thread {
             try { post(JSONObject().put("action", "notify-check").put("token", token).put("afterId", 0).put("stop", true)) } catch (_: Exception) {}
         }.start()
-    }
-
-    // Turning off phone notifications is different from signing out: honor the opt-out for news too.
-    fun disable(ctx: Context) {
-        prefs(ctx).edit().putBoolean("enabled", false).apply()
-        stop(ctx)
     }
 
     fun post(body: JSONObject): Pair<Int, JSONObject?> {
@@ -121,30 +103,11 @@ object BQNotify {
     fun canNotify(ctx: Context): Boolean =
         Build.VERSION.SDK_INT < 33 || ctx.checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED
 
-    fun clickPayload(intent: Intent?): Map<String, Any?>? {
-        val target = intent?.getStringExtra(EXTRA_OPEN_TARGET) ?: return null
-        return when (target) {
-            "notification" -> {
-                val id = intent.getLongExtra(EXTRA_NOTIFICATION_ID, -1L)
-                if (id <= 0L) null else mapOf("target" to target, "id" to id.toString())
-            }
-            "home" -> mapOf("target" to target)
-            else -> null
-        }
-    }
-
     @SuppressLint("MissingPermission")
-    fun show(ctx: Context, channel: String, id: Int, title: String, text: String, target: String = "home", notificationId: Long? = null) {
+    fun show(ctx: Context, channel: String, id: Int, title: String, text: String) {
         if (!canNotify(ctx)) return
-        val safeTarget = if (target == "notification" && notificationId != null && notificationId > 0L) "notification" else "home"
-        val clickKey = notificationId?.takeIf { safeTarget == "notification" }?.toString() ?: "home.$id"
-        val intent = Intent(ctx, MainActivity::class.java)
-            .setAction("${ctx.packageName}.OPEN_NOTIFICATION.$clickKey")
-            .putExtra(EXTRA_OPEN_TARGET, safeTarget)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        if (safeTarget == "notification" && notificationId != null) intent.putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-        // A distinct PendingIntent per notification preserves the tapped item's own route.
-        val open = PendingIntent.getActivity(ctx, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val intent = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val open = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(ctx.applicationInfo.icon)
             .setContentTitle(title)
@@ -198,13 +161,11 @@ class NotifyWorker(context: Context, params: WorkerParameters) : Worker(context,
             "announcement" -> Triple("bq_announcements", "Blind Quiz", body.ifEmpty { "New announcement." })
             else -> return
         }
-        val notificationId = n.optLong("id")
-        BQNotify.show(ctx, channel, 1000 + (notificationId % 1000000L).toInt(), title, text, "notification", notificationId)
+        BQNotify.show(ctx, channel, 1000 + (n.optLong("id") % 1000000L).toInt(), title, text)
     }
 
-    // Public feature news is checked even after account sign-out; a disconnected phone retries once online.
+    // Automatic update notification: whenever news.json on the website gets a new id (within two weeks of its date).
     private fun checkNews(ctx: Context, p: SharedPreferences) {
-        if (!p.getBoolean("enabled", true) || !BQNotify.canNotify(ctx)) return
         val c = URL("${BQNotify.NEWS}?t=${System.currentTimeMillis() / 600000L}").openConnection() as HttpURLConnection
         c.connectTimeout = 15000
         c.readTimeout = 15000
@@ -218,20 +179,8 @@ class NotifyWorker(context: Context, params: WorkerParameters) : Worker(context,
         val id = n.optString("id")
         if (id.isEmpty() || id == p.getString("news", null)) return
         p.edit().putString("news", id).apply()
+        val date = try { SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(n.optString("date"))?.time ?: 0L } catch (_: Exception) { 0L }
+        if (System.currentTimeMillis() - date > 14L * 24 * 3600 * 1000) return
         BQNotify.show(ctx, "bq_updates", 1, n.optString("title", "New in Blind Quiz").take(80), n.optString("text").take(240))
-    }
-}
-
-// Offline-capable fallback for app-private transfer copies when the app process is closed.
-class ReceivedFileCleanupWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
-    override fun doWork(): Result = try {
-        val received = File(applicationContext.cacheDir, "received")
-        val cutoff = System.currentTimeMillis() - 3L * 60 * 60 * 1000
-        received.listFiles()?.forEach { file ->
-            if (file.isFile && file.lastModified() < cutoff) file.delete()
-        }
-        Result.success()
-    } catch (_: Exception) {
-        Result.retry()
     }
 }
