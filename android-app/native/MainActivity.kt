@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -17,17 +18,33 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pendingMedia: MethodChannel.Result? = null
     private var pendingNotify: MethodChannel.Result? = null
+    private var notifyChannel: MethodChannel? = null
+    private var pendingNotificationClick: Map<String, Any?>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        pendingNotificationClick = BQNotify.clickPayload(intent)
         super.onCreate(savedInstanceState)
-        // Game updates reach everyone who installed the app; signed-in players also get their own notifications.
-        BQNotify.createChannels(this)
-        BQNotify.schedule(this)
-        val p = BQNotify.prefs(this)
-        if (Build.VERSION.SDK_INT >= 33 && !BQNotify.canNotify(this) && !p.getBoolean("asked", false)) {
-            p.edit().putBoolean("asked", true).apply()
-            requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), NOTIFY_FIRST)
+        // Notifications are optional. A scheduler or permission error must not crash the quiz UI.
+        try {
+            BQNotify.createChannels(this)
+            BQNotify.schedule(this)
+            val p = BQNotify.prefs(this)
+            if (Build.VERSION.SDK_INT >= 33 && !BQNotify.canNotify(this) && !p.getBoolean("asked", false)) {
+                p.edit().putBoolean("asked", true).apply()
+                requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), NOTIFY_FIRST)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Optional notification startup failed; continuing without notifications", e)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val payload = BQNotify.clickPayload(intent) ?: return
+        pendingNotificationClick = payload
+        // Dart drains the queued payload so warm and cold launches use the same route path.
+        notifyChannel?.invokeMethod("notificationClick", null)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -47,17 +64,30 @@ class MainActivity : FlutterActivity() {
                 else -> { pendingMedia = result; requestPermissions(missing.toTypedArray(), MEDIA) }
             }
         }
-        MethodChannel(messenger, "blind_quiz/notify").setMethodCallHandler { call, result ->
+        val notifications = MethodChannel(messenger, "blind_quiz/notify")
+        notifyChannel = notifications
+        notifications.setMethodCallHandler { call, result ->
             when (call.method) {
+                "consumeLaunchNotification" -> {
+                    val payload = pendingNotificationClick
+                    pendingNotificationClick = null
+                    result.success(payload)
+                }
                 "enable" -> {
-                    BQNotify.enable(this, (call.arguments as? String) ?: "")
-                    when {
-                        BQNotify.canNotify(this) -> result.success(true)
-                        pendingNotify != null -> result.success(false)
-                        else -> { pendingNotify = result; requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), NOTIFY) }
+                    try {
+                        BQNotify.enable(this, (call.arguments as? String) ?: "")
+                        when {
+                            BQNotify.canNotify(this) -> result.success(true)
+                            pendingNotify != null -> result.success(false)
+                            else -> { pendingNotify = result; requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), NOTIFY) }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Could not enable optional notifications", e)
+                        result.error("NOTIFY_START_FAILED", "Notifications could not be enabled.", null)
                     }
                 }
-                "disable", "logout" -> { BQNotify.stop(this); result.success(true) }
+                "disable" -> { BQNotify.disable(this); result.success(true) }
+                "logout" -> { BQNotify.stop(this); result.success(true) }
                 "sounds" -> { openSoundSettings(); result.success(true) }
                 else -> result.notImplemented()
             }
@@ -85,6 +115,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        private const val TAG = "BlindQuizApp"
         private const val MEDIA = 4207
         private const val NOTIFY = 4208
         private const val NOTIFY_FIRST = 4209

@@ -1,7 +1,7 @@
 name: blind_quiz
 description: Blind Quiz for Android - a WebView wrapper around the live site, so content updates without reinstalling.
 publish_to: 'none'
-version: 1.2.0+3
+version: 1.3.1+5
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

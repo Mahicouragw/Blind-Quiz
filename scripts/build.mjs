@@ -1,4 +1,5 @@
-import { cp, mkdir, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { validateQuestionBank } from '../src/content.js';
 
 const errors=validateQuestionBank();
@@ -15,7 +16,15 @@ for(const page of ['privacy-policy.html','terms-and-conditions.html']){
 const out=new URL('../dist/',import.meta.url);
 await rm(out,{recursive:true,force:true});
 await mkdir(out,{recursive:true});
-for(const path of ['index.html','news.json','privacy-policy.html','terms-and-conditions.html','styles.css','manifest.webmanifest','sw.js','assets','src']){
+for(const path of ['replay.html','news.json','privacy-policy.html','terms-and-conditions.html','styles.css','manifest.webmanifest','AUDIO_LICENSES.md','licenses','assets','src','supabase/functions/_shared']){
   await cp(new URL(`../${path}`,import.meta.url),new URL(path,out),{recursive:true,filter:src=>!src.includes('/assets/audio/incoming')});
 }
-console.log('Production static build written to dist/.');
+// Every build is stamped, so the page can tell which build is live and the offline copy of an
+// older build is never reused.
+const build=process.env.GITHUB_SHA||(()=>{try{return execFileSync('git',['rev-parse','--short','HEAD'],{cwd:new URL('..',import.meta.url).pathname,encoding:'utf8'}).trim()}catch{return 'local'}})();
+const built=new Date().toISOString();
+const stamp=(text)=>text.replaceAll('__BQ_BUILD__',build);
+await writeFile(new URL('index.html',out),stamp(html));
+await writeFile(new URL('sw.js',out),stamp(await readFile(new URL('../sw.js',import.meta.url),'utf8')));
+await writeFile(new URL('version.json',out),JSON.stringify({build,built})+'\n');
+console.log(`Production static build written to dist/ (build ${build}).`);

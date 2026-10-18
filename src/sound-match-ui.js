@@ -16,10 +16,23 @@ function untilEnded(a, maxMs = 3300) {
 
 export function createSoundMatch({ $, announce, matchSounds, playMatchSound, stopMatchSound, playSfx, callApi = null, getSession = () => null, setSession = () => {}, onProfile = () => {}, rnd = Math.random, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
   const grid = $('#sm-grid'), status = $('#sm-status'), stats = $('#sm-stats'), finish = $('#sm-finish');
+  const startButton = $('#sm-start'), newButton = $('#sm-new');
   let level = 'easy', state = null, busy = false, game = 0, serverGame = null;
 
   const say = (text, urgent = false) => { status.textContent = text; announce(text, urgent); };
   const label = (card, extra = '') => `Number ${card.number}${extra}`;
+  const levelButtons = () => [...document.querySelectorAll('[data-sm-level]')];
+
+  function selectLevel(nextLevel = level) {
+    level = SM_LEVELS[nextLevel] ? nextLevel : 'easy';
+    game += 1; busy = false; state = null; serverGame = null; stopMatchSound();
+    grid.removeAttribute('aria-busy'); grid.hidden = true; grid.innerHTML = '';
+    stats.hidden = true; stats.textContent = ''; finish.hidden = true;
+    startButton.hidden = false; startButton.disabled = false; startButton.textContent = 'Start Game';
+    newButton.hidden = true;
+    levelButtons().forEach(b => { const on = b.dataset.smLevel === level; b.disabled = false; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    say(`${SM_LEVELS[level].label} selected. Press Start Game to begin.`);
+  }
 
   function renderStats() {
     if (!state) { stats.textContent = ''; return; }
@@ -53,7 +66,9 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
     if (r.type === 'first') {
       grid.querySelectorAll('.sm-card.open').forEach(b => markOpen(Number(b.dataset.number), false));
       markOpen(number, true);
-      status.textContent = `Number ${number} is playing. Now find the number with the same sound.`;
+      // The status line is not a live region: every message goes through say(), so a screen reader
+      // reads each line once instead of twice.
+      say(`Number ${number} is playing. Now find the number with the same sound.`);
       const a = await playMatchSound(r.card.sound.slot);
       if (!a) say('The sound could not play. Check your volume and internet connection, then try again.', true);
       return;
@@ -94,6 +109,8 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
       if (!(r.xp > 0 || r.coins > 0)) return '';
       playSfx('coin');
       const up = before && r.profile?.level > before ? ` Level up! You are now Level ${r.profile.level}.` : '';
+      // The level-up fanfare is a recorded Mixkit effect, the same one the quiz and Letters to Words use.
+      if (up) playSfx('levelup');
       return ` You earned ${r.xp} XP and ${r.coins} coin${r.coins === 1 ? '' : 's'}.${up}`;
     } catch { return ''; }
   }
@@ -110,34 +127,50 @@ export function createSoundMatch({ $, announce, matchSounds, playMatchSound, sto
     finish.hidden = false;
     $('#sm-finish-text').textContent = text;
     $('#sm-finish-stars').textContent = '★'.repeat(stars) + '☆'.repeat(3 - stars);
-    playSfx(stars === 3 ? 'cheer' : 'applause');
+    playSfx(stars === 3 ? 'cheer' : 'roundcomplete');
+    levelButtons().forEach(b => { b.disabled = false; });
     say(text);
     setTimeout(() => $('#sm-again')?.focus(), 60);
   }
 
   async function start(nextLevel = level) {
     level = SM_LEVELS[nextLevel] ? nextLevel : 'easy';
-    game += 1; busy = false; stopMatchSound();
-    grid.removeAttribute('aria-busy');
-    document.querySelectorAll('[data-sm-level]').forEach(b => { const on = b.dataset.smLevel === level; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
-    finish.hidden = true; grid.innerHTML = '';
-    const pool = await matchSounds();
-    const { pairs, label: name, describe } = SM_LEVELS[level];
-    try { state = newMatchState(buildBoard(pairs, pool, rnd)); }
-    catch { state = null; renderStats(); say('Sound Match needs its sounds. Please check your internet connection and try again.', true); return; }
+    const myGame = ++game, { pairs, label: name, describe } = SM_LEVELS[level];
+    busy = false; state = null; serverGame = null; stopMatchSound();
+    grid.removeAttribute('aria-busy'); grid.hidden = true; grid.innerHTML = '';
+    stats.hidden = true; stats.textContent = ''; finish.hidden = true;
+    startButton.hidden = false; startButton.disabled = true; startButton.textContent = 'Loading sounds…'; newButton.hidden = true;
+    levelButtons().forEach(b => { const on = b.dataset.smLevel === level; b.disabled = true; b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); });
+    say(`${name} selected. Loading sounds.`);
+    let pool;
+    try {
+      pool = await matchSounds();
+      if (myGame !== game) return;
+      state = newMatchState(buildBoard(pairs, pool, rnd));
+    } catch {
+      if (myGame !== game) return;
+      state = null; startButton.disabled = false; startButton.textContent = 'Start Game';
+      levelButtons().forEach(b => { b.disabled = false; });
+      say('Sound Match needs its sounds. Please check your internet connection and try again.', true);
+      return;
+    }
     // Register the game with the server (signed-in players only); the board never waits for it.
     serverGame = callApi && getSession() ? callApi('soundmatch-start', { level }).then(d => d.gameId || null).catch(() => null) : null;
     grid.dataset.size = String(pairs * 2);
     grid.append(...state.board.map(cardButton));
+    grid.hidden = false; stats.hidden = false; newButton.hidden = false;
+    startButton.hidden = true; startButton.disabled = false; startButton.textContent = 'Start Game';
     renderStats();
     say(`${name}: ${describe}. Press a number to hear its sound, then find the other number with the same sound.`);
+    setTimeout(() => btn(1)?.focus(), 60);
   }
 
   function wire() {
-    document.querySelectorAll('[data-sm-level]').forEach(b => b.addEventListener('click', () => start(b.dataset.smLevel)));
-    $('#sm-again')?.addEventListener('click', () => { start(level); setTimeout(() => btn(1)?.focus(), 60); });
-    $('#sm-new')?.addEventListener('click', () => start(level));
+    levelButtons().forEach(b => b.addEventListener('click', () => selectLevel(b.dataset.smLevel)));
+    startButton?.addEventListener('click', () => start(level));
+    $('#sm-again')?.addEventListener('click', () => selectLevel(level));
+    newButton?.addEventListener('click', () => selectLevel(level));
   }
 
-  return { start, wire, stop: () => { game += 1; stopMatchSound(); }, get state() { return state; }, get level() { return level; } };
+  return { start, selectLevel, wire, stop: () => { game += 1; stopMatchSound(); }, get state() { return state; }, get level() { return level; } };
 }
