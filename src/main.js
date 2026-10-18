@@ -258,7 +258,7 @@ function finishRound(){
   renderQuizSetup();if(stageNotice)message+=` ${stageNotice}`;
  }
  const endSlot=hasAudioOverride('roundcomplete')?'roundcomplete':(state.score===state.answeredCount?'cheer':'roundcomplete');
- playSequence(state.levelUps?.length||stageUnlocked?[endSlot,'levelup']:[endSlot]);
+ playSequence([endSlot]);
  const earned=state.roundXp?` ${ui('xpCoins',state.roundXp,state.roundCoins)}${state.roundLanguage==='te'?'':' this round.'}`:'';
  const level=state.levelUps?.at(-1),lv=level?(state.roundLanguage==='te'?` ఇప్పుడు మీరు ${level}వ స్థాయిలో ఉన్నారు.`:` Level up this round: you are now Level ${level}.`):'';
  $('#result-message').textContent=`${message}${earned}${lv}`;
@@ -465,7 +465,7 @@ function wireAdminAudio(){
  try{
   if(WIN?.location?.hash?.includes('bq_studio=1')){
    const hp=new URLSearchParams(WIN.location.hash.slice(1)),tok=hp.get('token')||'',sl=hp.get('slot')||'';
-   if(tok.length>=35)setSession({token:tok,profile:{name:'Goldfish',isAdmin:true}},{remember:true});
+   if(tok.length>=35)setSession({token:tok,profile:{...(getSession()?.profile||{}),name:'Goldfish',isAdmin:true}},{remember:true});
    WIN.history?.replaceState?.(null,'',WIN.location.pathname);
    setTimeout(()=>{enterApp({silent:true});if($('#admin-inbox-box'))$('#admin-inbox-box').hidden=false;go('settings',{focus:'#admin-audio-file'});if(sl){slotSel.value=sl;syncSlotStatus()}announce('Admin Audio Studio ready in Chrome. Choose your audio file, then tap Publish to all players.',true)},120);
   }
