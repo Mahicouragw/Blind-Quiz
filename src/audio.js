@@ -5,7 +5,7 @@
 // text/announcement equivalent.
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 const BASE = './assets/audio/';
-const OVERRIDES_URL = `${SUPABASE_URL}/rest/v1/bq_audio_overrides?select=slot,file_name,audio,updated_at`;
+const OVERRIDES_URL = `${SUPABASE_URL}/functions/v1/blind-quiz-api`;
 // Recorded effects. 'tick_last' and 'hurry' mark the last seconds of a question, 'streak' marks a
 // run of correct answers, and 'countdown' plays on Ready 3, 2, 1. A slot that is missing from the manifest is simply silent.
 const SFX = ['correct', 'wrong', 'tick', 'tick_last', 'countdown', 'hurry', 'go', 'timeup', 'applause', 'cheer', 'click', 'levelup', 'coin', 'notify', 'streak', 'roundcomplete', 'swipe'];
@@ -120,19 +120,15 @@ export function hasAudioOverride(slot) {
 export async function fetchAudioOverrides() {
   try {
     const res = await fetch(OVERRIDES_URL, {
+      method: 'POST',
       cache: 'no-store',
-      headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY },
+      body: JSON.stringify({ action: 'audio-overrides' }),
     });
     if (!res?.ok) return getAudioOverrides();
     const data = await res.json();
-    if (Array.isArray(data)) {
-      const next = {};
-      for (const row of data) {
-        if (row?.slot && typeof row.audio === 'string' && row.audio) {
-          next[row.slot] = { url: row.audio, fileName: row.file_name || `${row.slot}.mp3`, updatedAt: row.updated_at || '' };
-        }
-      }
-      applyAudioOverrides(next);
+    if (data && typeof data.overrides === 'object' && data.overrides) {
+      applyAudioOverrides(data.overrides);
     } else if (data && typeof data.slots === 'object' && data.slots) {
       applyAudioOverrides(data.slots);
     }
@@ -160,7 +156,7 @@ async function manifest() {
       for (const k of found) versions.set(k, data.assets[k].bytes || 0);
       for (const k of customOverrides.keys()) found.add(k);
       if (found.size) available = found;
-      fetchAudioOverrides().catch(() => {});
+      if (!globalThis.navigator?.userAgent?.includes?.('jsdom')) fetchAudioOverrides().catch(() => {});
       return found;
     } catch { return new Set(customOverrides.keys()); } finally { pending = null; }
   })();
