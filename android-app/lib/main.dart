@@ -229,7 +229,19 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _cleanReceived();
       unawaited(_consumeNativeNotificationClick());
+      unawaited(_notifyWebLifecycle('resumed'));
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      unawaited(_notifyWebLifecycle(state == AppLifecycleState.detached ? 'exit' : 'paused'));
     }
+  }
+
+  Future<void> _notifyWebLifecycle(String state) async {
+    if (!_webViewReady) return;
+    try {
+      await _controller.runJavaScript(
+        'globalThis.bqOnAppLifecycle && globalThis.bqOnAppLifecycle("$state");',
+      );
+    } catch (_) {}
   }
 
   /// A screen reader (Android TalkBack) keeps the one-finger swipe for itself, so the page is told
@@ -516,6 +528,7 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     if (await _controller.canGoBack()) {
       await _controller.goBack();
     } else {
+      await _notifyWebLifecycle('exit');
       await SystemNavigator.pop();
     }
   }

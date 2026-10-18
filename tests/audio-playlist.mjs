@@ -32,6 +32,15 @@ for (let step = 2; step < menu.length + 2; step++) {
   await tick();
   assert.equal(played.at(-1), menu[step % menu.length], `track ${step} follows when the previous one ends`);
 }
+const activeTrack = elements.get(played.at(-1));
+audio.setVoiceDucking(true); await tick();
+assert.equal(activeTrack.paused, false, 'voice ducking keeps background music playing without pausing');
+assert(activeTrack.volume < audio.audioPrefs().musicVolume, 'voice ducking lowers background music volume');
+audio.setVoiceDucking(false);
+const diag = audio.getAudioDiagnostics();
+assert(diag.counts.duplicatePlayRequest >= 1, 'diagnostics record duplicate music playback requests');
 audio.stopMusic(); await tick();
+audio.shutdownAudio();
+audio.shutdownAudio(); // idempotent when called repeatedly
 console.log(`PASS: home playlist of ${menu.length} tracks rotates per visit and plays on when a track ends.`);
 process.exit(0);
