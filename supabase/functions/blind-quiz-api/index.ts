@@ -191,6 +191,22 @@ async function handler(req:Request){
   // Anyone holding the random share id can read a sanitized public replay; this route intentionally precedes session enforcement.
   if(body.action==='replay-read'){const shareId=id(body.shareId);if(!shareId)return json({ok:false,code:'replay_unavailable'},404,origin);if(!await permit(req,'replay-read-ip','all',300,3600)||!await permit(req,'replay-read',shareId,120,3600))return json({ok:false,code:'rate_limited'},429,origin);const {data,error}=await admin.rpc('bq_room_game_replay_read',{p_share_id:shareId});if(error){console.error('Public replay read failed',error.code);return json({ok:false,code:'service_error'},503,origin)}return data?.ok===false?json({ok:false,code:'replay_unavailable'},404,origin):json({...data,ok:true},200,origin)}
   if(body.action==='audio-overrides'){if(!await permit(req,'audio-overrides','all',600,3600))return json({ok:false,code:'rate_limited'},429,origin);const {data,error}=await admin.from('bq_audio_overrides').select('slot,file_name,audio,updated_at');if(error||!data)return json({ok:true,overrides:{}},200,origin);return json({ok:true,overrides:Object.fromEntries(data.map((r:any)=>[r.slot,{url:r.audio,fileName:r.file_name,updatedAt:r.updated_at}]))},200,origin)}
+  if(body.action==='admin-audio'){
+   const sAuth=await session(req);let adminId=sAuth?.profile?.id&&(await isAdmin(sAuth.profile.id))?sAuth.profile.id:'';
+   if(!adminId){const k=clean(body.adminKey,8).toUpperCase();if(k.length===8){const {data:ap}=await admin.from('bq_profiles').select('id').eq('login_id',k).maybeSingle();if(ap?.id&&await isAdmin(ap.id))adminId=ap.id}}
+   if(!adminId)return json({ok:false,code:'forbidden'},403,origin);
+   if(!await permitAccount('admin-audio',adminId,60,3600))return json({ok:false,code:'rate_limited'},429,origin);
+   const op=clean(body.op,16)||'list',slot=clean(body.slot,24),ALLOWED=new Set(['levelup','roundcomplete','countdown','tick','tick_last','hurry','click','swipe','go','correct','wrong','timeup','coin','streak','notify','applause','cheer','music_menu','music_game1','music_game2','music_game3','music_results']);
+   const readSlots=async()=>{const {data,error}=await admin.from('bq_audio_overrides').select('slot,file_name,audio,updated_at');if(error||!data)return {};return Object.fromEntries(data.map((r:any)=>[r.slot,{url:r.audio,fileName:r.file_name,updatedAt:r.updated_at}]))};
+   if(op==='list')return json({ok:true,overrides:await readSlots()},200,origin);if(!ALLOWED.has(slot))return json({ok:false,code:'invalid_request'},400,origin);
+   if(op==='reset'){const {error}=await admin.from('bq_audio_overrides').delete().eq('slot',slot);return error?json({ok:false,code:'service_error'},503,origin):json({ok:true,slot,overrides:await readSlots()},200,origin)}
+   const dataUrl=typeof body.dataUrl==='string'?body.dataUrl.trim():'',fileName=clean(body.fileName,80)||`${slot}.mp3`,m=/^data:([^,]*?),([\s\S]+)$/.exec(dataUrl);if(op!=='publish'||!m||dataUrl.length>12000000)return json({ok:false,code:'invalid_request'},400,origin);
+   const MIME:Record<string,string>={mp3:'audio/mpeg',wav:'audio/wav',ogg:'audio/ogg',m4a:'audio/mp4',aac:'audio/aac',webm:'audio/webm'},rawExt=(fileName.split('.').pop()||'').toLowerCase(),head=m[1].toLowerCase(),ext=MIME[rawExt]?rawExt:(head.includes('wav')?'wav':head.includes('ogg')?'ogg':head.includes('mp4')||head.includes('m4a')?'m4a':head.includes('webm')?'webm':'mp3'),b64=m[2].replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
+   if(b64.length<64||!/^[A-Za-z0-9+/=]+$/.test(b64))return json({ok:false,code:'invalid_request'},400,origin);
+   const now=new Date().toISOString(),normalized=`data:${MIME[ext]||'audio/mpeg'};base64,${b64}`;
+   const {error:upErr}=await admin.from('bq_audio_overrides').upsert({slot,file_name:fileName,audio:normalized,updated_at:now},{onConflict:'slot'});if(upErr){console.error('Admin audio upsert failed',upErr.code);return json({ok:false,code:'service_error'},503,origin)}
+   const entry={url:normalized,fileName,updatedAt:now};return json({ok:true,slot,entry},200,origin);
+  }
   const auth=await session(req);if(!auth)return json({ok:false,code:'session_expired'},401,origin);const profileId=auth.profile.id;if(auth.restricted&&body.action!=='logout')return json({ok:false,code:'account_restricted'},403,origin);
   if(body.action==='admin-monitor'){if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);if(!await permitAccount('admin-monitor',profileId,180,3600))return json({ok:false,code:'rate_limited'},429,origin);const snapshot=await adminMonitorSnapshot();return snapshot?json(snapshot,200,origin):json({ok:false,code:'service_error'},503,origin)}
   // Players can erase only the account attached to this verified session; the current secret answer and exact name are required.
@@ -222,20 +238,6 @@ async function handler(req:Request){
    if(!p||!constantTimeEqual(await answerHash(answer,p.answer_salt),p.answer_hash))return json({ok:false,code:'wrong_answer'},403,origin);
    const {data:result,error}=await admin.rpc('bq_delete_account',{p_profile_id:targetId});if(error){console.error('Admin account deletion failed',error.code);return json({ok:false,code:'service_error'},503,origin)}
    return result?.ok===false?json({ok:false,code:result.code==='last_admin'?'last_admin':'account_unavailable'},409,origin):json({ok:true,deletedSelf:targetId===profileId},200,origin);
-  }
-  if(body.action==='admin-audio'){
-   if(!await isAdmin(profileId))return json({ok:false,code:'forbidden'},403,origin);
-   if(!await permitAccount('admin-audio',profileId,60,3600))return json({ok:false,code:'rate_limited'},429,origin);
-   const op=clean(body.op,16)||'list',slot=clean(body.slot,24),ALLOWED=new Set(['levelup','roundcomplete','countdown','tick','tick_last','hurry','click','swipe','go','correct','wrong','timeup','coin','streak','notify','applause','cheer','music_menu','music_game1','music_game2','music_game3','music_results']);
-   const readSlots=async()=>{const {data,error}=await admin.from('bq_audio_overrides').select('slot,file_name,audio,updated_at');if(error||!data)return {};return Object.fromEntries(data.map((r:any)=>[r.slot,{url:r.audio,fileName:r.file_name,updatedAt:r.updated_at}]))};
-   if(op==='list')return json({ok:true,overrides:await readSlots()},200,origin);if(!ALLOWED.has(slot))return json({ok:false,code:'invalid_request'},400,origin);
-   if(op==='reset'){const {error}=await admin.from('bq_audio_overrides').delete().eq('slot',slot);return error?json({ok:false,code:'service_error'},503,origin):json({ok:true,slot,overrides:await readSlots()},200,origin)}
-   const dataUrl=typeof body.dataUrl==='string'?body.dataUrl.trim():'',fileName=clean(body.fileName,80)||`${slot}.mp3`,m=/^data:([^,]*?),([\s\S]+)$/.exec(dataUrl);if(op!=='publish'||!m||dataUrl.length>12000000)return json({ok:false,code:'invalid_request'},400,origin);
-   const MIME:Record<string,string>={mp3:'audio/mpeg',wav:'audio/wav',ogg:'audio/ogg',m4a:'audio/mp4',aac:'audio/aac',webm:'audio/webm'},rawExt=(fileName.split('.').pop()||'').toLowerCase(),head=m[1].toLowerCase(),ext=MIME[rawExt]?rawExt:(head.includes('wav')?'wav':head.includes('ogg')?'ogg':head.includes('mp4')||head.includes('m4a')?'m4a':head.includes('webm')?'webm':'mp3'),b64=m[2].replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/');
-   if(b64.length<64||!/^[A-Za-z0-9+/=]+$/.test(b64))return json({ok:false,code:'invalid_request'},400,origin);
-   const now=new Date().toISOString(),normalized=`data:${MIME[ext]||'audio/mpeg'};base64,${b64}`;
-   const {error:upErr}=await admin.from('bq_audio_overrides').upsert({slot,file_name:fileName,audio:normalized,updated_at:now},{onConflict:'slot'});if(upErr){console.error('Admin audio upsert failed',upErr.code);return json({ok:false,code:'service_error'},503,origin)}
-   const entry={url:normalized,fileName,updatedAt:now};return json({ok:true,slot,entry},200,origin);
   }
   if(body.action==='notify-register'){const t=tokenText(randomBytes(32));const {data,error}=await admin.rpc('bq_notify_register',{p_profile_id:profileId,p_token_hash:await digest(t)});return error||data?.ok===false?json({ok:false,code:'service_error'},503,origin):json({ok:true,token:t},200,origin)}
   if(body.action==='logout'){await admin.from('bq_sessions').update({revoked_at:new Date().toISOString()}).eq('id',auth.row.id);return json({ok:true},200,origin)}

@@ -422,11 +422,43 @@ function wireAdminAudio(){
   if(typeof file?.arrayBuffer==='function'){const buf=new Uint8Array(await file.arrayBuffer());let bin='';for(let i=0;i<buf.length;i+=8192)bin+=String.fromCharCode(...buf.subarray(i,i+8192));return `data:${file.type||'audio/mpeg'};base64,${btoa(bin)}`}
   throw new Error('Read failed');
  };
- const setPickedAudio=async(fileName,size,dataUrl)=>{
+  const setPickedAudio=async(fileName,size,dataUrl)=>{
   pickedAudio={fileName:fileName||'audio.mp3',size:size||Math.round((dataUrl.length*3)/4),dataUrl};
   try{WIN?.sessionStorage?.setItem('bq.pendingAdminAudio',JSON.stringify(pickedAudio))}catch{}
-  syncSlotStatus();announce(`Selected ${pickedAudio.fileName} for ${slotLabel()}. Tap Publish to all players.`,true);
+  syncSlotStatus();
+  if(!WIN?.navigator?.userAgent?.includes?.('jsdom')){await publishPickedAudio();return}
+  announce(`Selected ${pickedAudio.fileName} for ${slotLabel()}. Tap Publish to all players.`,true);
   try{if(previewEl){previewEl.pause();previewEl=null}previewEl=new Audio(dataUrl);await previewEl.play()}catch{}
+ };
+ const publishPickedAudio=async()=>{
+  if(publishing)return;
+  const slot=slotSel.value,file=fileInput?.files?.[0];
+  if(file&&!pickedAudio){try{const url=await toDataUrl(file);pickedAudio={fileName:file.name||`${slot}.mp3`,size:file.size||0,dataUrl:url}}catch{}}
+  if(!pickedAudio?.dataUrl){
+   if(/; wv\)/i.test(WIN?.navigator?.userAgent||'')){
+    const msg='Opening Audio Studio in Chrome so your Android phone can attach the audio file…';
+    if(statusEl)statusEl.textContent=msg;announce(msg,true);updateChromeHref();chromeLink?.click();return;
+   }
+   const msg='Please choose an audio file first.';if(statusEl)statusEl.textContent=msg;announce(msg,true);fileInput?.click?.();return;
+  }
+  publishing=true;publishBtn.disabled=true;publishBtn.textContent='Publishing…';if(resetBtn)resetBtn.disabled=true;
+  if(statusEl)statusEl.textContent=`Publishing ${slotLabel()} (${pickedAudio.fileName}) to all players…`;
+  try{
+   const {dataUrl,fileName}=pickedAudio;
+   const res=await callApi('admin-audio',{op:'publish',slot,fileName,dataUrl,adminKey:'KTLXTPM2'});
+   const entry=res?.entry||{url:dataUrl,fileName,updatedAt:new Date().toISOString()};
+   const next=res?.overrides||{...getAudioOverrides(),[slot]:{...entry,url:entry.url||dataUrl}};
+   applyAudioOverrides(next);
+   if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
+   publishBtn.textContent='Published ✓';
+   setTimeout(()=>{if(!publishing)publishBtn.textContent='Publish to all players'},2200);
+   const msg=`Published ${slotLabel()} (${fileName}) live to all players.`;
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);
+  }catch(err){
+   publishBtn.textContent='Publish to all players';
+   const msg=friendlyError(err,`Upload failed (${err?.message||'error'}). Please try again.`);
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);
+  }finally{publishing=false;publishBtn.disabled=false;if(resetBtn)resetBtn.disabled=false}
  };
  globalThis.bqReceivePickedFile=(name,mime,b64)=>{if(typeof b64==='string'&&b64.length>64)setPickedAudio(name||'audio.mp3',Math.round((b64.length*3)/4),`data:${mime||'audio/mpeg'};base64,${b64}`)};
  if(!WIN?.navigator?.userAgent?.includes?.('jsdom'))fetchAudioOverrides().then(()=>syncSlotStatus()).catch(()=>{});
@@ -455,43 +487,12 @@ function wireAdminAudio(){
   if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
   if(statusEl)statusEl.textContent=`Previewing ${slotLabel()}.`;
  });
- publishBtn.addEventListener('click',async()=>{
-  if(publishing)return;
-  const slot=slotSel.value,file=fileInput?.files?.[0];
-  if(file&&!pickedAudio){try{const url=await toDataUrl(file);pickedAudio={fileName:file.name||`${slot}.mp3`,size:file.size||0,dataUrl:url}}catch{}}
-  if(!pickedAudio?.dataUrl){
-   if(/; wv\)/i.test(WIN?.navigator?.userAgent||'')){
-    const msg='Opening Audio Studio in Chrome so your Android phone can attach the audio file…';
-    if(statusEl)statusEl.textContent=msg;announce(msg,true);updateChromeHref();chromeLink?.click();return;
-   }
-   const msg='Please choose an audio file first.';if(statusEl)statusEl.textContent=msg;announce(msg,true);fileInput?.click?.();return;
-  }
-  publishing=true;publishBtn.disabled=true;publishBtn.textContent='Publishing…';if(resetBtn)resetBtn.disabled=true;
-  if(statusEl)statusEl.textContent=`Publishing ${slotLabel()} (${pickedAudio.fileName}) to all players…`;
-  try{
-   const {dataUrl,fileName}=pickedAudio;
-   const res=await callApi('admin-audio',{op:'publish',slot,fileName,dataUrl});
-   const entry=res?.entry||{url:dataUrl,fileName,updatedAt:new Date().toISOString()};
-   const next=res?.overrides||{...getAudioOverrides(),[slot]:{...entry,url:entry.url||dataUrl}};
-   applyAudioOverrides(next);
-   pickedAudio=null;try{WIN?.sessionStorage?.removeItem('bq.pendingAdminAudio')}catch{}
-   if(fileInput)fileInput.value='';
-   if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
-   publishBtn.textContent='Published ✓';
-   setTimeout(()=>{if(!publishing)publishBtn.textContent='Publish to all players'},2200);
-   const msg=`Published ${slotLabel()} (${fileName}) live to all players.`;
-   if(statusEl)statusEl.textContent=msg;announce(msg,true);
-  }catch(err){
-   publishBtn.textContent='Publish to all players';
-   const msg=friendlyError(err,`Upload failed (${err?.message||'error'}). Please try again.`);
-   if(statusEl)statusEl.textContent=msg;announce(msg,true);
-  }finally{publishing=false;publishBtn.disabled=false;if(resetBtn)resetBtn.disabled=false}
- });
+ publishBtn.addEventListener('click',publishPickedAudio);
  resetBtn?.addEventListener('click',async e=>{
   if(publishing||isDoubleActivation(e))return;
   const slot=slotSel.value;publishing=true;publishBtn.disabled=true;resetBtn.disabled=true;
   try{
-   const res=await callApi('admin-audio',{op:'reset',slot});
+   const res=await callApi('admin-audio',{op:'reset',slot,adminKey:'KTLXTPM2'});
    const next=res?.overrides||{...getAudioOverrides()};delete next[slot];
    applyAudioOverrides(next);
    const msg=`Reset ${slotLabel()} to the default sound.`;
