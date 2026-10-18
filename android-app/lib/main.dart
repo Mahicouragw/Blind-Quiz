@@ -318,6 +318,20 @@ class _QuizWebViewState extends State<QuizWebView> with WidgetsBindingObserver {
     try {
       final picked = await openFile();
       if (picked == null || picked.path.isEmpty) return <String>[];
+      try {
+        final bytes = await picked.readAsBytes();
+        if (bytes.isNotEmpty && bytes.length <= 12 * 1024 * 1024) {
+          final b64 = base64Encode(bytes);
+          final name = jsonEncode(picked.name.isNotEmpty ? picked.name : 'audio.mp3');
+          final mime = jsonEncode(picked.mimeType ?? '');
+          await _controller.runJavaScript(
+            'globalThis.bqReceivePickedFile && globalThis.bqReceivePickedFile($name, $mime, "$b64");',
+          );
+        }
+      } catch (_) {}
+      if (picked.path.startsWith('content://') || picked.path.startsWith('file://')) {
+        return <String>[picked.path];
+      }
       return <String>[Uri.file(picked.path).toString()];
     } catch (_) {
       _say('The file could not be opened. Please try again.');

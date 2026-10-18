@@ -81,7 +81,8 @@ export function setSession(value, { remember = persistentSession } = {}) {
 export async function callApi(action, payload = {}) {
   const session = getSession();
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timeout = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+  const timeoutMs = action === 'admin-audio' ? 60_000 : REQUEST_TIMEOUT_MS;
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     let response;
     try {

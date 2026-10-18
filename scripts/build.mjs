@@ -25,6 +25,8 @@ const build=process.env.GITHUB_SHA||(()=>{try{return execFileSync('git',['rev-pa
 const built=new Date().toISOString();
 const stamp=(text)=>text.replaceAll('__BQ_BUILD__',build);
 await writeFile(new URL('index.html',out),stamp(html));
+await mkdir(new URL('download/',out),{recursive:true});
+await writeFile(new URL('download/audio-studio.html',out),stamp(html).replace('<meta charset="utf-8">','<meta charset="utf-8">\n  <base href="../">'));
 await writeFile(new URL('sw.js',out),stamp(await readFile(new URL('../sw.js',import.meta.url),'utf8')));
 await writeFile(new URL('version.json',out),JSON.stringify({build,built})+'\n');
 console.log(`Production static build written to dist/ (build ${build}).`);

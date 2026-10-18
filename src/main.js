@@ -408,38 +408,73 @@ $('#cm-sound-open').addEventListener('click',openSoundMatch);soundMatch.wire();c
  wireAdminAudio();
 }
 function wireAdminAudio(){
- const slotSel=$('#admin-audio-slot'),fileInput=$('#admin-audio-file'),previewBtn=$('#admin-audio-preview'),publishBtn=$('#admin-audio-publish'),resetBtn=$('#admin-audio-reset'),statusEl=$('#admin-audio-status');
+ const slotSel=$('#admin-audio-slot'),fileInput=$('#admin-audio-file'),previewBtn=$('#admin-audio-preview'),publishBtn=$('#admin-audio-publish'),resetBtn=$('#admin-audio-reset'),chromeLink=$('#admin-audio-chrome'),statusEl=$('#admin-audio-status');
  if(!slotSel||!publishBtn)return;
- if(!WIN?.navigator?.userAgent?.includes?.('jsdom'))fetchAudioOverrides().then(()=>syncSlotStatus()).catch(()=>{});
- let publishing=false,previewEl=null;
+ let publishing=false,previewEl=null,pickedAudio=null;
+ try{const saved=WIN?.sessionStorage?.getItem('bq.pendingAdminAudio');if(saved)pickedAudio=JSON.parse(saved)}catch{}
  const slotLabel=()=>slotSel.selectedOptions?.[0]?.textContent?.trim()||slotSel.value;
- const syncSlotStatus=()=>{if(!statusEl||publishing)return;const cur=getAudioOverrides()[slotSel.value];statusEl.textContent=cur?`LIVE FOR ALL PLAYERS: ${slotLabel()} (${cur.fileName||slotSel.value}).`:`Using default audio for ${slotLabel()}.`};
- const toDataUrl=file=>new Promise((resolve,reject)=>{if(typeof file?.dataUrl==='string'){resolve(file.dataUrl);return}const R=globalThis.FileReader||WIN?.FileReader;if(!R){reject(new Error('FileReader unavailable'));return}const r=new R();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(new Error('Read failed'));r.readAsDataURL(file)});
+ const updateChromeHref=()=>{if(!chromeLink)return;const tok=getSession()?.token||'';chromeLink.href=`download/audio-studio.html#bq_studio=1&slot=${encodeURIComponent(slotSel.value)}${tok?`&token=${encodeURIComponent(tok)}`:''}`};
+ const syncSlotStatus=()=>{updateChromeHref();if(!statusEl||publishing)return;const cur=getAudioOverrides()[slotSel.value];const base=cur?`LIVE FOR ALL PLAYERS: ${slotLabel()} (${cur.fileName||slotSel.value}).`:`Using default audio for ${slotLabel()}.`;statusEl.textContent=pickedAudio?`Ready to publish "${pickedAudio.fileName}" (${Math.max(1,Math.round((pickedAudio.size||0)/1024))} KB) to ${slotLabel()} — tap Publish to all players.`:base};
+ const toDataUrl=async file=>{
+  if(typeof file?.dataUrl==='string'&&file.dataUrl.startsWith('data:'))return file.dataUrl;
+  const R=globalThis.FileReader||WIN?.FileReader;
+  if(R){try{const out=await new Promise((resolve,reject)=>{const r=new R();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(new Error('Read failed'));r.readAsDataURL(file)});if(out.startsWith('data:'))return out}catch{}}
+  if(typeof file?.arrayBuffer==='function'){const buf=new Uint8Array(await file.arrayBuffer());let bin='';for(let i=0;i<buf.length;i+=8192)bin+=String.fromCharCode(...buf.subarray(i,i+8192));return `data:${file.type||'audio/mpeg'};base64,${btoa(bin)}`}
+  throw new Error('Read failed');
+ };
+ const setPickedAudio=async(fileName,size,dataUrl)=>{
+  pickedAudio={fileName:fileName||'audio.mp3',size:size||Math.round((dataUrl.length*3)/4),dataUrl};
+  try{WIN?.sessionStorage?.setItem('bq.pendingAdminAudio',JSON.stringify(pickedAudio))}catch{}
+  syncSlotStatus();announce(`Selected ${pickedAudio.fileName} for ${slotLabel()}. Tap Publish to all players.`,true);
+  try{if(previewEl){previewEl.pause();previewEl=null}previewEl=new Audio(dataUrl);await previewEl.play()}catch{}
+ };
+ globalThis.bqReceivePickedFile=(name,mime,b64)=>{if(typeof b64==='string'&&b64.length>64)setPickedAudio(name||'audio.mp3',Math.round((b64.length*3)/4),`data:${mime||'audio/mpeg'};base64,${b64}`)};
+ if(!WIN?.navigator?.userAgent?.includes?.('jsdom'))fetchAudioOverrides().then(()=>syncSlotStatus()).catch(()=>{});
+ try{
+  if(WIN?.location?.hash?.includes('bq_studio=1')){
+   const hp=new URLSearchParams(WIN.location.hash.slice(1)),tok=hp.get('token')||'',sl=hp.get('slot')||'';
+   if(tok.length>=35)setSession({token:tok,profile:{name:'Goldfish',isAdmin:true}},{remember:true});
+   WIN.history?.replaceState?.(null,'',WIN.location.pathname);
+   setTimeout(()=>{enterApp({silent:true});if($('#admin-inbox-box'))$('#admin-inbox-box').hidden=false;go('settings',{focus:'#admin-audio-file'});if(sl){slotSel.value=sl;syncSlotStatus()}announce('Admin Audio Studio ready in Chrome. Choose your audio file, then tap Publish to all players.',true)},120);
+  }
+ }catch{}
  slotSel.addEventListener('change',syncSlotStatus);
  fileInput?.addEventListener('change',async()=>{
   const file=fileInput.files?.[0];if(!file)return;
-  if(statusEl)statusEl.textContent=`Selected: ${file.name} (${Math.max(1,Math.round((file.size||0)/1024))} KB) — tap Publish to all players.`;
-  try{if(previewEl){previewEl.pause();previewEl=null}const url=await toDataUrl(file);previewEl=new Audio(url);await previewEl.play()}catch{}
+  try{const url=await toDataUrl(file);await setPickedAudio(file.name||`${slotSel.value}.mp3`,file.size||0,url)}
+  catch{
+   const msg='This app view blocked reading the file directly. Opening Audio Studio in Chrome so you can attach and publish it…';
+   if(statusEl)statusEl.textContent=msg;announce(msg,true);updateChromeHref();chromeLink?.click();
+  }
  });
  previewBtn?.addEventListener('click',async()=>{
   unlockAudio();const slot=slotSel.value,file=fileInput?.files?.[0];
   try{if(previewEl){previewEl.pause();previewEl=null}}catch{}
-  if(file){try{const url=await toDataUrl(file);previewEl=new Audio(url);await previewEl.play();if(statusEl)statusEl.textContent=`Previewing selected file for ${slotLabel()}.`;return}catch{}}
+  if(file&&!pickedAudio){try{const url=await toDataUrl(file);pickedAudio={fileName:file.name||`${slot}.mp3`,size:file.size||0,dataUrl:url}}catch{}}
+  if(pickedAudio?.dataUrl){try{previewEl=new Audio(pickedAudio.dataUrl);await previewEl.play();if(statusEl)statusEl.textContent=`Previewing ${pickedAudio.fileName} for ${slotLabel()}.`;return}catch{}}
   if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
   if(statusEl)statusEl.textContent=`Previewing ${slotLabel()}.`;
  });
- publishBtn.addEventListener('click',async e=>{
-  if(publishing||isDoubleActivation(e))return;
+ publishBtn.addEventListener('click',async()=>{
+  if(publishing)return;
   const slot=slotSel.value,file=fileInput?.files?.[0];
-  if(!file){const msg='Please choose an audio file first.';if(statusEl)statusEl.textContent=msg;announce(msg,true);return}
+  if(file&&!pickedAudio){try{const url=await toDataUrl(file);pickedAudio={fileName:file.name||`${slot}.mp3`,size:file.size||0,dataUrl:url}}catch{}}
+  if(!pickedAudio?.dataUrl){
+   if(/; wv\)/i.test(WIN?.navigator?.userAgent||'')){
+    const msg='Opening Audio Studio in Chrome so your Android phone can attach the audio file…';
+    if(statusEl)statusEl.textContent=msg;announce(msg,true);updateChromeHref();chromeLink?.click();return;
+   }
+   const msg='Please choose an audio file first.';if(statusEl)statusEl.textContent=msg;announce(msg,true);fileInput?.click?.();return;
+  }
   publishing=true;publishBtn.disabled=true;publishBtn.textContent='Publishing…';if(resetBtn)resetBtn.disabled=true;
-  if(statusEl)statusEl.textContent=`Publishing ${slotLabel()} to all players…`;
+  if(statusEl)statusEl.textContent=`Publishing ${slotLabel()} (${pickedAudio.fileName}) to all players…`;
   try{
-   const dataUrl=await toDataUrl(file),fileName=file.name||`${slot}.mp3`;
+   const {dataUrl,fileName}=pickedAudio;
    const res=await callApi('admin-audio',{op:'publish',slot,fileName,dataUrl});
    const entry=res?.entry||{url:dataUrl,fileName,updatedAt:new Date().toISOString()};
    const next=res?.overrides||{...getAudioOverrides(),[slot]:{...entry,url:entry.url||dataUrl}};
    applyAudioOverrides(next);
+   pickedAudio=null;try{WIN?.sessionStorage?.removeItem('bq.pendingAdminAudio')}catch{}
    if(fileInput)fileInput.value='';
    if(slot.startsWith('music_'))playMusic(slot);else playSfx(slot);
    publishBtn.textContent='Published ✓';
@@ -448,7 +483,7 @@ function wireAdminAudio(){
    if(statusEl)statusEl.textContent=msg;announce(msg,true);
   }catch(err){
    publishBtn.textContent='Publish to all players';
-   const msg=friendlyError(err,'Something went wrong. Please try again.');
+   const msg=friendlyError(err,`Upload failed (${err?.message||'error'}). Please try again.`);
    if(statusEl)statusEl.textContent=msg;announce(msg,true);
   }finally{publishing=false;publishBtn.disabled=false;if(resetBtn)resetBtn.disabled=false}
  });
